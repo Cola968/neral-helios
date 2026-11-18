@@ -1,0 +1,89 @@
+name: NERAL staged V1-V2 Windows real service preflight read-only
+on:
+  push:
+    branches: [fix/everyday-web-solver-tool-status-20261117]
+    paths: ['.github/workflows/neral-v1-v2-preflight-9690.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-9690-staged-acceptance
+  cancel-in-progress: false
+jobs:
+  windows-preflight:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only Windows and localhost preflight (no GPU load, installs or process stop)
+        run: |
+          $ErrorActionPreference='Stop'
+          $o=@{runner_windows=$true;repo_checkout_sha=$env:GITHUB_SHA;port_9690_listeners=0;loopback_http_200=$false;
+            three_tier_enabled=$false;browser_available=$false;gpu_rtx4070=$false;docker_available=$false;
+            prepared_solver_image=$false;python_venv_present=$false;scheduled_task_present=$false;
+            expected_managed_listener=$false;v1_preview_blob_matches=$false;v1_runtime_blob_matches=$false;
+            v1_everyday_blob_matches=$false;web_search_blob_matches=$false;
+            csrf_available=$false;web_enabled=$false;build_py_present=$false}
+          $ports=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $o.port_9690_listeners=$ports.Count
+          $t=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $o.scheduled_task_present=($null -ne $t)
+          if($t){$o.scheduled_task_running=([string]$t.State -eq 'Running')}
+          $stable=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $files=@{'v1_preview_blob_matches'='static/neral-preview.js';
+            'v1_runtime_blob_matches'='neral_three_tier_runtime.py';
+            'v1_everyday_blob_matches'='neral_everyday_verified.py';
+            'web_search_blob_matches'='neral_web_search.py'}
+          foreach($key in $files.Keys){
+            $relative=$files[$key]
+            $file=Join-Path $stable $relative
+            if(Test-Path -LiteralPath $file -PathType Leaf){
+              $actual=(& git -c core.autocrlf=true hash-object --path=$relative $file).Trim()
+              $want=(& git rev-parse ('HEAD:'+$relative)).Trim()
+              $o[$key]=($actual -eq $want)
+              $o[$key+'_exists']=$true
+            }else{$o[$key+'_exists']=$false}
+          }
+          $o.build_py_present=(Test-Path -LiteralPath 'scripts/build_neral_1_0_preview.py')
+          $o.python_venv_present=(Test-Path -LiteralPath 'D:/neral-qlora/venv/Scripts/python.exe')
+          try{
+            $gpu=@(& nvidia-smi --query-gpu=name,memory.free --format=csv,noheader,nounits 2>$null)
+            $o.gpu_rtx4070=($LASTEXITCODE -eq 0 -and $gpu.Count -eq 1 -and $gpu[0] -match 'RTX 4070')
+            if($o.gpu_rtx4070){$o.gpu_free_mb=[int]($gpu[0].Split(',')[-1].Trim())}
+          }catch{}
+          try{
+            & docker version --format '{{.Server.Version}}' 1>$null 2>$null
+            $o.docker_available=($LASTEXITCODE -eq 0)
+            if($o.docker_available){
+              & docker image inspect neral-python-tools:v2 1>$null 2>$null
+              $o.prepared_solver_image=($LASTEXITCODE -eq 0)
+            }
+          }catch{}
+          $b=@('C:/Program Files/Google/Chrome/Application/chrome.exe',
+            'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+            'C:/Program Files/Microsoft/Edge/Application/msedge.exe') |
+            Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+          $o.browser_available=[bool]$b
+          if($ports.Count -eq 1){
+            $pidOwner=[int]$ports[0].OwningProcess
+            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$pidOwner) -ErrorAction SilentlyContinue
+            if($proc){
+              $args=[string]$proc.CommandLine
+              $o.expected_managed_listener=($args -match '(?i)-m\s+neral_preview_server' -and $args -match '--experimental-three-tier-hf')
+            }
+            try{
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $home=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 7 -WebSession $session
+              $o.loopback_http_200=($home.StatusCode -eq 200)
+              $receipt=Invoke-RestMethod -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 7 -WebSession $session
+              $o.three_tier_enabled=($receipt.three_tier_enabled -eq $true)
+              $o.csrf_available=([bool]$receipt.csrf)
+            }catch{}
+          }
+          Write-Host ('NERAL_STAGE1_READONLY_FACTS '+($o | ConvertTo-Json -Compress -Depth 5))
+          if(-not $o.gpu_rtx4070 -or -not $o.python_venv_present){throw 'Windows model environment not available'}
+          Write-Host 'NERAL_STAGE1_READONLY_FINISHED'
