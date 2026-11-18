@@ -229,6 +229,43 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("rules",str(helios.calls[1][0]))
         self.assertIn("verboten",str(helios.calls[1][0]).casefold())
 
+    def test_general_three_person_relations_produce_exact_source_equations(self):
+        from neral_three_tier_runtime import _source_relational_equations
+        source=("Mira, Lino und Tessa haben insgesamt 47 Murmeln. "
+                "Lino besitzt 5 mehr als Mira. Tessa besitzt exakt "
+                "doppelt so viele wie Lino. Wie viele hat jede Person?")
+        guidance=_source_relational_equations(source)
+        self.assertIn("a+b+c=47", guidance)
+        self.assertIn("b=a+5", guidance)
+        self.assertIn("c=2*b", guidance)
+        self.assertIn("Mira", guidance)
+        self.assertIn("Tessa", guidance)
+        self.assertIsNone(_source_relational_equations(
+            "Anna und Ben haben zusammen sieben Dinge."))
+
+    def test_discount_mismatch_retries_using_original_percentage_source(self):
+        from neral_three_tier_runtime import _source_sequential_percent_ok
+        source=("Ein Produkt kostet 200 Euro. Zuerst werden 10 Prozent Rabatt "
+                "abgezogen, vom neuen Preis weitere 5 Prozent. Danach kommen "
+                "19 Prozent Mehrwertsteuer hinzu. Was ist der endgültige Preis "
+                "auf den Cent genau?")
+        self.assertFalse(_source_sequential_percent_ok(source,"Preis: 200 Euro"))
+        self.assertTrue(_source_sequential_percent_ok(source,"Preis: 203.49 Euro"))
+        self.assertIsNone(_source_sequential_percent_ok(
+            "Warum ist der Himmel blau?","203.49"))
+        seen=[]
+        rt,_,helios=runtime([
+            "\x60\x60\x60python\nprint(200)\n\x60\x60\x60",
+            "\x60\x60\x60python\nprint('203.49')\n\x60\x60\x60",
+            "Die Sandbox lieferte den korrekten Preis.",
+        ],lambda code:seen.append(code) or {"status":"PASSED",
+            "output":"Preis: 200 Euro" if len(seen)==1 else "Preis: 203.49 Euro"})
+        result=rt._free_code_loop(turns(source),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        self.assertEqual(result["sandbox_attempts"],2)
+        self.assertEqual(len(seen),2)
+        self.assertIn("Rabatt",str(helios.calls[1][0]))
+
     def test_relational_word_problem_requires_symbolic_equations(self):
         question=("Anna, Ben und Cora haben insgesamt 31 Spielchips. "
                   "Ben besitzt 3 mehr als Anna. Cora besitzt exakt doppelt "
