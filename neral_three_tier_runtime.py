@@ -11,6 +11,7 @@ preview chat lock. Nothing is downloaded or executed on the host.
 from __future__ import annotations
 
 import ast
+from decimal import Decimal, ROUND_HALF_UP
 import gc
 import hashlib
 import json
@@ -462,6 +463,80 @@ def _source_fraction_equation_ok(source: object, stdout: object) -> bool | None:
         return False
 
 
+_SOURCE_THREE_PERSON_TOTAL = re.compile(
+    r"(?iu)\b(?P<a>[A-Za-zÄÖÜäöüß]{2,20}),\s*"
+    r"(?P<b>[A-Za-zÄÖÜäöüß]{2,20})\s+und\s+"
+    r"(?P<c>[A-Za-zÄÖÜäöüß]{2,20})\s+haben\s+"
+    r"insgesamt\s+(?P<total>\d{1,6})\b"
+)
+
+_SOURCE_SEQ_PERCENT = re.compile(
+    r"(?iu)\bProdukt\s+kostet\s+(\d{1,6})\s+Euro\.\s*"
+    r"Zuerst\s+werden\s+(\d{1,3})\s+Prozent\s+Rabatt\s+abgezogen,\s*"
+    r"vom\s+neuen\s+Preis\s+weitere\s+(\d{1,3})\s+Prozent\.\s*"
+    r"Danach\s+kommen\s+(\d{1,3})\s+Prozent\s+Mehrwertsteuer\s+hinzu"
+)
+
+
+def _source_relational_equations(source: object) -> str | None:
+    """Transcribe source relations into equations; never calculate an answer."""
+    if type(source) is not str:
+        return None
+    head = _SOURCE_THREE_PERSON_TOTAL.search(source)
+    if head is None:
+        return None
+    a,b,c = head["a"],head["b"],head["c"]
+    if len({a.casefold(),b.casefold(),c.casefold()}) != 3:
+        return None
+    difference = re.search(
+        r"(?iu)\b" + re.escape(b) + r"\s+besitzt\s+(\d{1,5})\s+mehr\s+als\s+" +
+        re.escape(a) + r"\b", source)
+    double = re.search(
+        r"(?iu)\b" + re.escape(c) + r"\s+besitzt\s+(?:exakt\s+)?doppelt\s+"
+        r"so\s+viele\s+wie\s+" + re.escape(b) + r"\b", source)
+    if difference is None or double is None:
+        return None
+    total,delta=int(head["total"]),int(difference[1])
+    return (
+        "\nNERAL QUELLENTREUE GLEICHUNGSÜBERTRAGUNG (keine Lösung): "
+        f"a={a}, b={b}, c={c}. Aus dem aktuellen Nutzertext folgt "
+        f"a+b+c={total}; b=a+{delta}; c=2*b. "
+        "Erstelle genau diese drei sympy.Eq Bedingungen für symbolische "
+        "Unbekannte und löse sie mit sympy.solve; danach assert für alle "
+        "drei ursprünglichen Gleichungen. Keine geschätzten Teilwerte."
+    )
+
+
+def _source_sequential_percent_ok(source: object, stdout: object) -> bool | None:
+    """Reject mathematically inconsistent scalar from explicit rate sequence."""
+    if type(source) is not str:
+        return None
+    match = _SOURCE_SEQ_PERCENT.search(source)
+    if match is None:
+        return None
+    if type(stdout) is not str:
+        return False
+    output = re.fullmatch(
+        r"\s*(?:(?:Preis|Endpreis|Finaler Preis)\s*:\s*)?"
+        r"([-+]?\d{1,10}(?:[.,]\d{1,2})?)\s*(?:Euro|€)?\s*",
+        stdout, re.I)
+    if output is None:
+        return False
+    original,first,second,tax=map(int, match.groups())
+    if not all(0 <= rate <= 100 for rate in (first,second,tax)):
+        return False
+    try:
+        expected = (Decimal(original) *
+                    (1-Decimal(first)/100) *
+                    (1-Decimal(second)/100) *
+                    (1+Decimal(tax)/100)).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP)
+        actual = Decimal(output[1].replace(",", "."))
+        return actual == expected
+    except (ValueError, ArithmeticError):
+        return False
+
+
 def _sandbox_error(report: object) -> str:
     if type(report) is not dict:
         return "Sandbox-Rückgabe ungültig"
@@ -583,7 +658,8 @@ class ThreeTierRuntime:
             turns[0]["content"] +
             (_Z3_CONSTRAINT_SYSTEM if constraint_mode else
              _CODE_ONLY_SYSTEM + (
-                 _RELATIONAL_EQUATIONS_SYSTEM
+                 _RELATIONAL_EQUATIONS_SYSTEM +
+                 (_source_relational_equations(source) or "")
                  if _is_relational_word_problem(source) else "")))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
@@ -689,6 +765,28 @@ class ThreeTierRuntime:
                             "exakt mit Fraction und prüfe mit assert "
                             "a*x+b==c. Nutze keine Dezimalnäherungen. "
                             "Nur ein neuer Python-Codeblock, kein Text.")}
+                    ]
+                    continue
+            if output is not None and not constraint_mode:
+                percent_ok = _source_sequential_percent_ok(source, output)
+                if percent_ok is False:
+                    last_error = "Rabatt- und Mehrwertsteuerfolge stimmt nicht"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "SequentialPercentMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Der Docker-Lauf war ausführbar, aber der Preis "
+                            "verletzt die ursprüngliche Rabatt-/Steuer-Aufgabe. "
+                            "Wende die Rabatte NACHEINANDER auf den jeweils "
+                            "reduzierten Preis an und addiere erst danach "
+                            "die Mehrwertsteuer. Nutze Decimal mit "
+                            "ROUND_HALF_UP erst am Ende auf Cent. Prüfe alle "
+                            "ursprünglichen Prozentzahlen, keine geratenen "
+                            "Werte, nur ein korrigierter Python-Codeblock.")}
                     ]
                     continue
             if output is not None:
