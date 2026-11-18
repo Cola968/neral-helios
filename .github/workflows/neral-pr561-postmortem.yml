@@ -43,21 +43,21 @@ jobs:
             $hashes+=@{file=$rel;installed_sha=$hash}
           }
           $modTest=@'
-import importlib, json, os, traceback, sys
-names=("neral_preview_server","neral_three_tier_runtime","neral_everyday_verified","neral_web_search","neral_adaptive_planner","neral_tir_experimental")
-for name in names:
-    try:
-        importlib.import_module(name)
-        print("NERAL_MODULE_RESULT " + json.dumps({"module":name,"ok":True}),flush=True)
-    except BaseException as e:
-        frame=traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
-        print("NERAL_MODULE_RESULT " + json.dumps({
+          import importlib, json, os, traceback, sys
+          names=("neral_preview_server","neral_three_tier_runtime","neral_everyday_verified","neral_web_search","neral_adaptive_planner","neral_tir_experimental")
+          for name in names:
+              try:
+                  importlib.import_module(name)
+                  print("NERAL_MODULE_RESULT " + json.dumps({"module":name,"ok":True}),flush=True)
+              except BaseException as e:
+                  frame=traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
+                  print("NERAL_MODULE_RESULT " + json.dumps({
             "module":name,"ok":False,"type":type(e).__name__,
             "missing_module":getattr(e,"name",None),
             "file":os.path.basename(frame.filename) if frame else None,
             "line":frame.lineno if frame else None
-        }),flush=True)
-'@
+                  }),flush=True)
+          '@
           $results=@()
           foreach($entry in @(@{label='old';root=$oldRoot},@{label='candidate';root=$newRoot})){
             if(-not(Test-Path $entry.root -PathType Container)){
