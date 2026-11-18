@@ -83,6 +83,17 @@ class Compiler(unittest.TestCase):
         s["constraints"][0]["expr"] = "ada + berta * 2 - cora >= -1"
         self.assertIn("ada + berta * 2 - cora >= -1", compile_z3_json(json.dumps(s)))
 
+    def test_boolean_and_chained_comparison_syntax_normalizes_to_allowed_z3_ast(self):
+        s=sample()
+        s["constraints"][0]["expr"] = "ada != berta and berta != cora"
+        code=compile_z3_json(json.dumps(s))
+        self.assertIn("z3.And(ada != berta, berta != cora)",code)
+        s["constraints"][0]["expr"] = "0 <= ada <= 2 and not (ada == berta)"
+        code=compile_z3_json(json.dumps(s))
+        self.assertIn("z3.And(z3.And(0 <= ada, ada <= 2), z3.Not(ada == berta))",code)
+        s["constraints"][0]["expr"] = "ada != berta or cora == 1"
+        self.assertIn("z3.Or(ada != berta, cora == 1)",compile_z3_json(json.dumps(s)))
+
     def test_find_one_builder_and_bounds_are_fail_closed(self):
         s = sample()
         s["objective"] = "find_one"
