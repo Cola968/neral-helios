@@ -1,0 +1,41 @@
+name: NERAL V2.1 universal router, force control and dataset sandbox CPU
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_v21_attachment_data.py'
+      - 'neral_preview_attachments.py'
+      - 'neral_preview_server.py'
+      - 'static/neral-preview.js'
+      - 'static/neral-clean-ui.css'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_v21_*'
+      - '.github/workflows/neral-v21-ci.yml'
+permissions:
+  contents: read
+jobs:
+  universal-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install bounded CPU-only dependencies
+        run: python -m pip install --disable-pip-version-check pytest flask z3-solver pypdf
+      - name: Python and browser syntax
+        run: |
+          python -m py_compile neral_three_tier_runtime.py neral_tir_experimental.py neral_preview_attachments.py neral_preview_server.py neral_v21_attachment_data.py
+          node --check static/neral-preview.js
+      - name: Universal routing, API contracts, Docker data mounts and existing V2 regressions
+        run: |
+          python -m pytest -q tests/test_neral_v21_universal.py tests/test_neral_v21_attachment_sandbox.py tests/test_neral_three_tier_api.py tests/test_neral_code_loop_v2.py tests/test_neral_z3_json_compiler.py tests/test_neral_code_sandbox_image_v2.py
+          node --test tests/test_neral_v21_ui.cjs tests/test_neral_code_loop_ui_v2.cjs tests/test_neral_three_tier_ui.cjs
