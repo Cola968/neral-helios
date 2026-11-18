@@ -1,0 +1,69 @@
+name: NERAL V1 Windows service restore and Docker discovery
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-service-discovery.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-install
+  cancel-in-progress: false
+jobs:
+  diagnose-and-restore:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Discover Docker in standard Windows locations and safely start owned NERAL task
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=@(
+            'C:/Program Files/Docker/Docker/Docker Desktop.exe',
+            'D:/Program Files/Docker/Docker/Docker Desktop.exe',
+            (Join-Path $env:LOCALAPPDATA 'Programs/Docker/Docker Desktop.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Docker/Docker Desktop.exe'))
+          $installed=@($candidate|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf})
+          $cmd=Get-Command docker.exe -ErrorAction SilentlyContinue
+          $svc=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          $dockerRunning=@(Get-Process -Name 'Docker Desktop','com.docker.backend','dockerd' -ErrorAction SilentlyContinue).Count
+          $dockerReady=$false
+          if($cmd){
+            try{& $cmd.Source info --format '{{.ServerVersion}}' 2>$null | Out-Null
+              $dockerReady=($LASTEXITCODE -eq 0)}catch{}
+          }
+          $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          $stable=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $service=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $taskOwned=($null -ne $task -and (Test-Path $service -PathType Leaf) -and
+            [string]$task.Actions[0].Arguments -like ('*'+$service+'*'))
+          $startAttempt=$false
+          $listener=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          if($listener.Count -eq 0 -and $taskOwned -and [string]$task.State -ne 'Running'){
+            $startAttempt=$true
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          }
+          $ready=$false;$levels=$false
+          for($i=0;$i -lt 45;$i++){
+            try{
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $page=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/' -WebSession $session -TimeoutSec 3
+              $info=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/preview/session' -WebSession $session -TimeoutSec 3
+              $ready=($page.StatusCode -eq 200 -and $info.three_tier_enabled -eq $true)
+              $levels=((@($info.three_tier_levels) -join ',') -eq 'Luna,Terra,Helios')
+              if($ready -and $levels){break}
+            }catch{}
+            Start-Sleep -Seconds 2
+          }
+          $out=@{docker_cli_on_path=($null -ne $cmd);docker_desktop_found=($installed.Count -gt 0);
+            docker_desktop_locations=$installed.Count;docker_service_present=($null -ne $svc);
+            docker_service_running=($null -ne $svc -and [string]$svc.Status -eq 'Running');
+            docker_processes=$dockerRunning;docker_ready=$dockerReady;
+            owned_neral_task=$taskOwned;neral_task_start_attempted=$startAttempt;
+            app_http_200=$ready;three_tier_levels=$levels;
+            task_state=if($task){[string](Get-ScheduledTask -TaskName $taskName).State}else{'missing'}}
+          Write-Host ('NERAL_WIN_RECOVERY '+($out|ConvertTo-Json -Compress))
+          exit 0
