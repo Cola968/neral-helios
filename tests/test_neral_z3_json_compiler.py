@@ -31,7 +31,9 @@ class Compiler(unittest.TestCase):
         ast.parse(code)
         self.assertIn("while solver.check() == z3.sat:", code)
         self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))", code)
-        self.assertEqual(code.count("assert z3.is_true("), 6)
+        self.assertEqual(code.count("assert z3.is_true("), 1)
+        self.assertIn("for rid,rule in rules:",code)
+        self.assertIn("(\x27R6\x27,rule_R6)",code)
         self.assertIn("print(count)", code)
         self.assertIn("solver.add(ada>=0,ada<=2)", code)
 
