@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: neral-v1-v2-windows-install
+  group: neral-pr561-docker-feasibility
   cancel-in-progress: false
 jobs:
   check:
