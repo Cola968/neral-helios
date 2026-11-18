@@ -50,6 +50,24 @@ class Compiler(unittest.TestCase):
         with self.assertRaises(SchemaError):
             compile_z3_json(json.dumps(sample()) + "\nFertig.")
 
+    def test_trailing_unstructured_text_is_ignored_but_second_payload_is_rejected(self):
+        raw=json.dumps(sample())
+        code=compile_z3_json(raw+"\nAlle Regeln sind erfasst.")
+        self.assertIn("solver=z3.Solver()",code)
+        with self.assertRaises(SchemaError):
+            compile_z3_json(raw+"\n"+raw)
+        with self.assertRaises(SchemaError):
+            compile_z3_json(raw+"\n{\"objective\":\"find_one\"}")
+
+    def test_unknown_schema_metadata_is_dropped_only_with_complete_required_fields(self):
+        s=sample()
+        s["schema"]={"type":"object","example":"untrusted metadata"}
+        code=compile_z3_json(json.dumps(s))
+        self.assertIn("solver=z3.Solver()",code)
+        del s["constraints"]
+        with self.assertRaises(SchemaError):
+            compile_z3_json(json.dumps(s))
+
     def test_unambiguous_json_in_single_response_wrapper_is_safely_unwrapped(self):
         raw=json.dumps(sample())
         self.assertIn("solver=z3.Solver()",compile_z3_json("JSON:\n"+raw))
