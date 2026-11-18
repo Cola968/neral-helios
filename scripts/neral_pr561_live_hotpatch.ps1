@@ -181,11 +181,14 @@ foreach($rel in $approvedPrevious.Keys){
     throw "Rollback source has changed: $rel"
   }
 }
+. (Join-Path $repo 'scripts/neral_pr561_runtime_overlay.ps1')
+$managedState=Initialize-NeralManagedSnapshot -Repo $repo -Root $oldRoot -Backup $backup -Python $py
 $modified=$false
 $passed=$false
 try{
   StopOwnedTask $oldName $oldServer
   $modified=$true
+  Install-NeralManagedRuntime -State $managedState -Repo $repo -Root $oldRoot
   foreach($rel in $approved.Keys){
     Copy-Item -LiteralPath (Join-Path $repo $rel) -Destination (Join-Path $oldRoot $rel) -Force -ErrorAction Stop
     if((HashFor $rel $oldRoot) -ne $approved[$rel]){throw "Installed V1 file changed: $rel"}
@@ -213,6 +216,7 @@ try{
     Write-Host 'NERAL_PR561_HOTPATCH_ROLLBACK_BEGIN'
     try{
       StopOwnedTask $oldName $oldServer
+      Restore-NeralManagedRuntime -State $managedState -Root $oldRoot
       foreach($rel in $approvedPrevious.Keys){
         Copy-Item -LiteralPath (Join-Path $backup $rel) -Destination (Join-Path $oldRoot $rel) -Force -ErrorAction Stop
         if((HashFor $rel $oldRoot) -ne $approvedPrevious[$rel]){throw 'Rollback verification failed'}
