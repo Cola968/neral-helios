@@ -1,0 +1,65 @@
+name: NERAL PR561 recover own Docker Desktop for live acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-docker-prepare.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-install
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 9
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Start existing Docker Desktop only when installed, no downloads
+        run: |
+          $ErrorActionPreference='Stop'
+          $docker='C:/Program Files/Docker/Docker/Docker Desktop.exe'
+          $ready=$false
+          try{
+            & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
+            $ready=($LASTEXITCODE -eq 0)
+          }catch{}
+          $started=$false
+          if(-not $ready -and (Test-Path -LiteralPath $docker -PathType Leaf)){
+            $existing=@(Get-CimInstance Win32_Process -Filter "Name = 'Docker Desktop.exe'" -ErrorAction SilentlyContinue)
+            if($existing.Count -eq 0){
+              Start-Process -FilePath $docker -WindowStyle Hidden
+              $started=$true
+            }
+            for($attempt=0;$attempt -lt 45;$attempt++){
+              Start-Sleep -Seconds 2
+              try{
+                & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
+                if($LASTEXITCODE -eq 0){$ready=$true;break}
+              }catch{}
+            }
+          }
+          $local=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $free=-1;$gpu=''
+          try{
+            $g=@(& nvidia-smi --query-gpu=name,memory.free --format=csv,noheader,nounits 2>$null)
+            if($LASTEXITCODE -eq 0 -and $g.Count -eq 1){
+              $parts=$g[0].Split(',')
+              $gpu=$parts[0].Trim()
+              $free=[int]$parts[1].Trim()
+            }
+          }catch{}
+          $result=@{docker_ready=$ready;docker_desktop_installed=(Test-Path -LiteralPath $docker);
+            started_by_gate=$started;port_owner_count=$local.Count;
+            task_exists=($null -ne $task);task_running=($null -ne $task -and [string]$task.State -eq 'Running');
+            gpu_4070=($gpu -match 'RTX 4070');gpu_free_mib=$free}
+          Write-Host ('NERAL_PR561_DOCKER_RECOVERY '+($result|ConvertTo-Json -Compress))
+          if(-not $ready){throw 'Docker unavailable; no deploy or merge allowed'}
+          Write-Host 'NERAL_PR561_DOCKER_READY'
+          exit 0
