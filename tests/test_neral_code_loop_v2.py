@@ -178,7 +178,7 @@ class GenericCodeLoop(unittest.TestCase):
             observed.append(code)
             self.assertIn("while solver.check() == z3.sat:",code)
             self.assertEqual(code.count("assert z3.is_true("),1)
-            self.assertIn("for rid,rule in rules:",code)
+            self.assertIn("for rid,rule in zip(rule_ids,rules):",code)
             self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))",code)
             return {"status":"PASSED","output":"2"}
         rt,_,helios=runtime([json.dumps(proposal), "Die Sandbox gab 2 aus."],sandbox)
