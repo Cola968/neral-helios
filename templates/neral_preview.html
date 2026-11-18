@@ -126,7 +126,7 @@
                 <label class="attach-control quick-add-file" title="Bilder oder Dokumente lokal anhängen">
                   <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
                   <span>Dateien anhängen</span>
-                  <input id="projectFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.py,.js,.ts,.tsx,.json,.md,.txt,.csv,.html,.css,.log,.yml,.yaml" aria-label="Datei anhängen" aria-describedby="fileStatus">
+                  <input id="projectFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.py,.js,.ts,.tsx,.json,.md,.txt,.csv,.xlsx,.html,.css,.log,.yml,.yaml" aria-label="Datei anhängen" aria-describedby="fileStatus">
                 </label>
                 <button id="formulaLibraryToggle" type="button" class="quick-add-action" aria-controls="formulaLibraryPanel" aria-expanded="false" title="Formeln durchsuchen"><span aria-hidden="true">∑</span><span>Formelsammlung</span></button>
                   </div>
@@ -137,6 +137,10 @@
                   <label><input type="radio" name="mode" value="fast" checked> LOW</label>
                   <label><input type="radio" name="mode" value="think"> HIGH</label>
                 </div>
+                <label class="neral-force-toggle" title="Erzwingt Helios 9B und Docker-Sandbox; die Antwort bleibt ohne unabhängigen Beweis unverifiziert.">
+                  <input id="forceSandbox" type="checkbox" disabled>
+                  <span>Code-Sandbox erzwingen</span>
+                </label>
                 <label class="web-toggle" title="Nur nach Aktivierung wird dein Suchbegriff an einen externen Suchanbieter gesendet.">
                   <input id="useWebSearch" type="checkbox">
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
