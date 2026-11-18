@@ -210,18 +210,18 @@ class GenericCodeLoop(unittest.TestCase):
     def test_constraint_code_must_recheck_rules_and_block_enumerated_models(self):
         from neral_three_tier_runtime import _constraint_code_issue
         self.assertIsNotNone(_constraint_code_issue(
-            "import z3\\nsolver=z3.Solver()\\nprint(3)", counted=True))
+            "import z3\nsolver=z3.Solver()\nprint(3)", counted=True))
         self.assertIsNotNone(_constraint_code_issue(
-            "import z3\\nx=z3.Int('x')\\nsolver=z3.Solver()\\n"
-            "solver.add(x!=0)\\nwhile solver.check() == z3.sat:\\n"
-            " m=solver.model()\\n solver.add(z3.Or([x!=m[x]]))\\nprint(3)", counted=True))
+            "import z3\nx=z3.Int('x')\nsolver=z3.Solver()\n"
+            "solver.add(x!=0)\nwhile solver.check() == z3.sat:\n"
+            " m=solver.model()\n solver.add(z3.Or([x!=m[x]]))\nprint(3)", counted=True))
         self.assertIsNotNone(_constraint_code_issue(
-            "from itertools import permutations\\nprint(3)", counted=True))
+            "from itertools import permutations\nprint(3)", counted=True))
 
     def test_noncompliant_constraint_script_never_executes_in_docker(self):
         seen=[]
         rt,_,helios=runtime([
-            "\\x60\\x60\\x60python\\nprint(3)\\n\\x60\\x60\\x60"]*3,
+            "\x60\x60\x60python\nprint(3)\n\x60\x60\x60"]*3,
             lambda code:seen.append(code) or {"status":"PASSED","output":"3"})
         result=rt._free_code_loop(turns(
             "Wie viele zulässige Schichtpläne gibt es bei diesen Ausschlüssen?"),
