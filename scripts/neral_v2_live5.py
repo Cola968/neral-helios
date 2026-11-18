@@ -153,6 +153,7 @@ def main():
     completed = []
     current_case = "session_bootstrap"
     last_stdout = ""
+    last_metadata = {}
     account_created = False
     cleanup = False
     password = "E2E-V2-" + secrets.token_hex(18)
@@ -171,8 +172,13 @@ def main():
         for kind, question, gold in _task_cases():
             current_case = kind
             last_stdout = ""
+            last_metadata = {}
             response = api.call("/api/neral/chat/three-tier",{
                 "tier":"Luna", "prompt":question, "history":[]})
+            last_metadata = {k: response.get(k) for k in (
+                "verified", "safe_to_promote", "sandbox_executed",
+                "tool_used", "sandbox_attempts", "verification_status",
+                "tier", "auto_escalated_from")}
             if not (response.get("verified") is False and
                     response.get("safe_to_promote") is False and
                     response.get("sandbox_executed") is True and
@@ -191,6 +197,9 @@ def main():
     except (HTTPError, URLError, ValueError, KeyError, RuntimeError) as exc:
         safe = {"passed":completed, "failed_type":type(exc).__name__,
                 "failed_case":current_case}
+        if isinstance(exc, RuntimeError):
+            safe["check_error"] = str(exc)[:140]
+            safe["execution_metadata"] = last_metadata
         if isinstance(exc, ValueError):
             # ValueError messages originate from the local deterministic check.
             safe["check_error"] = str(exc)[:120]
