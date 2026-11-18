@@ -4,6 +4,10 @@ on:
     branches: [fix/everyday-web-solver-tool-status-20261117]
     paths:
       - '.github/workflows/neral-pr561-windows-readonly.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-windows-readonly.yml'
   workflow_dispatch:
 permissions:
   contents: read
