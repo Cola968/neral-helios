@@ -6,6 +6,7 @@ They are NOT claims that the 9B model solves arbitrary unseen tasks.
 from __future__ import annotations
 
 import ast
+import json
 import unittest
 from neral_three_tier_runtime import ThreeTierRuntime
 
@@ -120,6 +121,8 @@ def turns(text):
 class GenericCodeLoop(unittest.TestCase):
     def test_five_free_tasks_execute_model_proposed_python_and_keep_unverified(self):
         for question, program, expected in CASES:
+            if 'Schicht' in question:
+                continue  # Z3 has a separate JSON→compiler regression below.
             with self.subTest(question=question[:35]):
                 calls=[]
                 def tool(code):
@@ -155,51 +158,56 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertEqual(helios.temperatures[:2],[0.0,0.0])
         self.assertEqual(helios.max_times[:2],[80.0,80.0])
 
-    def test_z3_rule_prompt_for_shift_count_has_enumeration_and_asserts(self):
-        program=("import z3\n"
-            "ada=z3.Int('ada'); berta=z3.Int('berta'); cora=z3.Int('cora')\n"
-            "all_vars=[ada,berta,cora]\n"
-            "solver=z3.Solver()\n"
-            "# Regel 1: jede Schicht genau einmal\n"
-            "solver.add(z3.Distinct(*all_vars))\n"
-            "# Regel 2: jeder Slot liegt zwischen 0 und 2\n"
-            "for v in all_vars: solver.add(z3.And(v>=0,v<=2))\n"
-            "# Regel 3: Ada nicht morgens\n"
-            "solver.add(ada!=0)\n"
-            "# Regel 4: Berta nicht nachts\n"
-            "solver.add(berta!=2)\n"
-            "# Regel 5: Cora nicht abends\n"
-            "solver.add(cora!=1)\n"
-            "count=0\n"
-            "while solver.check() == z3.sat:\n"
-            "    m=solver.model()\n"
-            "    a,b,c=[m[v].as_long() for v in all_vars]\n"
-            "    assert len({a,b,c})==3\n"
-            "    assert all(0<=v<=2 for v in (a,b,c))\n"
-            "    assert a!=0\n"
-            "    assert b!=2\n"
-            "    assert c!=1\n"
-            "    count+=1\n"
-            "    solver.add(z3.Or([v != m[v] for v in all_vars]))\n"
-            "print(count)")
-        rt,_,helios=runtime([
-            "\x60\x60\x60python\n"+program+"\n\x60\x60\x60",
-            "Die Sandbox-Ausgabe lautet 2.",
-        ],lambda code: {"status":"PASSED","output":"2"})
+    def test_z3_shift_generates_json_not_code_and_checks_compiled_models(self):
+        proposal = {
+            "variables": [
+                {"name":"ada","min":0,"max":2},
+                {"name":"berta","min":0,"max":2},
+                {"name":"cora","min":0,"max":2}],
+            "constraints": [
+                {"rule_id":"R1","description":"Ada und Berta verschieden","expr":"ada != berta"},
+                {"rule_id":"R2","description":"Ada und Cora verschieden","expr":"ada != cora"},
+                {"rule_id":"R3","description":"Berta und Cora verschieden","expr":"berta != cora"},
+                {"rule_id":"R4","description":"Ada nie Morgen","expr":"ada != 0"},
+                {"rule_id":"R5","description":"Berta nie Nacht","expr":"berta != 2"},
+                {"rule_id":"R6","description":"Cora nie Abend","expr":"cora != 1"}],
+            "objective": "count_all"}
+        observed = []
+        def sandbox(code):
+            ast.parse(code)
+            observed.append(code)
+            self.assertIn("while solver.check() == z3.sat:",code)
+            self.assertEqual(code.count("assert z3.is_true("),6)
+            self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))",code)
+            return {"status":"PASSED","output":"2"}
+        rt,_,helios=runtime([json.dumps(proposal), "Die Sandbox gab 2 aus."],sandbox)
         question=("Ada, Berta und Cora besetzen Morgen-, Abend- und "
                   "Nachtschicht. Ada darf nicht morgens arbeiten, Berta nicht "
                   "nachts, Cora nicht abends. Wie viele zulässige Schichtpläne?")
         result=rt._free_code_loop(turns(question),auto_from="Luna")
         self.assertTrue(result["sandbox_executed"])
-        system=helios.calls[0][0][0]["content"]
-        self.assertIn("z3.Int",system)
-        self.assertIn("z3.Bool",system)
-        self.assertIn("solver.add",system)
-        self.assertIn("Regel 1",system)
-        self.assertIn("while solver.check() == z3.sat:",system)
-        self.assertIn("z3.Or([v != m[v] for v in all_vars])",system)
-        self.assertIn("assert",system)
+        self.assertFalse(result["verified"])
+        self.assertEqual(len(observed),1)
+        self.assertNotIn("Python-Codeblock",helios.calls[0][0][0]["content"])
+        self.assertIn("JSON-Objekt",helios.calls[0][0][0]["content"])
         self.assertEqual(helios.temperatures[0],0.0)
+
+    def test_z3_bad_json_receives_explicit_error_and_at_most_two_repairs(self):
+        payload = {
+            "variables":[{"name":"a","min":0,"max":1}],
+            "constraints":[{"rule_id":"R1","description":"A ist wahr",
+                            "expr":"a == 1"}],
+            "objective":"count_all"}
+        calls=[]
+        rt,_,helios=runtime(["not json", json.dumps(payload), "Ergebnis laut Sandbox"],
+                            lambda code:calls.append(code) or
+                                {"status":"PASSED","output":"1"})
+        r=rt._free_code_loop(turns("Wie viele Schichtpläne für A?"),auto_from="Luna")
+        self.assertTrue(r["sandbox_executed"])
+        self.assertEqual(r["sandbox_attempts"],2)
+        self.assertEqual(len(calls),1)
+        self.assertIn("JSON wurde NICHT",str(helios.calls[1][0]))
+        self.assertEqual(helios.temperatures[:2],[0.0,0.0])
 
     def test_z3_prompt_trigger_words_and_normal_arithmetic_boundary(self):
         from neral_three_tier_runtime import _is_constraint_task
