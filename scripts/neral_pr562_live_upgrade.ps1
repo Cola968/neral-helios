@@ -1,3 +1,4 @@
+# User-approved live rerun after strict JSON key repair and source equation consistency guard; unchanged 5/5 + Chrome gate.
 # User-approved JSON/schema/math live5 retest after 2/5 failure; rollback on any failure.
 # User-approved 2026-11-18: JSON-to-Z3 deterministic compiler, all-five logging, and live 5/5+Chrome retest.
 # Owner-approved live V2 retest: greedy sampling, full Z3 assertions, bounded 80s code generation, fail-closed rollback.
@@ -29,7 +30,7 @@ $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
   'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
   'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
-  'neral_three_tier_runtime.py'='ce1b70d6d8f96c06ac2b5dbd2a35eb1e482d6ff8'
+  'neral_three_tier_runtime.py'='e421cf4eb1a65222cf722b28214c02b979ce641d'
   'neral_z3_json_compiler.py'='6fc8ed1bf90fa3107c383ce9af9e4472c7e4848d'
   'neral_tir_experimental.py'='d6aebf27f52a05bf59027b44053cf518b64e6d72'
   'static/neral-preview.js'='224a691c4ff9869d9513ec18ed7d554cfa3ed079'
