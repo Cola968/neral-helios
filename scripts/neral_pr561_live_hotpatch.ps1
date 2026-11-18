@@ -107,8 +107,9 @@ function WaitForOwnApp {
     try{
       $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
       $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
-      $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 4
-      if($home.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true -and
+      $apiResponse=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 7
+      $receipt=$apiResponse.Content | ConvertFrom-Json
+      if($home.StatusCode -eq 200 -and $apiResponse.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true -and
          (@($receipt.three_tier_levels) -join ',') -eq 'Luna,Terra,Helios'){return}
     }catch{}
   }
