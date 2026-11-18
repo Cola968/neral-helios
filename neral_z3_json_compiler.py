@@ -108,9 +108,16 @@ def compile_z3_json(raw: object) -> str:
                              parse_constant=_bad_constant)
     except (ValueError, TypeError, RecursionError) as exc:
         raise SchemaError("Erwartet wird genau ein reines JSON-Objekt") from exc
-    if type(payload) is not dict or set(payload) != {
-            "variables", "constraints", "objective"}:
-        raise SchemaError("JSON braucht nur variables, constraints und objective")
+    if type(payload) is not dict:
+        raise SchemaError("JSON muss ein Objekt sein; erhalten: " + type(payload).__name__)
+    expected = {"variables", "constraints", "objective"}
+    if set(payload) != expected:
+        missing = ",".join(sorted(expected - set(payload))) or "-"
+        unexpected = ",".join(sorted(
+            key[:32] for key in set(payload) - expected
+            if type(key) is str and re.fullmatch(r"[A-Za-z0-9_]{1,32}", key))) or "andere"
+        raise SchemaError("Falsche JSON-Schlüssel: fehlend=" + missing +
+                          "; unerwartet=" + unexpected)
     if payload["objective"] not in ("count_all", "find_one"):
         raise SchemaError("objective muss count_all oder find_one sein")
     variables = payload["variables"]
