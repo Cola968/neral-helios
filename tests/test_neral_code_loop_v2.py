@@ -89,11 +89,13 @@ class FakeModel:
         self.loaded=False
         self.calls=[]
         self.temperatures=[]
+        self.max_times=[]
         self.replies=list(replies)
 
-    def respond_chat(self, turns, *, max_new_tokens, temperature=None):
+    def respond_chat(self, turns, *, max_new_tokens, temperature=None, max_time_seconds=None):
         self.loaded=True
         self.temperatures.append(temperature)
+        self.max_times.append(max_time_seconds)
         self.calls.append(([dict(m) for m in turns], max_new_tokens))
         if not self.replies:
             raise AssertionError("unexpected extra Helios model call")
@@ -151,6 +153,7 @@ class GenericCodeLoop(unittest.TestCase):
         result=rt._free_code_loop(turns("Berechne 1 plus 1"),auto_from="Luna")
         self.assertTrue(result["sandbox_executed"])
         self.assertEqual(helios.temperatures[:2],[0.0,0.0])
+        self.assertEqual(helios.max_times[:2],[80.0,80.0])
 
     def test_z3_rule_prompt_for_shift_count_has_enumeration_and_asserts(self):
         program=("import z3\n"
@@ -235,7 +238,9 @@ class GenericCodeLoop(unittest.TestCase):
         from neral_three_tier_runtime import _safe_runtime_error_code
         self.assertEqual(_safe_runtime_error_code(
             RuntimeError("HF response did not finish inside its token/time budget")),
-            "hf_budget_exhausted")
+            "hf_time_budget")
+        self.assertEqual(_safe_runtime_error_code(
+            RuntimeError("HF token budget exhausted")), "hf_token_budget")
         self.assertEqual(_safe_runtime_error_code(
             RuntimeError("Unclosed private model reasoning")), "hf_reasoning_unclosed")
         self.assertEqual(_safe_runtime_error_code(
