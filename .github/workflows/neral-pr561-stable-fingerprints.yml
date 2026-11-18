@@ -77,10 +77,12 @@ jobs:
             $env:PYTHONPATH=(Join-Path $old 'local_state/three-tier-web-deps')+[IO.Path]::PathSeparator+$entry.dir
             Push-Location $entry.dir
             try{
-              $rows=@(& $py -B -c $code 2>&1)
+              $priorPreference=$ErrorActionPreference
+              $ErrorActionPreference='Continue'
+              try{$rows=@(& $py -B -c $code 2>&1)}finally{$ErrorActionPreference=$priorPreference}
               foreach($row in $rows){
-                if([string]$row -match '^NERAL_IMPORT_SCALAR (.+)){
-                  Write-Host ('NERAL_PR561_IMPORT_RESULT '+$entry.label+' '+$Matches[1])
+                if([string]$row -like 'NERAL_IMPORT_SCALAR *'){
+                  Write-Host ('NERAL_PR561_IMPORT_RESULT '+$entry.label+' '+$row)
                 }
               }
             }finally{Pop-Location}
