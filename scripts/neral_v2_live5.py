@@ -178,7 +178,7 @@ def main():
             last_metadata = {k: response.get(k) for k in (
                 "verified", "safe_to_promote", "sandbox_executed",
                 "tool_used", "sandbox_attempts", "verification_status",
-                "tier", "auto_escalated_from")}
+                "sandbox_failure_trace", "tier", "auto_escalated_from")}
             if not (response.get("verified") is False and
                     response.get("safe_to_promote") is False and
                     response.get("sandbox_executed") is True and
