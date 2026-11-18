@@ -85,9 +85,11 @@ def _task_cases() -> list[tuple[str, str, object]]:
                 f"gleich {rhs.numerator}/{rhs.denominator}. Gib den exakten Wert an.")
 
     return [
+        # Put the previously failing distribution case first to keep failed
+        # diagnostic runs short; acceptance still requires every one of five.
+        ("chips", chips, {"Anna":a, "Ben":b, "Cora":c}),
         ("credit", credit, Fraction(debt)),
         ("discount", discount, Fraction(retail)),
-        ("chips", chips, {"Anna":a, "Ben":b, "Cora":c}),
         ("shifts", shifts, Fraction(shift_count)),
         ("fraction", fraction, Fraction(x)),
     ]
