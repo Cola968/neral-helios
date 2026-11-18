@@ -101,7 +101,8 @@ function StopOwnedTask([string]$name,[string]$expectedService) {
 }
 
 function WaitForOwnApp {
-  for($i=0;$i -lt 90;$i++){
+  for($i=0;$i -lt 240;$i++){
+    if($i -gt 0 -and $i % 30 -eq 0){Write-Host ('NERAL_PR561_WAITING_FOR_LOCAL_HTTP seconds='+$i)}
     Start-Sleep -Seconds 1
     try{
       $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
@@ -157,6 +158,9 @@ if(Test-Path -LiteralPath $newRoot -PathType Container){
   }catch{$stageImports=$false}finally{Pop-Location;$env:PYTHONPATH=$savedPythonPath}
 }
 Write-Host ('NERAL_PR561_STAGED_IMPORT_HEALTH '+([string]$stageImports).ToLowerInvariant())
+# Do not replace a currently unhealthy service; distinguish slow warmup from crash.
+WaitForOwnApp
+Write-Host 'NERAL_PR561_BASELINE_HTTP_READY_BEFORE_PATCH'
 
 $backup=Join-Path $oldRoot 'local_state/rollback-before-pr561-v1'
 if(-not(Test-Path -LiteralPath $backup -PathType Container)){
