@@ -1,3 +1,4 @@
+# User authorization: 2026-11-18. Run isolated V2 upgrade on 9690 only with full rollback.
 # Explicitly user-authorized staged V2 local 9690 acceptance: 2026-11-18
 param()
 $ErrorActionPreference='Stop'
