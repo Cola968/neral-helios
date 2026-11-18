@@ -18,7 +18,7 @@ class FakeModel:
         self.adapter_sha256=sha
         self.loaded=False
         self.calls=[]
-    def respond_chat(self, turns, *, max_new_tokens, temperature=None):
+    def respond_chat(self, turns, *, max_new_tokens, temperature=None, max_time_seconds=None):
         self.calls.append(max_new_tokens)
         self.loaded=True
         return "Grenze: Ein lokales Modell kann keinen mathematischen Beweis liefern.Plan: ungeprüft"
