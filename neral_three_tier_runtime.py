@@ -158,7 +158,8 @@ class FrozenQwen35HF:
             pass
 
     def respond_chat(self, turns: list[dict], *, max_new_tokens: int,
-                     temperature: float | None = None) -> str:
+                     temperature: float | None = None,
+                     max_time_seconds: float | None = None) -> str:
         # Transformers does not accept temperature=0 as a sampling
         # temperature. Explicit zero means GREEDY decoding, so use
         # do_sample=False and do not pass temperature to generate().
@@ -167,6 +168,13 @@ class FrozenQwen35HF:
             raise ValueError("Only temperature=0.0 (greedy) is approved")
         if type(max_new_tokens) is not int or max_new_tokens not in (96, 256, 768):
             raise ValueError("Unapproved NERAL inference budget")
+        # Only model-authored V2 code gets the additional bounded generation
+        # time; ordinary Luna/Terra/Helios conversations remain unchanged.
+        if max_time_seconds is not None and not (
+                type(max_time_seconds) is float and max_time_seconds == 80.0
+                and self.model == HELIOS and max_new_tokens == 768
+                and temperature == 0.0):
+            raise ValueError("Unapproved V2 code-generation time budget")
         if self.model == LUNA and max_new_tokens != 96:
             raise ValueError("Luna is explicitly bounded to 96 tokens")
         if self.model == HELIOS and max_new_tokens == 96:
@@ -185,7 +193,8 @@ class FrozenQwen35HF:
             with torch.inference_mode():
                 output = self._model.generate(
                     input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
-                    max_time=50.0 if max_new_tokens == 768 else 25.0,
+                    max_time=(max_time_seconds if max_time_seconds is not None
+                              else 50.0 if max_new_tokens == 768 else 25.0),
                     use_cache=True,
                     pad_token_id=self._tokenizer.pad_token_id,
                     eos_token_id=self._tokenizer.eos_token_id)
@@ -196,7 +205,9 @@ class FrozenQwen35HF:
                 if type(token_id) is int and token_id >= 0:
                     eos.add(token_id)
             if not produced or produced[-1] not in eos:
-                raise RuntimeError("HF response did not finish inside its token/time budget")
+                if len(produced) >= max_new_tokens:
+                    raise RuntimeError("HF token budget exhausted")
+                raise RuntimeError("HF time budget exhausted")
             final = self._tokenizer.decode(produced, skip_special_tokens=True).strip()
             if "<think>" in final:
                 if "</think>" not in final:
@@ -511,7 +522,8 @@ class ThreeTierRuntime:
         for attempt in range(3):
             # Model code is data, not a trusted program or source certificate.
             candidate = self.helios.respond_chat(prompt_turns,
-                max_new_tokens=TIERS["Helios"], temperature=0.0)
+                max_new_tokens=TIERS["Helios"], temperature=0.0,
+                max_time_seconds=80.0)
             attempted = attempt + 1
             code = _one_python_block(candidate)
             if code is None:
@@ -709,8 +721,11 @@ def _safe_runtime_error_code(exc: Exception) -> str:
     """Categorize local inference failures without exposing text or stack."""
     message = str(exc)
     if isinstance(exc, RuntimeError):
-        if "HF response did not finish" in message:
-            return "hf_budget_exhausted"
+        if "HF token budget exhausted" in message:
+            return "hf_token_budget"
+        if ("HF time budget exhausted" in message or
+                "HF response did not finish" in message):
+            return "hf_time_budget"
         if "Unclosed private model reasoning" in message:
             return "hf_reasoning_unclosed"
         if "Incomplete or untrusted HF final answer" in message:
