@@ -16,7 +16,7 @@ $approved=[ordered]@{
   'neral_web_search.py'='d9a34976abe4824b2ef7c7ae65613b7f38ba5d40'
   'neral_everyday_verified.py'='8f04ea7eaf624c5debddc8955012649d6ea1a276'
   'neral_three_tier_runtime.py'='5796223a47c1cec0362548715a775d7731bdaec7'
-  'static/neral-preview.js'='77e124c98e61c54f2427269e840a21de7feee03e'
+  'static/neral-preview.js'='b886736b5be3cccf2fb4657124ff8ca4fef2f1a2'
 }
 $approvedPrevious=[ordered]@{
   'neral_web_search.py'='b8b9fd6ca3acc1286d69a5b758914631d009d16f'
