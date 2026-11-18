@@ -294,6 +294,11 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("Rest1=P*(1+r/100)",formula)
         self.assertIn("Rest2=(Rest1-T)*(1+r/100)",formula)
         self.assertIsNone(_source_loan_equations("Berechne 17 plus 19"))
+        from neral_three_tier_runtime import _source_loan_output_ok
+        self.assertTrue(_source_loan_output_ok(q,"1449.00"))
+        self.assertTrue(_source_loan_output_ok(q,"Restschuld nach 2 Jahren: 1449,00 Euro"))
+        self.assertFalse(_source_loan_output_ok(q,"1449.01"))
+        self.assertIsNone(_source_loan_output_ok("Berechne 17 plus 19","1449.00"))
 
     def test_loan_assertion_error_triggers_source_grounded_repair(self):
         q=("Ein Darlehen von 1600 Euro wird jedes Jahr mit 5 Prozent "
