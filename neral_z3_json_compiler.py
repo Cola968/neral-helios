@@ -142,6 +142,10 @@ def compile_z3_json(raw: object) -> str:
     """
     if type(raw) is not str or not 2 <= len(raw.encode("utf-8")) <= 7000:
         raise SchemaError("JSON-Antwort fehlt oder überschreitet 7000 Byte")
+    # Only deterministic presentation wrappers; parsed content stays strict.
+    raw = re.sub(
+        r"\A\s*(?:(?:hier\s+ist\s+(?:das\s+)?)?json(?:-objekt)?|antwort)\s*:\s*",
+        "", raw, count=1, flags=re.I)
     # A single optional JSON fence is presentation, not executable code.
     # No surrounding prose, multiple fences, or other languages are accepted.
     fenced = re.fullmatch(
@@ -152,8 +156,14 @@ def compile_z3_json(raw: object) -> str:
     try:
         payload = json.loads(raw, object_pairs_hook=_unique_pairs,
                              parse_constant=_bad_constant)
+    except SchemaError:
+        raise
+    except json.JSONDecodeError as exc:
+        raise SchemaError(
+            f"JSON syntaktisch ungültig (Zeile {exc.lineno}, Spalte {exc.colno}): "
+            + str(exc.msg)[:75]) from exc
     except (ValueError, TypeError, RecursionError) as exc:
-        raise SchemaError("Erwartet wird genau ein reines JSON-Objekt") from exc
+        raise SchemaError("Erwartet wird genau ein gültiges JSON-Objekt") from exc
     if type(payload) is not dict:
         raise SchemaError("JSON muss ein Objekt sein; erhalten: " + type(payload).__name__)
     expected = {"variables", "constraints", "objective"}
