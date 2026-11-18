@@ -243,6 +243,30 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("rules",str(helios.calls[1][0]))
         self.assertIn("verboten",str(helios.calls[1][0]).casefold())
 
+    def test_sympy_symbol_dictionary_keyerror_triggers_precise_repair(self):
+        prompt=("Anna, Ben und Cora haben insgesamt 47 Spielchips. "
+                "Ben besitzt 5 mehr als Anna. Cora besitzt exakt doppelt "
+                "so viele wie Ben. Wie viele Chips hat jede Person?")
+        seen=[]
+        def tool(code):
+            seen.append(code)
+            if len(seen)==1:
+                return {"status":"FAILED","error_type":"RuntimeError",
+                        "traceback":"File /work/run.py line 9: KeyError: 'a'"}
+            return {"status":"PASSED","output":"Anna=8; Ben=13; Cora=26"}
+        rt,_,helios=runtime([
+            "\x60\x60\x60python\nprint('bad')\n\x60\x60\x60",
+            "\x60\x60\x60python\nprint('fixed')\n\x60\x60\x60",
+            "Die Sandbox-Ausgabe ist aufgeführt.",
+        ],tool)
+        result=rt._free_code_loop(turns(prompt),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        self.assertEqual(len(seen),2)
+        repair=str(helios.calls[1][0])
+        self.assertIn("Symbol",repair)
+        self.assertIn("result[a]",repair)
+        self.assertIn("result['a']",repair)
+
     def test_general_three_person_relations_produce_exact_source_equations(self):
         from neral_three_tier_runtime import _source_relational_equations
         source=("Mira, Lino und Tessa haben insgesamt 47 Murmeln. "
