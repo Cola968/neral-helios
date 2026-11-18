@@ -231,6 +231,19 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertFalse(result["verified"])
         self.assertEqual(helios.temperatures,[0.0,0.0,0.0])
 
+    def test_sanitized_gpu_failure_categories_without_model_output_leak(self):
+        from neral_three_tier_runtime import _safe_runtime_error_code
+        self.assertEqual(_safe_runtime_error_code(
+            RuntimeError("HF response did not finish inside its token/time budget")),
+            "hf_generation_incomplete")
+        self.assertEqual(_safe_runtime_error_code(
+            RuntimeError("Insufficient free GPU memory; secret text")),
+            "gpu_memory")
+        self.assertEqual(_safe_runtime_error_code(
+            ValueError("Bounded local HF context exceeded")), "context_exceeded")
+        self.assertEqual(_safe_runtime_error_code(
+            RuntimeError("unrecognized sensitive details")), "runtime_unavailable")
+
     def test_failed_code_can_be_repaired_at_most_twice(self):
         seen=[]
         def tool(code):
