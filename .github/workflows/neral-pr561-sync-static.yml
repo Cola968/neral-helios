@@ -48,6 +48,6 @@ jobs:
           $ErrorActionPreference='Stop'
           $raw=python -B -c 'import json;from scripts.build_neral_1_0_preview import REQUIRED_FILES;print(json.dumps(REQUIRED_FILES))'
           if($LASTEXITCODE -ne 0){throw 'Python manifest unavailable'}
-          $managed=@(ConvertFrom-Json -InputObject ($raw -join ''))
+          $managed=[string[]](ConvertFrom-Json -InputObject ($raw -join ''))
           if($managed.Count -lt 80 -or $managed.Count -gt 150){throw 'Invalid managed source count'}
           Write-Host ('NERAL_PR561_MANIFEST_PARSE_PASS files='+$managed.Count)
