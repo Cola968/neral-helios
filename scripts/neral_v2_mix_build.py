@@ -304,7 +304,7 @@ def style(count,seed,*,validation=False):
             a="Ein häufiger Fehler ist, die Voraussetzungen nicht zu prüfen. "+caution+"."
         elif mode==5:
             q=f"Fasse {concept} übersichtlich in Markdown zusammen."
-            a="### Kurzüberblick\n\n"+definition+"\n\n**Grenze:** "+caution+"."
+            a="### Kurzüberblick\n\n"+definition+"\n\n**Hinweis:** "+caution+"."
         elif mode==6:
             q=f"Warum könnte {concept} relevant sein?"
             a=definition+" Relevant wird das Thema, wenn du damit ein konkretes Problem lösen willst."
@@ -324,7 +324,7 @@ def style(count,seed,*,validation=False):
             q=f"Formuliere eine kompakte Lernkarte zu {concept}."
             a="**Vorderseite:** Was ist "+concept+"?\n\n**Rückseite:** "+definition
         else:
-            q=f"Welche Grenze einer Aussage über {concept} sollte ich erwähnen?"
+            q=f"Welche Einschränkung einer Aussage über {concept} sollte ich erwähnen?"
             a=caution+". Deshalb müssen wir Annahmen und Belege getrennt benennen."
         rows.append(record(q,"Antworte auf Deutsch direkt, präzise und ohne unnötige Füllsätze. Verwende Markdown nur, wenn es die Lesbarkeit verbessert.",a,"style","synthetic_style",
                            meta={"requires_human_review":True,"topic":topic}))

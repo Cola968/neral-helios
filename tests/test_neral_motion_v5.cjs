@@ -64,7 +64,7 @@ test("checked Web searches short factual follow-ups and reuses only a previous w
   assert.equal(x.shouldSearchWeb("Wie funktioniert ein Turbofan?"),true);
   assert.equal(x.shouldSearchWeb("Hallo"),false);
   assert.equal(x.makeSearchQuery("warum nicht","Turbofan-Triebwerk"),"Turbofan-Triebwerk warum nicht");
-  assert.equal(x.makeSearchQuery("Wie funktioniert ein Turbofan?","geheimes Passwort"),"Wie funktioniert ein Turbofan?");
+  assert.equal(x.makeSearchQuery("Wie funktioniert ein Turbofan?","geheimes Passwort"),"funktioniert Turbofan");
 });
 test("a completed search never lets NERAL claim it cannot perform web search",()=>{
   const x=searchFunctions();

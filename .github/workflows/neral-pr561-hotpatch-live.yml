@@ -1,0 +1,60 @@
+name: NERAL PR561 one-shot safe in-place V1 live acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_pr561_live_hotpatch.ps1'
+      - '.github/workflows/neral-pr561-hotpatch-live.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  v1-hotpatch:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Permit install only for an explicitly marked source commit
+        id: gate
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($subject -eq 'ops(live): run approved V1 in-place hotpatch'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V1_HOTPATCH_ONE_SHOT_APPROVED_COMMIT'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V1_HOTPATCH_SAFE_SKIP_NOT_REQUESTED_COMMIT'
+          }
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: '22'
+      - name: Verify PowerShell, Python, and browser source before local modification
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_pr561_live_hotpatch.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'V1 safe hotpatch PowerShell syntax invalid'}
+          & node --check scripts/neral_pr561_live_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V1 real Chrome script malformed'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m py_compile neral_web_search.py neral_everyday_verified.py neral_three_tier_runtime.py
+          if($LASTEXITCODE -ne 0){throw 'V1 source syntax invalid'}
+          Write-Host 'NERAL_V1_HOTPATCH_SOURCE_SYNTAX_PASS'
+      - name: Apply backup-protected runtime patch and prove three actual Chrome cases
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_pr561_live_hotpatch.ps1
+          if($LASTEXITCODE -ne 0){throw 'Real V1 Chrome acceptance failed; do not merge'}
+          Write-Host 'NERAL_V1_REAL_CHROME_3_OF_3_SUCCESS'

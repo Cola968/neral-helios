@@ -1,0 +1,57 @@
+name: NERAL everyday proofs and web-query regression
+on:
+  pull_request:
+    paths:
+      - 'neral_everyday_verified.py'
+      - 'neral_three_tier_runtime.py'
+      - 'neral_web_search.py'
+      - 'static/neral-preview.js'
+      - 'neral_cpu_foundation/**'
+      - 'tests/test_neral_three_tier_everyday.py'
+      - 'tests/test_neral_web_search.py'
+      - 'tests/test_neral_web_query_specificity.cjs'
+      - 'tests/test_neral_three_tier_ui.cjs'
+      - '.github/workflows/neral-everyday-web-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu-unit-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned application and CPU-test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt -r requirements-neral-preview.txt
+          python -m pip install --disable-pip-version-check torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Syntax-check all changed Python and JS
+        run: |
+          python -m py_compile neral_everyday_verified.py neral_three_tier_runtime.py neral_web_search.py
+          node --check static/neral-preview.js
+          node --check tests/test_neral_web_query_specificity.cjs
+      - name: Exact everyday math, Z3, web API and browser query regressions
+        run: |
+          python -m pytest -q tests/test_neral_three_tier_everyday.py tests/test_neral_web_search.py
+          node --test tests/test_neral_web_query_specificity.cjs tests/test_neral_three_tier_ui.cjs
+      - name: Ban old injected canned text in CPU foundation sources
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          forbidden = ("Grenze:", "Ein Zins ist ein fester Wert, keine Empfehlung.")
+          files = list(Path("neral_cpu_foundation").rglob("*.py"))
+          assert files, "CPU source directory missing"
+          for f in files:
+              txt = f.read_text(encoding="utf-8")
+              for item in forbidden:
+                  assert item not in txt, f"{f}: {item}"
+          print(f"CPU foundation checked: {len(files)} Python files, no forbidden canned text")
+          PY

@@ -107,7 +107,7 @@
     const item=document.createElement("div");
     item.className="message "+role+(animate?" neral-motion-enter":"");
     const heading=document.createElement("strong");
-    heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
+    heading.textContent=role==="user" ? "Du" : "NERAL";
     const hasList=role==="assistant" &&
       !text.includes(String.fromCharCode(96).repeat(3)) &&
       /(?:^|\n)[ \t]{0,3}(?:[-*]|\d+\.)[ \t]+\S/.test(text);
@@ -123,6 +123,12 @@
     else body.textContent=text; // All text remains inert, never model-controlled HTML.
     item.append(heading,body);
     if(role==="assistant") {
+      if(origin){
+        const badge=document.createElement("div");
+        badge.className="neral-tool-status";
+        badge.textContent=origin;
+        item.append(badge);
+      }
       const actions=document.createElement("div");
       actions.className="message-actions";
       const like=document.createElement("button");
@@ -199,28 +205,46 @@
       const cut=combined.slice(0,160);
       return cut.slice(0,cut.lastIndexOf(" "))||cut;
     }
-    // Remove only a *leading* social greeting, not a topic mention of "Hallo".
     let q=original.replace(/^[\s^>]+/,"").replace(
-      /^(?:hallo|hallöchen|hi|hey|moin|guten\s+(?:morgen|tag|abend))\b\s*[,!?.]*\s*(?=(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b)/iu,"").trim();
-    const request=/^(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b\s*[:：]?\s*(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s*)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu;
-    const hasDirective=request.test(q);
-    let subject=(hasDirective?q.replace(request,""):q).trim();
-    if(hasDirective)subject=subject.replace(/^[?!.,:;]+/g,"").trim();
-    if(hasDirective && (!subject||/^[?!.,:;]+$/.test(subject)||
-       /^(?:bitte|mal|online|internet|web|nach)$/iu.test(subject)))
-      return ""; // No subject was supplied: do not search the greeting.
-    if(subject.length<2)subject=original;
-    let normalized=subject.replace(/\s+/g," ").trim();
-    // A bare BER-flight shorthand plus "aktuell" was repeatedly interpreted
-    // by public search providers as general news, yielding zero topical hits.
-    // Expand only this unambiguous airport-route intent; other search queries,
-    // especially current news searches, keep their original freshness words.
+      /^(?:hallo|hallöchen|hi|hey|moin|guten\s+(?:morgen|tag|abend))\b\s*[,!?.]*\s*/iu,"").trim();
+    const prefixRe=/^(?:(?:bitte|mal|aktuell(?:en|es|er|e)?|suche|such|finde|recherchiere|recherchier|im\s+internet|im\s+web|online|nach)\b\s*[:：]?\s*)+/iu;
+    const hadDirective=prefixRe.test(q);
+    q=q.replace(prefixRe,"").trim();
+    q=q.replace(/(?:[?!.]\s*)?(?:nenne|gib|zeige|liste|nenn)\s+(?:mir\s+)?(?:deine\s+|die\s+|bitte\s+)?(?:quellen|links|belege)(?:\s+an)?[.!?]*\s*$/iu,"").trim();
+    q=q.replace(/^[?!.,:;]+|[?!.,:;]+$/g,"").trim();
+    if(hadDirective && (!q || /^(?:bitte|mal|online|internet|web|nach|heute|aktuell)$/iu.test(q)))
+      return "";
+    if(q.length<2)q=original;
+
     const berFlights=/\bBER[-–\s]+(?:Flugverbindungen|Flugziele|Flugstrecken|Flüge)(?=$|[\s.!?,])/iu;
-    if(berFlights.test(normalized)){
-      normalized=normalized.replace(/^aktuell(?:e|en|es|er)?\s+/iu,"")
+    const expandedBerFlights=berFlights.test(q);
+    if(expandedBerFlights){
+      q=q.replace(/^aktuell(?:e|en|es|er)?\s+/iu,"")
         .replace(berFlights,"BER Berlin Brandenburg Flughafen Flugziele")
         .replace(/[.!?]+$/g,"").trim();
     }
+
+    const words=q.split(/\s+/);
+    if(!expandedBerFlights && (words.length>4 || /^(?:wie|was|wer|wann|wo|warum|wieso|welche[rs]?)\b/iu.test(q))){
+      const stop=new Set([
+        "wie","hoch","ist","sind","war","waren","heute","aktuell","aktuelle",
+        "aktuellen","der","die","das","den","dem","des","ein","eine","einer",
+        "eines","einem","einen","von","vom","zu","zum","zur","im","in","am",
+        "an","auf","für","fur","mit","und","oder","was","wer","wann","wo",
+        "warum","wieso","welche","welcher","welches","hat","haben","wird",
+        "werden","kann","können","man","mir","mich","bitte","gibt","es","noch"
+      ]);
+      const keywords=words
+        .map(w=>w.replace(/^[^\p{L}\p{N}-]+|[^\p{L}\p{N}-]+$/gu,""))
+        .filter(w=>w.length>=2 && !stop.has(w.toLowerCase()));
+      if(keywords.length>=2){
+        const wantsFresh=/\b(?:heute|aktuell(?:e|en|es|er)?|neueste[nrs]?|news|nachrichten|2026)\b/iu.test(original);
+        if(wantsFresh && !keywords.some(k=>/^(?:aktuell|2026|news)$/i.test(k)))
+          keywords.push("aktuell");
+        q=keywords.slice(0,6).join(" ");
+      }
+    }
+    const normalized=q.replace(/\s+/g," ").trim();
     if(normalized.length<=160)return normalized;
     const cut=normalized.slice(0,160);
     return cut.slice(0,cut.lastIndexOf(" "))||cut;
@@ -890,6 +914,33 @@
         // survived filtering. Tell the model the truthful empty-result status,
         // without passing irrelevant third-party snippets or invented facts.
         modelPrompt=webEvidencePrompt(text,evidence,true,verifiedSources.length);
+        // Search hits are already real provider metadata. Do not make the user
+        // wait for a 9B model to rewrite snippets or claim it read those sites.
+        // The exact original source URLs are rendered as separate safe links.
+        if(sources.length>0 && selectedAttachments.length===0){
+          const short=part=>String(part||"").replace(/\bGrenze\s*:/giu,"Hinweis:").trim();
+          const snippets=sources.slice(0,5).map((hit,i)=>{
+            const title=short(hit.title).slice(0,120);
+            const excerpt=short(hit.snippet).slice(0,230);
+            return (i+1)+". "+title+(excerpt?" – "+excerpt:"");
+          });
+          const answer="Gefundene Suchtreffer zu „"+webQuery+"“:\n"+
+            snippets.join("\n")+"\n\n"+
+            "Die Angaben stammen aus Suchmaschinen-Snippets. "+
+            "Die verlinkten Seiten wurden nicht inhaltlich unabhängig geprüft.";
+          const origin="Werkzeug: Websuche ("+sources.length+" "+
+            (sources.length===1?"Quelle":"Quellen")+")";
+          motionActivity("done",mode);
+          const answerNode=append("assistant",answer,origin,true);
+          appendSources(answerNode,sources,true);
+          memory.push({role:"user",content:text},{role:"assistant",content:answer});
+          if(memory.length>12)memory.splice(0,memory.length-12);
+          browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
+            detail:{user:text,assistant:answer}
+          }));
+          completedTurn=true;
+          return;
+        }
       }
       let path="/api/neral/chat/"+mode;
       let options={
@@ -949,9 +1000,13 @@
         result.model_origin==="local_source_verified_tools_only" &&
         ((result.tier==="Terra" && result.proof_backend==="trusted_source_arithmetic") ||
          (result.tier==="Helios" && result.proof_backend==="z3_sat_witness"));
+      const autoEscalation=threeTierEnabled && selectedTier==="Luna" &&
+        result.tier==="Helios" && result.auto_escalated_from==="Luna" &&
+        result.verified===false && result.model_generated===true &&
+        result.safe_to_promote===false && result.proof_backend===null;
       if(threeTierEnabled){
         if(result.runtime_tier_verified!==true ||
-           (result.tier!==selectedTier && !autoProof))
+           (result.tier!==selectedTier && !autoProof && !autoEscalation))
           throw new Error("Modus oder Modellantwort nicht zugeordnet.");
         const luna=result.tier==="Luna";
         if(result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
@@ -978,6 +1033,10 @@
                result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      // Do not surface legacy canned "Grenze:" labels as a separate model
+      // authority. Keep any substantive limitation text, simply label it
+      // transparently as a note (not as an independently proven restriction).
+      result.text=result.text.replace(/\bGrenze\s*:/giu,"Hinweis:");
       // A runtime greeting is not a researched answer. An outdated client
       // may have performed a search first; never attach unrelated source cards.
       const runtimeGreeting=result.tool_used==="runtime_greeting";
@@ -1002,18 +1061,18 @@
       partialNode=null;
       const verified=result.verified===true && result.model_generated===false &&
         result.verification_scope!=="none";
-      let origin=threeTierEnabled
-        ? ("NERAL "+result.tier+(autoProof?" (automatisch)":"")+(verified
-             ? " · Verifiziert ("+(result.proof_backend||"Werkzeug")+")"
-             : " · ungeprüft")) : runtimeGreeting ? "NERAL" :
-        result.model_generated===false&&result.tool_used
-        ? "NERAL · lokal geprüft" : verified
-        ? "NERAL HIGH · Endwert geprüft" : mode==="think"
-        ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
-      if(typeof result.model==="string" &&
-         !threeTierEnabled && /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
+      let origin = verified
+        ? (result.tool_used === "z3_solver"
+            ? "Werkzeug: Z3-Solver (verifiziert)"
+            : "Werkzeug: Python-Sandbox (verifiziert)")
+        : sources.length
+        ? "Werkzeug: Websuche ("+sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
+        : threeTierEnabled
+        ? "Modus: "+result.tier+" ("+(result.tier === "Luna" ? "Direktantwort ohne Werkzeug" : "Modellantwort ungeprüft")+")"
+        : (mode === "think" ? "Modus: HIGH (ungeprüft)" : "Modus: LOW (Direktantwort)");
+      if(typeof result.model==="string" && !threeTierEnabled &&
+         /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
         origin+=" · Modell "+result.model;
-      if(sources.length) origin+=" · mit Suchtreffern";
       if(selectedAttachments.length) {
         origin+=" · Anhänge verarbeitet";
         if(Array.isArray(result.attachments)&&result.attachments.some(a=>a.truncated===true))

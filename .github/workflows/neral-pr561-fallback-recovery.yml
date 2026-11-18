@@ -1,0 +1,71 @@
+name: NERAL emergency safe PR561 fallback service recovery
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-fallback-recovery.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-emergency-fallback-recovery
+  cancel-in-progress: false
+jobs:
+  restore:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 7
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Identify owned tasks and restore former NERAL when port is empty
+        run: |
+          $ErrorActionPreference='Stop'
+          $oldName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $newName='NERAL-PR561-V1-77e124c98e61'
+          $oldRoot=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $newRoot=Join-Path $env:LOCALAPPDATA 'NERAL/pr561-v1-77e124c98e61/NERAL-1.0-Local'
+          $oldServer=Join-Path $oldRoot 'Start-Neral-Three-Tier-Service.ps1'
+          $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
+          $old=Get-ScheduledTask -TaskName $oldName -ErrorAction SilentlyContinue
+          $new=Get-ScheduledTask -TaskName $newName -ErrorAction SilentlyContinue
+          $oldOwned=($old -and [string]$old.Actions[0].Arguments -like ('*'+$oldServer+'*'))
+          $newOwned=($new -and [string]$new.Actions[0].Arguments -like ('*'+$newServer+'*'))
+          $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $result=@{old_present=($null -ne $old);old_owned=$oldOwned;
+            old_running=($old -and [string]$old.State -eq 'Running');
+            new_present=($null -ne $new);new_owned=$newOwned;
+            new_running=($new -and [string]$new.State -eq 'Running');
+            listener_count=$listeners.Count;http_ready=$false;restored=$false}
+          function Test-NeralHttp {
+            try{
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $r=Invoke-WebRequest -UseBasicParsing -WebSession $session 'http://127.0.0.1:9690/' -TimeoutSec 5
+              $s=Invoke-RestMethod -WebSession $session 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 5
+              return ($r.StatusCode -eq 200 -and $s.three_tier_enabled -eq $true)
+            }catch{return $false}
+          }
+          $result.http_ready=Test-NeralHttp
+          if(-not $result.http_ready -and $listeners.Count -eq 0 -and $oldOwned){
+            if($newOwned -and [string]$new.State -eq 'Running'){
+              Stop-ScheduledTask -TaskName $newName -ErrorAction Stop
+              Start-Sleep -Seconds 2
+            }
+            if([string](Get-ScheduledTask -TaskName $oldName).State -eq 'Running'){
+              Stop-ScheduledTask -TaskName $oldName -ErrorAction Stop
+              Start-Sleep -Seconds 2
+            }
+            if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -eq 0){
+              Start-ScheduledTask -TaskName $oldName -ErrorAction Stop
+              for($i=0;$i -lt 90;$i++){
+                Start-Sleep -Seconds 1
+                if(Test-NeralHttp){$result.restored=$true;break}
+              }
+            }
+          }
+          $result.http_ready=Test-NeralHttp
+          $result['listener_count_after']=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count
+          $result['old_task_state_after']=if($old){[string](Get-ScheduledTask -TaskName $oldName).State}else{'missing'}
+          $result['new_task_state_after']=if($new){[string](Get-ScheduledTask -TaskName $newName).State}else{'missing'}
+          Write-Host ('NERAL_V1_EMERGENCY_RESTORE '+($result|ConvertTo-Json -Compress))
+          if(-not $result.http_ready){throw 'Old NERAL service is still unavailable; live merges blocked'}
+          Write-Host 'NERAL_EXISTING_SERVICE_HTTP_200_RESTORED'

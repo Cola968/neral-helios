@@ -1,0 +1,54 @@
+name: NERAL Docker install feasibility on owned Windows runner
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-docker-feasibility.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-pr561-docker-feasibility
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Inspect approved Windows install prerequisites without changes
+        run: |
+          $ErrorActionPreference='Stop'
+          $principal=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+          $admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $winget=Get-Command winget.exe -ErrorAction SilentlyContinue
+          $docker=Get-Command docker.exe -ErrorAction SilentlyContinue
+          $wsl=Get-Command wsl.exe -ErrorAction SilentlyContinue
+          $desktop=Get-ChildItem -Path 'HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*','HKCU:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*' -ErrorAction SilentlyContinue | ForEach-Object {
+            try{Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue}catch{}
+          } | Where-Object {$_.DisplayName -match '(?i)Docker Desktop|Rancher Desktop|Podman Desktop'}
+          $daemon=@(Get-Service -Name 'docker','com.docker.service','podman-machine-default' -ErrorAction SilentlyContinue)
+          $wslAvailable=$false;$wslDistroPresent=$false
+          if($wsl){
+            try{
+              $status=@(& $wsl.Source --status 2>$null)
+              $wslAvailable=($LASTEXITCODE -eq 0)
+              $distros=@(& $wsl.Source -l -q 2>$null)
+              $wslDistroPresent=($LASTEXITCODE -eq 0 -and @($distros|Where-Object {$_ -match '[a-zA-Z0-9]'}).Count -gt 0)
+            }catch{}
+          }
+          $result=@{
+            process_elevated=$admin;winget_present=($null -ne $winget);
+            docker_cli_present=($null -ne $docker);
+            cli_location_class=if($docker){
+              if($docker.Source -match '(?i)Program Files'){ 'ProgramFiles' }
+              elseif($docker.Source -match '(?i)Users'){ 'UserPath' }
+              else{'Other'}}else{'missing'};
+            installed_desktop_registry_count=@($desktop).Count;
+            daemon_service_count=@($daemon).Count;wsl_present=($null -ne $wsl);
+            wsl_responds=$wslAvailable;wsl_distro_present=$wslDistroPresent;
+            interactive_explorer=(@(Get-Process explorer -ErrorAction SilentlyContinue).Count -gt 0)
+          }
+          Write-Host ('NERAL_DOCKER_FEASIBILITY '+($result|ConvertTo-Json -Compress))
+          exit 0

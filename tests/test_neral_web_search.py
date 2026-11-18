@@ -50,15 +50,15 @@ class WebSearchContracts(unittest.TestCase):
     def test_only_explicit_query_is_sent_to_fixed_website(self):
         opener=Opener()
         result=WebSearch(opener=opener).search("  aktuelle   Raumfahrt News  ")
-        self.assertEqual(result["query"],"aktuelle Raumfahrt News")
+        self.assertEqual(result["query"],"Raumfahrt aktuell")
         self.assertTrue(result["external_request"])
         self.assertFalse(result["model_generated"])
         self.assertEqual(len(result["results"]),2)
         self.assertEqual(len(opener.calls),1)
         request, timeout=opener.calls[0]
         self.assertTrue(request.full_url.startswith("https://html.duckduckgo.com/html/?q="))
-        self.assertIn("aktuelle+Raumfahrt+News",request.full_url)
-        self.assertLessEqual(timeout,8)
+        self.assertIn("Raumfahrt+aktuell",request.full_url)
+        self.assertLessEqual(timeout,4)
         self.assertEqual(request.get_method(),"GET")
         self.assertNotIn("PRIVATE",request.full_url)
 
@@ -120,6 +120,7 @@ class FreshNewsContracts(unittest.TestCase):
         self.assertEqual(news_subject("Aktuelle BER Nachrichten"),"BER")
         self.assertEqual(news_subject("NASA Artemis News heute"),"NASA Artemis")
         self.assertEqual(news_subject("News"),"News")
+        self.assertEqual(news_subject("Suche bitte aktuell im Web: EZB Leitzins heute?"),"EZB Leitzins")
 
     def test_google_news_query_is_constrained_to_fixed_public_feed(self):
         from neral_web_search import NEWS_ENDPOINT
@@ -290,5 +291,52 @@ class BingFallbackTests(unittest.TestCase):
         from neral_web_search import parse_bing_rss
         with self.assertRaises(WebSearchError):
             parse_bing_rss('<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss>&x;</rss>')
+
+
+class ServerRewriteAndStreamRegression(unittest.TestCase):
+    def test_server_rewrites_exact_ezb_user_question_before_external_request(self):
+        from urllib.parse import parse_qs, urlsplit
+        opener=Opener()
+        response=WebSearch(opener=opener).search(
+            "Suche bitte aktuell im Web: Wie hoch ist heute der Leitzins der EZB? Nenne mir deine Quellen.")
+        self.assertEqual(response["query"],"Leitzins EZB aktuell")
+        self.assertEqual(parse_qs(urlsplit(opener.calls[0][0].full_url).query)["q"],
+                         ["Leitzins EZB aktuell"])
+
+    def test_requests_max_four_seconds_for_search_and_fallback_providers(self):
+        from unittest.mock import patch
+        opener=Opener()
+        WebSearch(opener=opener).search("Flughafen Frankfurt")
+        self.assertTrue(opener.calls)
+        self.assertTrue(all(t <= 4.0 for _, t in opener.calls))
+        with patch("neral_web_search.parse_search_results",return_value=[]):
+            WebSearch(opener=opener).search("Boeing 787")
+        self.assertTrue(all(t <= 4.0 for _, t in opener.calls))
+
+    def test_query_rewrite_keeps_short_topics_undamaged(self):
+        from neral_web_search import rewrite_search_query
+        self.assertEqual(rewrite_search_query("NASA Artemis"),"NASA Artemis")
+        self.assertEqual(rewrite_search_query("Aktuelle BER Nachrichten"),"BER aktuell")
+        self.assertEqual(rewrite_search_query("Suche nach dem Berliner Flughafen"),"Berliner Flughafen")
+        self.assertEqual(rewrite_search_query("Leitzins EZB aktuell"),"Leitzins EZB aktuell")
+
+    def test_stream_starts_with_real_sse_status_before_provider_wait(self):
+        class SlowDummy:
+            def search(self, query, on_provider=None):
+                return {"query":query,"provider":"fixture","providers_contacted":[],
+                        "results":[],"external_request":True}
+        app=Flask("stream_test")
+        register_web_search_api(app,service=SlowDummy())
+        with app.test_client() as client:
+            response=client.post("/api/web/search/stream",
+                json={"query":"NASA Artemis","verify_links":True},
+                headers={"Accept":"text/event-stream"},buffered=False)
+            self.assertEqual(response.status_code,200)
+            self.assertIn("text/event-stream",response.content_type)
+            first=next(iter(response.response)).decode("utf8")
+            self.assertIn("data:",first)
+            self.assertIn('"type": "status"',first)
+            self.assertIn('"state": "searching"',first)
+
 
 if __name__=="__main__":unittest.main()

@@ -131,18 +131,24 @@ def register_web_search_api(app, service=None):
             return index, ({**item, "url":checked_url,"reachable":True}
                            if checked_url else None)
         accepted = {}
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(previews)]
-            for task in as_completed(tasks):
-                index, checked = task.result()
-                if checked is not None:
-                    accepted[index] = checked
+        fresh = is_fresh_news_query(query or result.get("query", ""))
+        # For fresh searches, link verification adds substantial HTTPS latency.
+        # Provider-discovered HTTPS URLs remain usable, but are labelled as
+        # metadata-only instead of claiming their destinations were contacted.
+        if not fresh:
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(previews[:3])]
+                for task in as_completed(tasks):
+                    index, checked = task.result()
+                    if checked is not None:
+                        accepted[index] = checked
         verified = [accepted[i] for i in sorted(accepted)][:5]
         if on_source is not None:
             for hit in verified:
                 on_source(hit)
         return {**result, "results": verified, "previews": previews,
-                "link_check": "public_https_tls_and_http_only"}
+                "link_check": ("provider_metadata_only" if fresh else
+                               "public_https_tls_and_http_only")}
 
     def verified_with_fallback(result: dict, query: str, on_provider=None,
                                on_source=None, on_candidate=None) -> dict:
@@ -154,7 +160,10 @@ def register_web_search_api(app, service=None):
         """
         first=verified_results(result,on_source=on_source,
                                on_candidate=on_candidate,query=query)
-        if first["results"]:
+        if first["results"] or first.get("previews"):
+            # Real, topic-matched search metadata is enough for a fast response.
+            # Do not wait for Bing/Google/Wikipedia just because a remote site
+            # refuses a separate HTTPS reachability probe.
             return first
         contacted=list(result.get("providers_contacted",[]))
         current=first
@@ -243,6 +252,9 @@ def register_web_search_api(app, service=None):
             or any(ord(char) < 32 or ord(char) == 127 for char in data["query"])):
             return jsonify(error="Ungültige Suchanfrage."), 400
         query = data["query"]
+        # Existing NDJSON clients remain compatible; new browser clients request
+        # true SSE with an immediate status frame (before provider I/O).
+        wants_sse = "text/event-stream" in request.headers.get("Accept", "").lower()
         events = Queue()
         def emit(item):
             events.put(item)
@@ -264,12 +276,17 @@ def register_web_search_api(app, service=None):
                 emit({"type": "end"})
         Thread(target=worker, daemon=True).start()
         def generate():
+            def encode(event):
+                payload = json.dumps(event, ensure_ascii=False)
+                return ("data: " + payload + "\n\n") if wants_sse else (payload + "\n")
+            yield encode({"type": "status", "state": "searching"})
             while True:
                 event = events.get()
-                yield json.dumps(event, ensure_ascii=False) + "\n"
+                yield encode(event)
                 if event["type"] == "end":
                     break
-        return Response(generate(), mimetype="application/x-ndjson",
+        return Response(generate(), mimetype=(
+            "text/event-stream" if wants_sse else "application/x-ndjson"),
             headers={"Cache-Control": "no-store, no-transform",
                      "X-Content-Type-Options": "nosniff",
                      "X-Accel-Buffering": "no"})

@@ -1,0 +1,22 @@
+name: NERAL PR561 live browser script syntax
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_pr561_live_browser_e2e.cjs'
+      - '.github/workflows/neral-pr561-live-browser-syntax.yml'
+permissions:
+  contents: read
+jobs:
+  node-parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check browser-driven exact live prompts
+        run: node --check scripts/neral_pr561_live_browser_e2e.cjs

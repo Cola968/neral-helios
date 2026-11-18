@@ -1,0 +1,75 @@
+name: NERAL PR561 Windows preflight read-only
+on:
+  push:
+    branches: [fix/everyday-web-solver-tool-status-20261117]
+    paths:
+      - '.github/workflows/neral-pr561-windows-readonly.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-windows-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-pr561-windows-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect port 9690, owner, task, Docker, GPU and browser without mutating
+        run: |
+          $ErrorActionPreference='Stop'
+          $listener=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $owners=@($listener | Select-Object -ExpandProperty OwningProcess -Unique)
+          $proc=$null
+          if($owners.Count -eq 1){
+            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$owners[0]) -ErrorAction SilentlyContinue
+          }
+          $line=if($proc){[string]$proc.CommandLine}else{''}
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $taskName=if($task){[string]$task.TaskName}else{'none'}
+          $sourcePath=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $status=@{port_listeners=$listener.Count;owners=$owners.Count;
+            owner_python=($null -ne $proc -and [string]$proc.Name -match '^pythonw?\.exe$');
+            owner_neral=($line -match 'neral_preview_server' -and $line -match 'experimental-three-tier-hf');
+            task_present=($null -ne $task);
+            task_running=($null -ne $task -and [string]$task.State -eq 'Running');
+            task_owned_script=($null -ne $task -and [string]$task.Actions[0].Arguments -like '*Start-Neral-Three-Tier-Service.ps1*');
+            stable_source_present=(Test-Path -LiteralPath (Join-Path $sourcePath 'neral_three_tier_runtime.py') -PathType Leaf);
+            python_present=(Test-Path 'D:/neral-qlora/venv/Scripts/python.exe' -PathType Leaf);
+            chrome_present=($null -ne (@('C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe') | Where-Object {Test-Path $_ -PathType Leaf} | Select-Object -First 1));
+            image_present=$false;docker_ready=$false;gpu_4070=$false;
+            http_200=$false;three_tier=$false;session_levels=$false;current_js_v1=$false}
+          try{
+            $h=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/' -TimeoutSec 5
+            $status.http_200=($h.StatusCode -eq 200)
+            $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $s=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/preview/session' -WebSession $session -TimeoutSec 5
+            $status.three_tier=($s.three_tier_enabled -eq $true)
+            $status.session_levels=((@($s.three_tier_levels) -join ',') -eq 'Luna,Terra,Helios')
+            $js=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/static/neral-preview.js' -TimeoutSec 5
+            $status.current_js_v1=([string]$js.Content -match 'neral-tool-status')
+          }catch{}
+          try{
+            $g=@(& nvidia-smi --query-gpu=name --format=csv,noheader 2>$null)
+            $status.gpu_4070=($LASTEXITCODE -eq 0 -and @($g|Where-Object {$_ -match 'RTX 4070'}).Count -eq 1)
+          }catch{}
+          try{
+            & docker version --format '{{.Server.Version}}' *> $null
+            $status.docker_ready=($LASTEXITCODE -eq 0)
+            if($status.docker_ready){
+              & docker image inspect python:3.11-alpine *> $null
+              $status.image_present=($LASTEXITCODE -eq 0)
+            }
+          }catch{}
+          Write-Host ('NERAL_PR561_READONLY '+($status|ConvertTo-Json -Compress))
+          Write-Host 'NERAL_PR561_PREFLIGHT_NO_PROCESS_OR_FILE_CHANGED'

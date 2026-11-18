@@ -1,0 +1,88 @@
+name: NERAL V1 postmortem readonly local Python import and listener
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-postmortem.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-pr561-postmortem-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read current services and traceback types without modifying service
+        run: |
+          $ErrorActionPreference='Stop'
+          $oldName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $newName='NERAL-PR561-V1-77e124c98e61'
+          $oldRoot=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $newRoot=Join-Path $env:LOCALAPPDATA 'NERAL/pr561-v1-77e124c98e61/NERAL-1.0-Local'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $oldTask=Get-ScheduledTask -TaskName $oldName -ErrorAction SilentlyContinue
+          $newTask=Get-ScheduledTask -TaskName $newName -ErrorAction SilentlyContinue
+          $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $http=$false;$three=$false
+          try {
+            $ws=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $page=Invoke-WebRequest -UseBasicParsing -WebSession $ws 'http://127.0.0.1:9690/' -TimeoutSec 8
+            $session=Invoke-RestMethod -WebSession $ws 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 8
+            $http=($page.StatusCode -eq 200)
+            $three=($session.three_tier_enabled -eq $true)
+          }catch{}
+          $hashes=@()
+          foreach($rel in @('neral_web_search.py','neral_everyday_verified.py','neral_three_tier_runtime.py','static/neral-preview.js')){
+            $file=Join-Path $oldRoot $rel
+            $hash=if(Test-Path $file -PathType Leaf){(& git -c core.autocrlf=true hash-object --path=$rel $file).Trim()}else{'missing'}
+            $hashes+=@{file=$rel;installed_sha=$hash}
+          }
+          $modTest=@'
+          import importlib, json, os, traceback, sys
+          names=("neral_preview_server","neral_three_tier_runtime","neral_everyday_verified","neral_web_search","neral_adaptive_planner","neral_tir_experimental")
+          for name in names:
+              try:
+                  importlib.import_module(name)
+                  print("NERAL_MODULE_RESULT " + json.dumps({"module":name,"ok":True}),flush=True)
+              except BaseException as e:
+                  frame=traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
+                  print("NERAL_MODULE_RESULT " + json.dumps({
+            "module":name,"ok":False,"type":type(e).__name__,
+            "missing_module":getattr(e,"name",None),
+            "file":os.path.basename(frame.filename) if frame else None,
+            "line":frame.lineno if frame else None
+                  }),flush=True)
+          '@
+          $results=@()
+          foreach($entry in @(@{label='old';root=$oldRoot},@{label='candidate';root=$newRoot})){
+            if(-not(Test-Path $entry.root -PathType Container)){
+              $results+=@{label=$entry.label;missing_root=$true};continue
+            }
+            $env:PYTHONPATH=(Join-Path $oldRoot 'local_state/three-tier-web-deps')+[IO.Path]::PathSeparator+$entry.root
+            Push-Location $entry.root
+            try {
+              $output=@(& $py -B -c $modTest 2>&1)
+              foreach($line in $output){
+                if([string]$line -match '^NERAL_MODULE_RESULT (.+)$'){
+                  try{
+                    $record=$Matches[1]|ConvertFrom-Json
+                    $results+=@{label=$entry.label;module=$record.module;ok=$record.ok;
+                      type=$record.type;missing_module=$record.missing_module;file=$record.file;line=$record.line}
+                  }catch{}
+                }
+              }
+            }catch{
+              $results+=@{label=$entry.label;runner_exception=$_.Exception.GetType().Name}
+            }finally{Pop-Location}
+          }
+          $summary=@{http_200=$http;three_tier=$three;port_listener_count=$listeners.Count;
+            old_task_state=if($oldTask){[string]$oldTask.State}else{'missing'};
+            new_task_state=if($newTask){[string]$newTask.State}else{'missing'};
+            stable_hashes=$hashes;imports=$results}
+          Write-Host ('NERAL_PR561_READONLY_POSTMORTEM '+($summary|ConvertTo-Json -Compress -Depth 6))
+          Write-Host 'NERAL_PR561_POSTMORTEM_NO_FILES_OR_PROCESSES_TOUCHED'

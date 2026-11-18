@@ -18,9 +18,13 @@ test("explicit BER flight-connection search disambiguates the airport and drops 
 });
 test("unrelated topical and fresh news searches are not rewritten",()=>{
   assert.equal(makeSearchQuery("Suche im Internet nach aktuellen Nachrichten zur KI."),
-    "aktuellen Nachrichten zur KI.");
+    "Nachrichten zur KI");
   assert.equal(makeSearchQuery("Suche im Internet nach T4 Grafikkarte"),
     "T4 Grafikkarte");
+});
+test("EZB query removes conversational framing and preserves freshness",()=>{
+  assert.equal(makeSearchQuery("Suche bitte aktuell im Web: Wie hoch ist heute der Leitzins der EZB? Nenne mir deine Quellen."),
+    "Leitzins EZB aktuell");
 });
 test("empty web search subjects and followups preserve their original contracts",()=>{
   assert.equal(makeSearchQuery("Suche im Internet nach"),"");

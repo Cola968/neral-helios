@@ -120,5 +120,69 @@ class EverydayLiveChat(unittest.TestCase):
         self.assertTrue(response["text"].startswith("Plan:"))
 
 
+    def test_energy_cost_uses_python_sandbox_and_cent_exact_result(self):
+        prompt=("Ein Server verbraucht 340 Watt im Dauerbetrieb. Wie viele Kilowattstunden "
+                "sind das in 365 Tagen und was kostet das bei 32,4 Cent pro kWh auf den Cent genau?")
+        observed=[]
+        def sandbox(code):
+            observed.append(code)
+            return {"status":"PASSED","output":"2978.4|965.00"}
+        rt,luna,helios=runtime(sandbox)
+        result=rt.answer(turns(prompt),"Luna")
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["tool_used"],"python_sandbox")
+        self.assertEqual(result["tier"],"Terra")
+        self.assertIn("2.978,4 kWh",result["text"])
+        self.assertIn("965,00 €",result["text"])
+        self.assertEqual(len(observed),1)
+        self.assertEqual((luna.calls,helios.calls),([],[]))
+
+    def test_energy_cost_wrong_python_output_not_verified(self):
+        prompt=("Ein Server verbraucht 340 Watt im Dauerbetrieb. Wie viele Kilowattstunden "
+                "sind das in 365 Tagen und was kostet das bei 32,4 Cent pro kWh auf den Cent genau?")
+        rt,_,_=runtime(lambda _:{"status":"PASSED","output":"2978.4|965.01"})
+        result=rt.answer(turns(prompt),"Luna")
+        self.assertFalse(result["verified"])
+        self.assertNotIn("965,00 €",result["text"])
+
+    def test_three_boxes_uniquely_verified_by_z3(self):
+        prompt=("Drei Kisten (Rot, Blau, Grün) wiegen zusammen 45 kg. "
+                "Blau ist doppelt so schwer wie Rot, und Grün ist 5 kg schwerer "
+                "als Blau. Wie schwer ist jede einzelne Kiste?")
+        rt,luna,helios=runtime()
+        result=rt.answer(turns(prompt),"Luna")
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["tool_used"],"z3_solver")
+        self.assertEqual(result["tier"],"Helios")
+        self.assertEqual(result["witness"],{"Rot":"8","Blau":"16","Grün":"21"})
+        self.assertNotIn("Grenze:",result["text"])
+        self.assertEqual((luna.calls,helios.calls),([],[]))
+
+    def test_puzzle_unknown_extra_constraint_cannot_be_full_source_verified(self):
+        prompt=("Drei Kisten (Rot, Blau, Grün) wiegen zusammen 45 kg. "
+                "Blau ist doppelt so schwer wie Rot, und Grün ist 5 kg schwerer als Blau. "
+                "Zusätzlich ist Rot größer als Grün. Wie schwer ist jede Kiste?")
+        rt,_,_=runtime()
+        result=rt.answer(turns(prompt),"Luna")
+        self.assertFalse(result["verified"])
+
+    def test_legacy_limit_labels_are_not_displayed_as_model_authority(self):
+        from neral_everyday_verified import tidy_unverified_model_text
+        self.assertEqual(
+            tidy_unverified_model_text("GRENZE: Ich kann das nicht garantieren."),
+            "Hinweis: Ich kann das nicht garantieren.")
+        self.assertNotIn("Grenze:",tidy_unverified_model_text(
+            "Grenze: Ein lokales Modell kann keinen mathematischen Beweis liefern.Rechnung: 2+2=4"))
+
+    def test_unrecognized_complex_question_escalates_to_unverified_helios(self):
+        rt,luna,helios=runtime()
+        result=rt.answer(turns("Wie viel kostet das bei 50 kWh und 30 Cent?"),"Luna")
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["tier"],"Helios")
+        self.assertEqual(result.get("auto_escalated_from"),"Luna")
+        self.assertEqual(luna.calls,[])
+        self.assertEqual(helios.calls,[768])
+
+
 if __name__=="__main__":
     unittest.main()

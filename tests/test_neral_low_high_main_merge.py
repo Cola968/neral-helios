@@ -69,7 +69,7 @@ class LowHighMainContracts(unittest.TestCase):
             self.assertIn(control, html)
         self.assertIn('value="fast" checked> LOW', html)
         self.assertIn('value="think"> HIGH', html)
-        for name in ("NERAL LOW", "NERAL HIGH"):
+        for name in ("Modus: LOW", "Modus: HIGH"):
             self.assertIn(name, js)
         self.assertIn("/api/web/search", js)
         self.assertIn("attachments", js)

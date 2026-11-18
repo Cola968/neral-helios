@@ -1,0 +1,53 @@
+name: NERAL PR561 safe Windows release sync syntax
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_pr561_live_hotpatch.ps1'
+      - 'scripts/neral_pr561_runtime_overlay.ps1'
+      - '.github/workflows/neral-pr561-sync-static.yml'
+permissions:
+  contents: read
+jobs:
+  windows-static:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse managed installer and isolated snapshot overlay without executing either
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($file in @('scripts/neral_pr561_live_hotpatch.ps1',
+                             'scripts/neral_pr561_runtime_overlay.ps1')){
+            $t=$null;$e=$null
+            [Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $file),[ref]$t,[ref]$e) | Out-Null
+            if(@($e).Count -ne 0){
+              foreach($x in $e){Write-Host ($file+': '+$x.Message)}
+              throw 'PowerShell source failed syntax inspection'
+            }
+          }
+          $installer=Get-Content scripts/neral_pr561_live_hotpatch.ps1 -Raw
+          $overlay=Get-Content scripts/neral_pr561_runtime_overlay.ps1 -Raw
+          foreach($needle in @('Initialize-NeralManagedSnapshot',
+              'Install-NeralManagedRuntime','Restore-NeralManagedRuntime')){
+            if(-not $installer.Contains($needle)){throw 'Installer missing managed helper call'}
+          }
+          foreach($needle in @('source-package-snapshot','Get-FileHash',
+              'FULL_MANAGED_RUNTIME_HASHES_PASS','FULL_MANAGED_RUNTIME_ROLLBACK_PASS',
+              'local_state','Remove-Item')){
+            if(-not $overlay.Contains($needle)){throw 'Source snapshot or rollback protection absent'}
+          }
+          Write-Host 'NERAL_PR561_FULL_RELEASE_INSTALLER_PARSE_PASS'
+      - name: Validate full Python runtime allowlist is locally readable
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $raw=python -B -c 'import json;from scripts.build_neral_1_0_preview import REQUIRED_FILES;print(json.dumps(REQUIRED_FILES))'
+          if($LASTEXITCODE -ne 0){throw 'Python manifest unavailable'}
+          $managed=[string[]](ConvertFrom-Json -InputObject ($raw -join ''))
+          if($managed.Count -lt 80 -or $managed.Count -gt 150){throw 'Invalid managed source count'}
+          Write-Host ('NERAL_PR561_MANIFEST_PARSE_PASS files='+$managed.Count)
