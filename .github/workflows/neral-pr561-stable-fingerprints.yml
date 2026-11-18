@@ -57,18 +57,18 @@ jobs:
           $new=Join-Path $env:LOCALAPPDATA 'NERAL/pr561-v1-77e124c98e61/NERAL-1.0-Local'
           $py='D:/neral-qlora/venv/Scripts/python.exe'
           $code=@'
-import importlib,json,traceback,os
-for name in ("neral_preview_server","neral_three_tier_runtime","neral_everyday_verified","neral_web_search","neral_adaptive_planner","neral_tir_experimental"):
-    try:
-        importlib.import_module(name)
-        print("NERAL_IMPORT_SCALAR "+json.dumps({"module":name,"ok":True}),flush=True)
-    except BaseException as e:
-        stack=traceback.extract_tb(e.__traceback__)
-        last=stack[-1] if stack else None
-        print("NERAL_IMPORT_SCALAR "+json.dumps({"module":name,"ok":False,"type":type(e).__name__,
+          import importlib,json,traceback,os
+          for name in ("neral_preview_server","neral_three_tier_runtime","neral_everyday_verified","neral_web_search","neral_adaptive_planner","neral_tir_experimental"):
+              try:
+                  importlib.import_module(name)
+                  print("NERAL_IMPORT_SCALAR "+json.dumps({"module":name,"ok":True}),flush=True)
+              except BaseException as e:
+                  stack=traceback.extract_tb(e.__traceback__)
+                  last=stack[-1] if stack else None
+                  print("NERAL_IMPORT_SCALAR "+json.dumps({"module":name,"ok":False,"type":type(e).__name__,
             "missing":getattr(e,"name",None),"module_filename":os.path.basename(last.filename) if last else None,
             "line":last.lineno if last else None}),flush=True)
-'@
+          '@
           foreach($entry in @(@{label='old';dir=$old},@{label='candidate';dir=$new})){
             if(-not(Test-Path -LiteralPath $entry.dir -PathType Container)){
               Write-Host ('NERAL_PR561_IMPORT_LOCATION '+$entry.label+' missing')
