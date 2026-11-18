@@ -39,3 +39,5 @@ jobs:
           python -m pytest -q tests/test_neral_code_loop_v2.py tests/test_neral_code_sandbox_image_v2.py tests/test_neral_three_tier_everyday.py
           python -m unittest discover -s tests -p test_neral_v2_live5_transport.py -v
           node --test tests/test_neral_code_loop_ui_v2.cjs tests/test_neral_three_tier_ui.cjs
+
+# Bounded non-code retries are now covered by the inherited everyday regression.
