@@ -273,9 +273,9 @@ _Z3_CONSTRAINT_SYSTEM = (
     "Der feste Compiler erstellt Z3, Assertions und Modellblocking; "
     "DU erzeugst ausdrücklich KEINEN ausführbaren Python-Code. "
     "EXAKTES JSON-FORMATBEISPIEL, NICHT ALS LÖSUNG ÜBERNEHMEN: "
-    "{\\\"variables\\\":[{\\\"name\\\":\\\"x\\\",\\\"min\\\":0,\\\"max\\\":1}],"
-    "\\\"constraints\\\":[{\\\"rule_id\\\":\\\"R1\\\",\\\"description\\\":\\\"x ist eins\\\", "
-    "\\\"expr\\\":\\\"x == 1\\\"}],\\\"objective\\\":\\\"count_all\\\"}. "
+    "{\"variables\":[{\"name\":\"x\",\"min\":0,\"max\":1}],"
+    "\"constraints\":[{\"rule_id\":\"R1\",\"description\":\"x ist eins\", "
+    "\"expr\":\"x == 1\"}],\"objective\":\"count_all\"}. "
     "Ersetze ALLE Beispielwerte und Regeln durch die aktuelle Aufgabe. "
     "Es darf KEIN vierter Top-Level-Schlüssel erscheinen."
 )
