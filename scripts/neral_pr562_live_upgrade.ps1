@@ -143,7 +143,9 @@ if($extra -and [string]$extra.State -eq 'Running'){
   throw 'Unexpected alternate NERAL V1 task running; refuse to alter stable service'
 }
 foreach($rel in $approved.Keys){
-  if((HashFor $rel $repo) -ne $approved[$rel]){throw "PR561 source changed: $rel"}
+  if((HashFor $rel $repo) -ne $approved[$rel]){throw "Approved candidate source changed: $rel"}
+}
+foreach($rel in $approvedPrevious.Keys){
   if((HashFor $rel $oldRoot) -ne $approvedPrevious[$rel]){throw "Original source hash drift: $rel"}
 }
 if((HashFor 'neral_preview_server.py' $oldRoot) -ne 'b8c6bbef8e14ffae09aa8294125c54592490b383'){
