@@ -1,3 +1,4 @@
+# User-approved 2026-11-18: temperature=0 plus per-rule Z3 model checks; 5/5 and Chrome still mandatory.
 # Approved live V2 retest after passing CPU and Windows static checks for general Python generation.
 # Approved V2 code/Docker failure-stage diagnostic run with identical mandatory five-case gate.
 # Approved bounded-format-retry V2 gate; all five real tasks and Chrome proof remain mandatory.
