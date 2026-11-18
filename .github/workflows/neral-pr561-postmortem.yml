@@ -1,4 +1,4 @@
-name: NERAL V1 postmortem: readonly local Python import + listener
+name: NERAL V1 postmortem readonly local Python import and listener
 on:
   pull_request:
     branches: [main]
