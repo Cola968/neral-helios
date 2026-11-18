@@ -166,6 +166,14 @@ class EverydayLiveChat(unittest.TestCase):
         result=rt.answer(turns(prompt),"Luna")
         self.assertFalse(result["verified"])
 
+    def test_legacy_limit_labels_are_not_displayed_as_model_authority(self):
+        from neral_everyday_verified import tidy_unverified_model_text
+        self.assertEqual(
+            tidy_unverified_model_text("GRENZE: Ich kann das nicht garantieren."),
+            "Hinweis: Ich kann das nicht garantieren.")
+        self.assertNotIn("Grenze:",tidy_unverified_model_text(
+            "Grenze: Ein lokales Modell kann keinen mathematischen Beweis liefern.Rechnung: 2+2=4"))
+
     def test_unrecognized_complex_question_escalates_to_unverified_helios(self):
         rt,luna,helios=runtime()
         result=rt.answer(turns("Wie viel kostet das bei 50 kWh und 30 Cent?"),"Luna")
