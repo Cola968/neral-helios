@@ -1207,7 +1207,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
         if not request.is_json:
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
-        allowed = {"tier", "prompt", "history", "force_sandbox"}
+        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
@@ -1215,8 +1215,17 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
                 payload.get("tier") not in TIERS):
             return jsonify(error="Ungültiger Luna/Terra/Helios-Modus."), 400
         try:
-            turns = _messages({key: value for key, value in payload.items()
-                               if key != "tier"})
+            web_stage = None
+            if "web_data" in payload:
+                from neral_v21_attachment_data import prepare_web_dataset
+                web_stage = prepare_web_dataset(payload["web_data"])
+            turns = _messages({"prompt": payload["prompt"],
+                               "history": payload.get("history", [])})
+            if web_stage:
+                expanded = turns[-1]["content"] + web_stage["manifest"]
+                if len(expanded.encode("utf-8")) > 6500:
+                    raise ValueError("Web data context exceeds limit")
+                turns[-1]["content"] = expanded
             augment = getattr(app, "_neral_cpu_context", None)
             if callable(augment):
                 augment(turns)
@@ -1226,8 +1235,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            result = runtime.answer(turns, payload["tier"],
-                                    force_sandbox=payload.get("force_sandbox", False))
+            result = runtime.answer(
+                turns, payload["tier"],
+                force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
+                sandbox_files=web_stage["staged_files"] if web_stage else None)
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
         except Exception as exc:
