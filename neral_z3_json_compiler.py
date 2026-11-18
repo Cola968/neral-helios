@@ -172,9 +172,12 @@ def compile_z3_json(raw: object) -> str:
         # Comments are machine-generated from validated text, never code.
         lines += [f"# {rid}: {desc}", f"rule_{rid}=({expr})",
                   f"solver.add(rule_{rid})"]
+    lines.append("rules=[" + ",".join(
+        f"({rid!r},rule_{rid})" for rid, _, _ in compiled) + "]")
+    # One trusted assertion is evaluated for EVERY rule in each found model.
     checks = [
-        f"    assert z3.is_true(m.eval(rule_{rid},model_completion=True)),{rid!r}"
-        for rid, _, _ in compiled
+        "    for rid,rule in rules:",
+        "        assert z3.is_true(m.eval(rule,model_completion=True)),rid",
     ]
     if payload["objective"] == "count_all":
         lines += [
