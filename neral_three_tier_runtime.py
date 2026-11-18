@@ -570,7 +570,46 @@ def _source_relational_equations(source: object) -> str | None:
         f"a+b+c={total}; b=a+{delta}; c=2*b. "
         "Erstelle genau diese drei sympy.Eq Bedingungen für symbolische "
         "Unbekannte und löse sie mit sympy.solve; danach assert für alle "
-        "drei ursprünglichen Gleichungen. Keine geschätzten Teilwerte."
+        "drei ursprünglichen Gleichungen. Keine geschätzten Teilwerte. "
+        "\nKOMPAKTE PYTHON-VORLAGE DIREKT AUS DER QUELLFRAGE (kein Ergebnis vorgegeben):\n"
+        "import sympy as sp\n"
+        "a,b,c=sp.symbols('a b c',integer=True)\n"
+        f"eqs=[sp.Eq(a+b+c,{total}),sp.Eq(b,a+{delta}),sp.Eq(c,2*b)]\n"
+        "rows=sp.solve(eqs,[a,b,c],dict=True)\n"
+        "assert len(rows)==1\n"
+        "sol=rows[0]\n"
+        "assert all(eq.lhs.subs(sol)==eq.rhs.subs(sol) for eq in eqs)\n"
+        f"print(f'{a}={{sol[a]}}; {b}={{sol[b]}}; {c}={{sol[c]}}')\n"
+        "Antworte mit genau einem solchen Python-Codeblock, ohne weitere Texte."
+    )
+
+
+def _source_sequential_percent_hint(source: object) -> str | None:
+    """Prepare a general source-parameterized template, never a known answer."""
+    if type(source) is not str or len(source)>4096:
+        return None
+    match=_SOURCE_SEQ_PERCENT.search(source)
+    if match is None:
+        return None
+    p,d1,d2,tax=map(int,match.groups())
+    if not (0 <= p <= 1_000_000 and 0 <= d1 <= 100
+            and 0 <= d2 <= 100 and 0 <= tax <= 100):
+        return None
+    return (
+        "\nNERAL QUELLENFORMEL SEQUENZIELLE PROZENTRECHNUNG: "
+        "Nacheinander zwei Rabatte vom jeweils reduzierten Preis abziehen, "
+        "danach Mehrwertsteuer addieren; nur ganz am Ende runden. "
+        "Nimm die folgende kurze Python-Vorlage für die AKTUELLE "
+        "Aufgabe und gib einen einzelnen Python-Codeblock zurück:\n"
+        "from decimal import Decimal, ROUND_HALF_UP\n"
+        f"p=Decimal('{p}')\n"
+        f"d1=Decimal('{d1}')/100\n"
+        f"d2=Decimal('{d2}')/100\n"
+        f"tax=Decimal('{tax}')/100\n"
+        "final=(p*(1-d1)*(1-d2)*(1+tax)).quantize("
+        "Decimal('0.01'),rounding=ROUND_HALF_UP)\n"
+        "print(f'{final:.2f}')\n"
+        "Es wird KEIN Soll-Ergebnis vorgegeben; Docker muss es berechnen."
     )
 
 
@@ -728,7 +767,8 @@ class ThreeTierRuntime:
               (_source_relational_equations(source) or "")
               if _is_relational_word_problem(source)
               else _CODE_ONLY_SYSTEM +
-                   (_source_loan_equations(source) or ""))))}]
+                   (_source_loan_equations(source) or "") +
+                   (_source_sequential_percent_hint(source) or ""))))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
         succeeded = 0
