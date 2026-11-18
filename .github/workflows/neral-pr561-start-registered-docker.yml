@@ -1,4 +1,4 @@
-name: NERAL Windows start registered Docker Desktop
+name: NERAL Windows durable registered Docker Desktop startup
 on:
   pull_request:
     branches: [main]
@@ -56,7 +56,21 @@ jobs:
           if(-not $ready -and $exe){
             $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)
             if($running.Count -eq 0){
-              Start-Process -FilePath $exe -ErrorAction Stop | Out-Null
+              $taskName='NERAL-Approved-DockerDesktop-V1V2-20261118'
+              $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+              if($null -eq $task){
+                $action=New-ScheduledTaskAction -Execute $exe -WorkingDirectory (Split-Path -Parent $exe)
+                $trigger=New-ScheduledTaskTrigger -Once -At ((Get-Date).AddYears(5))
+                $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+                $principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'User-authorized, on-demand Docker Desktop for local NERAL V1/V2 acceptance' -ErrorAction Stop | Out-Null
+              }else{
+                $registered=[string]$task.Actions[0].Execute
+                if(-not [string]::Equals([IO.Path]::GetFullPath($registered),[IO.Path]::GetFullPath($exe),[StringComparison]::OrdinalIgnoreCase)){
+                  throw 'Registered Docker launch target changed; refuse to start it'
+                }
+              }
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
               $started=$true
             }
             for($i=0;$i -lt 80;$i++){
