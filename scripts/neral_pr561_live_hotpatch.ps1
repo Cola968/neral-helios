@@ -1,3 +1,4 @@
+# User-approved full-runtime V1 live retest with optional legacy file handling.
 # User-authorized retry: missing old web modules are backed up conditionally.
 # User-approved, rollback-protected V1 live browser gate with complete source overlay.
 # Explicitly user-authorized staged V1 local 9690 acceptance: 2026-11-18
