@@ -210,6 +210,47 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("JSON wurde NICHT",str(helios.calls[1][0]))
         self.assertEqual(helios.temperatures[:2],[0.0,0.0])
 
+    def test_z3_extra_rules_key_gets_targeted_no_rules_repair(self):
+        schema={
+            "variables":[{"name":"a","min":0,"max":1}],
+            "constraints":[{"rule_id":"R1","description":"Person A erlaubt",
+                            "expr":"a == 1"}],
+            "objective":"count_all"}
+        unexpected={**schema,"rules":["Person A erlaubt"]}
+        executed=[]
+        rt,_,helios=runtime([
+            json.dumps(unexpected),json.dumps(schema),"Die Sandbox zählt eins."
+        ],lambda code:executed.append(code) or {"status":"PASSED","output":"1"})
+        out=rt._free_code_loop(
+            turns("Wie viele zulässige Schichtpläne für Person A?"),auto_from="Luna")
+        self.assertTrue(out["sandbox_executed"])
+        self.assertEqual(len(executed),1)
+        self.assertEqual(out["sandbox_attempts"],2)
+        self.assertIn("rules",str(helios.calls[1][0]))
+        self.assertIn("verboten",str(helios.calls[1][0]).casefold())
+
+    def test_fraction_equation_rejects_wrong_executed_number_then_repairs(self):
+        from neral_three_tier_runtime import _source_fraction_equation_ok
+        source="Bestimme die Lösung x der Gleichung 3/4 mal x plus 5/6 gleich 23/6."
+        self.assertFalse(_source_fraction_equation_ok(source,"11/9"))
+        self.assertTrue(_source_fraction_equation_ok(source,"4"))
+        self.assertIsNone(_source_fraction_equation_ok("Was ist der Sinn des Lebens?","4"))
+        seen=[]
+        def tool(code):
+            seen.append(code)
+            return {"status":"PASSED","output":"11/9" if len(seen)==1 else "4"}
+        rt,_,helios=runtime([
+            "\x60\x60\x60python\nprint('11/9')\n\x60\x60\x60",
+            "\x60\x60\x60python\nprint(4)\n\x60\x60\x60",
+            "Die Sandbox-Ausgabe ist 4.",
+        ], tool)
+        result=rt._free_code_loop(turns(source),auto_from="Luna")
+        self.assertEqual(len(seen),2)
+        self.assertTrue(result["sandbox_executed"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["sandbox_attempts"],2)
+        self.assertIn("Eingabegleichung",str(helios.calls[1][0]))
+
     def test_z3_prompt_trigger_words_and_normal_arithmetic_boundary(self):
         from neral_three_tier_runtime import _is_constraint_task
         for text in ("Schicht", "Dienstplan", "zuordnen", "verteilen",
