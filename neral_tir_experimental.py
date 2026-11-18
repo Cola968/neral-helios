@@ -161,7 +161,7 @@ def _run_ephemeral_python(code: str, *, staged_files: dict[str, bytes] | None = 
     total=0
     for rel,blob in staged.items():
         if (type(rel) is not str or
-                re.fullmatch(r"data/data[1-3]\\.(?:csv|json|txt)",rel) is None or
+                re.fullmatch(r"data/data[1-3]\.(?:csv|json|txt)",rel) is None or
                 type(blob) is not bytes or not 1<=len(blob)<=4*1024*1024):
             return {"status":"FAILED","error_type":"InvalidDataset","traceback":"Dataset path/type/size invalid"}
         total+=len(blob)
