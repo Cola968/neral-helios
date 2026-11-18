@@ -1,3 +1,4 @@
+# User-approved 2026-11-18: JSON-to-Z3 deterministic compiler, all-five logging, and live 5/5+Chrome retest.
 # Owner-approved live V2 retest: greedy sampling, full Z3 assertions, bounded 80s code generation, fail-closed rollback.
 # Owner-approved finite GPU diagnosis of HF incomplete outputs; five-task + browser gate stays strict.
 # Authorized isolated 503-category diagnostic live retry; unchanged five-task and Chrome gate.
