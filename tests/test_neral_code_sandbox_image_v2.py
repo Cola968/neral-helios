@@ -34,6 +34,18 @@ class DockerImageV2Contracts(TestCase):
         self.assertEqual(command[command.index("--pull")+1],"never")
         return commands
 
+    def test_overcomplex_or_syntactically_invalid_code_has_actionable_error(self):
+        over="x=0\n" + "x=x+1\n"*100 + "print(x)\n"
+        with patch("neral_tir_experimental.subprocess.run",
+                   side_effect=AssertionError("No Docker call")):
+            complex_report=_run_ephemeral_python(over)
+            syntax_report=_run_ephemeral_python("if True print(1)")
+        self.assertEqual(complex_report["status"],"FAILED")
+        self.assertEqual(complex_report["error_type"],"CodeComplexityLimit")
+        self.assertIn("384",complex_report["traceback"])
+        self.assertEqual(syntax_report["error_type"],"SyntaxError")
+        self.assertIn("line 1",syntax_report["traceback"])
+
     def test_default_legacy_sandbox_image_is_preserved(self):
         commands = self._inspect_command(enabled=False)
         self.assertEqual(commands[0][-1],"python:3.11-alpine")
