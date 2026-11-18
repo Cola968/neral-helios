@@ -1,3 +1,4 @@
+# Explicitly user-authorized staged V1 local 9690 acceptance: 2026-11-18
 param()
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
