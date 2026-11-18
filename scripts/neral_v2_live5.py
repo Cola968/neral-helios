@@ -140,6 +140,8 @@ class Live:
 def main():
     api = Live()
     completed = []
+    current_case = "session_bootstrap"
+    last_stdout = ""
     account_created = False
     cleanup = False
     password = "E2E-V2-" + secrets.token_hex(18)
@@ -156,6 +158,8 @@ def main():
         account_created = True
         api.csrf = registration["csrf"]
         for kind, question, gold in _task_cases():
+            current_case = kind
+            last_stdout = ""
             response = api.call("/api/neral/chat/three-tier",{
                 "tier":"Luna", "prompt":question, "history":[]})
             if not (response.get("verified") is False and
@@ -170,10 +174,17 @@ def main():
             if label not in response.get("text",""):
                 raise RuntimeError("Exact sandbox stdout not displayed")
             stdout = response["text"].split(label,1)[1].split("\n\n",1)[0].strip()
+            last_stdout = stdout[:220]
             _check_stdout(kind,stdout,gold)
             completed.append(kind)
     except (HTTPError, URLError, ValueError, KeyError, RuntimeError) as exc:
-        safe = {"passed":completed, "failed_type":type(exc).__name__}
+        safe = {"passed":completed, "failed_type":type(exc).__name__,
+                "failed_case":current_case}
+        if isinstance(exc, ValueError):
+            # ValueError messages originate from the local deterministic check.
+            safe["check_error"] = str(exc)[:120]
+            # Only synthetic test data was sent; stdout is bounded evidence.
+            safe["synthetic_stdout_preview"] = last_stdout
         if isinstance(exc, HTTPError):
             safe["http_status"] = exc.code
             safe["endpoint"] = exc.url.removeprefix(BASE).split("?", 1)[0]
