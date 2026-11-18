@@ -564,6 +564,8 @@ def rewrite_search_query(query: str) -> str:
         r"(?:(?:deine|die|bitte)\s+)?(?:quellen|links|belege)"
         r"(?:\s+an)?[!?.]*\s*$", "", q, flags=re.I).strip()
     q = re.sub(r"^[?!.,:;\s]+|[?!.,:;\s]+$", "", q)
+    q = re.sub(r"^(?:der|die|das|dem|den)\s+", "", q, flags=re.I)
+    q = re.sub(r"\s+(?:nachrichten|news)\s*$", "", q, flags=re.I).strip()
     if not q:
         return ""
     words = q.split()
