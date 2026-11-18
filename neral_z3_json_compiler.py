@@ -34,6 +34,38 @@ def _bad_constant(value):
     raise SchemaError("JSON enthält verbotenen numerischen Wert")
 
 
+class _CanonicalLogicalSyntax(ast.NodeTransformer):
+    """Translate only semantics-preserving Python logic sugar into Z3 calls.
+
+    Whitelist validation still runs AFTER this rewrite. No code is executed.
+    """
+    def visit_BoolOp(self, node):
+        if type(node.op) not in (ast.And, ast.Or):
+            return node
+        name = "And" if isinstance(node.op, ast.And) else "Or"
+        return ast.Call(func=ast.Name(id=name, ctx=ast.Load()),
+                        args=[self.visit(arg) for arg in node.values],
+                        keywords=[])
+
+    def visit_UnaryOp(self, node):
+        if isinstance(node.op, ast.Not):
+            return ast.Call(func=ast.Name(id="Not", ctx=ast.Load()),
+                            args=[self.visit(node.operand)], keywords=[])
+        return self.generic_visit(node)
+
+    def visit_Compare(self, node):
+        if len(node.ops) > 1:
+            items = [node.left, *node.comparators]
+            comparisons = [
+                ast.Compare(left=items[i], ops=[op], comparators=[items[i+1]])
+                for i, op in enumerate(node.ops)
+            ]
+            return ast.Call(
+                func=ast.Name(id="And", ctx=ast.Load()),
+                args=[self.visit(n) for n in comparisons], keywords=[])
+        return self.generic_visit(node)
+
+
 def _checked_expression(value: object, names: set[str]) -> str:
     if type(value) is not str or not 3 <= len(value) <= 230:
         raise SchemaError("Regelausdruck fehlt oder ist zu lang")
@@ -43,6 +75,13 @@ def _checked_expression(value: object, names: set[str]) -> str:
         raise SchemaError("Ungültiger Regelausdruck") from exc
     if sum(1 for _ in ast.walk(expression)) > 85:
         raise SchemaError("Regelausdruck zu komplex")
+    try:
+        expression = ast.fix_missing_locations(
+            _CanonicalLogicalSyntax().visit(expression))
+    except RecursionError as exc:
+        raise SchemaError("Regelausdruck zu tief verschachtelt") from exc
+    if sum(1 for _ in ast.walk(expression)) > 100:
+        raise SchemaError("Normalisierter Regelausdruck zu komplex")
 
     def type_of(n):
         if isinstance(n, ast.Name):
