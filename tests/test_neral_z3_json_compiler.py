@@ -47,8 +47,9 @@ class Compiler(unittest.TestCase):
         self.assertIn("solver=z3.Solver()",compile_z3_json(raw))
         with self.assertRaises(SchemaError):
             compile_z3_json(chr(96)*3 + "python\n" + json.dumps(sample()) + "\n" + chr(96)*3)
-        with self.assertRaises(SchemaError):
-            compile_z3_json(json.dumps(sample()) + "\nFertig.")
+        # A harmless presentation suffix is discarded, never interpreted.
+        self.assertIn("solver=z3.Solver()",
+                      compile_z3_json(json.dumps(sample()) + "\nFertig."))
 
     def test_trailing_unstructured_text_is_ignored_but_second_payload_is_rejected(self):
         raw=json.dumps(sample())
