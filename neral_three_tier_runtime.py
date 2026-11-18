@@ -705,6 +705,21 @@ class ThreeTierRuntime:
         }
 
 
+def _safe_runtime_error_code(exc: Exception) -> str:
+    """Categorize local inference failures without exposing text or stack."""
+    message = str(exc)
+    if isinstance(exc, RuntimeError) and (
+            "HF response did not finish" in message or
+            "Unclosed private model reasoning" in message or
+            "Incomplete or untrusted HF final answer" in message):
+        return "hf_generation_incomplete"
+    if "GPU memory" in message or "CUDA out of memory" in message:
+        return "gpu_memory"
+    if isinstance(exc, ValueError) and "HF context exceeded" in message:
+        return "context_exceeded"
+    return "runtime_unavailable"
+
+
 def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
     # The CUDA evaluation environment need not install the Flask preview.
     from flask import jsonify, request
@@ -752,7 +767,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             result = runtime.answer(turns, payload["tier"])
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
-        except Exception:
-            return jsonify(error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig."), 503
+        except Exception as exc:
+            # This is a bounded failure CLASSIFICATION only, not exception text.
+            # User prompts, model completions and stack traces are never returned.
+            return jsonify(
+                error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.",
+                error_code=_safe_runtime_error_code(exc)), 503
         finally:
             busy.release()
