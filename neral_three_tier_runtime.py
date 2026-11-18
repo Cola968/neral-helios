@@ -481,6 +481,70 @@ _SOURCE_SEQ_PERCENT = re.compile(
 )
 
 
+_SOURCE_TWO_YEAR_LOAN = re.compile(
+    r"(?isu)\b(?:Darlehen|Kredit)\s+von\s+(\d{1,8})\s*(?:Euro|€)\b"
+    r".{0,200}?\b(?:jedes\s+Jahr|jährlich|pro\s+Jahr)\s+mit\s+"
+    r"(\d{1,2})\s+Prozent\s+verzinst"
+    r".{0,200}?\b(?:Sondertilgung|Rückzahlung)\s+von\s+"
+    r"(\d{1,8})\s*(?:Euro|€)\b"
+)
+
+
+def _source_loan_parameters(source: object) -> tuple[int, int, int] | None:
+    if type(source) is not str or len(source)>4096:
+        return None
+    found = _SOURCE_TWO_YEAR_LOAN.search(source)
+    if found is None or not re.search(r"(?iu)\bzweiten\s+Jahr\b",source):
+        return None
+    principal, rate, repayment = map(int, found.groups())
+    if not (1 <= principal <= 100_000_000 and 0 <= rate <= 99
+            and 0 <= repayment <= principal * 2):
+        return None
+    return principal,rate,repayment
+
+
+def _source_loan_equations(source: object) -> str | None:
+    """Copy only independently parsed financial relations, not the answer."""
+    values = _source_loan_parameters(source)
+    if values is None:
+        return None
+    principal, rate, repayment = values
+    return (
+        "\nNERAL QUELLENFORMEL KREDIT (keine vorgegebene Lösung): "
+        f"P={principal}; r={rate}; T={repayment}. "
+        "Rest1=P*(1+r/100) nach dem ERSTEN Zinsjahr. "
+        "Danach zuerst T abziehen. "
+        "Rest2=(Rest1-T)*(1+r/100) nach dem ZWEITEN Zinsjahr. "
+        "Verwende Decimal für P, r, T und beide Restwerte; "
+        "prüfe die Formeln mit assert und runde NUR Rest2 am Ende "
+        "mittels quantize(Decimal('0.01'),rounding=ROUND_HALF_UP). "
+        "Das falsche Rest2=Rest1*(1+r/100)-T ist ausdrücklich zu vermeiden."
+    )
+
+
+def _source_loan_output_ok(source: object, stdout: object) -> bool | None:
+    """Reject a wrong amount for the explicitly parsed two-year loan grammar."""
+    values=_source_loan_parameters(source)
+    if values is None:
+        return None
+    if type(stdout) is not str:
+        return False
+    output = re.fullmatch(
+        r"\s*(?:Restschuld(?:\s+nach\s+(?:Jahr\s+\d+|\d+\s+Jahren?))?\s*:\s*)?"
+        r"([-+]?\d{1,10}(?:[.,]\d{1,2})?)\s*(?:Euro|€)?\s*",
+        stdout, re.I)
+    if output is None:
+        return False
+    principal,rate,repayment=values
+    r=Decimal(rate)/Decimal(100)
+    expected=((Decimal(principal)*(1+r)-Decimal(repayment))*(1+r)).quantize(
+        Decimal("0.01"),rounding=ROUND_HALF_UP)
+    try:
+        return Decimal(output[1].replace(",", ".")) == expected
+    except (ValueError,ArithmeticError):
+        return False
+
+
 def _source_relational_equations(source: object) -> str | None:
     """Transcribe source relations into equations; never calculate an answer."""
     if type(source) is not str:
@@ -663,7 +727,8 @@ class ThreeTierRuntime:
              (_RELATIONAL_EQUATIONS_SYSTEM +
               (_source_relational_equations(source) or "")
               if _is_relational_word_problem(source)
-              else _CODE_ONLY_SYSTEM)))}]
+              else _CODE_ONLY_SYSTEM +
+                   (_source_loan_equations(source) or ""))))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
         succeeded = 0
@@ -773,6 +838,25 @@ class ThreeTierRuntime:
                     ]
                     continue
             if output is not None and not constraint_mode:
+                loan_ok = _source_loan_output_ok(source, output)
+                if loan_ok is False:
+                    last_error = "Kredit-Endwert widerspricht den Quellformeln"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "LoanEquationMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Die Sandbox-Ausgabe widerspricht der zweijährigen "
+                            "Kreditrechnung. Erst Rest1=P*(1+r/100), dann "
+                            "Rest2=(Rest1-T)*(1+r/100). Verwende Decimal und "
+                            "runde nur am Ende auf Cent. Schreibe genau "
+                            "einen korrigierten Python-Codeblock ohne Text.")}
+                    ]
+                    continue
+            if output is not None and not constraint_mode:
                 percent_ok = _source_sequential_percent_ok(source, output)
                 if percent_ok is False:
                     last_error = "Rabatt- und Mehrwertsteuerfolge stimmt nicht"
@@ -809,6 +893,16 @@ class ThreeTierRuntime:
             # Only the immediately preceding failing code and bounded stderr are
             # offered as feedback. Do not accumulate huge tool transcripts.
             sympy_hint = ""
+            if (_source_loan_equations(source) is not None
+                    and "AssertionError" in last_error):
+                sympy_hint = (
+                    "KREDIT-SCHADENSDIAGNOSE: Deine interne assert-Formel war "
+                    "falsch. Die Sondertilgung erfolgt NACH dem ersten "
+                    "Zinsjahr, vor dem zweiten: "
+                    "Rest1=P*(1+r/100); Rest2=(Rest1-T)*(1+r/100). "
+                    "Übertrage exakt diese Gleichungen in Decimal-Python, "
+                    "quantize erst zum Schluss. Keine erfundenen Werte. "
+                )
             if _is_relational_word_problem(source) and "KeyError:" in last_error:
                 sympy_hint = (
                     "SymPy solve(...,dict=True) verwendet Symbol-Objekte "
