@@ -708,11 +708,13 @@ class ThreeTierRuntime:
 def _safe_runtime_error_code(exc: Exception) -> str:
     """Categorize local inference failures without exposing text or stack."""
     message = str(exc)
-    if isinstance(exc, RuntimeError) and (
-            "HF response did not finish" in message or
-            "Unclosed private model reasoning" in message or
-            "Incomplete or untrusted HF final answer" in message):
-        return "hf_generation_incomplete"
+    if isinstance(exc, RuntimeError):
+        if "HF response did not finish" in message:
+            return "hf_budget_exhausted"
+        if "Unclosed private model reasoning" in message:
+            return "hf_reasoning_unclosed"
+        if "Incomplete or untrusted HF final answer" in message:
+            return "hf_invalid_final"
     if "GPU memory" in message or "CUDA out of memory" in message:
         return "gpu_memory"
     if isinstance(exc, ValueError) and "HF context exceeded" in message:
