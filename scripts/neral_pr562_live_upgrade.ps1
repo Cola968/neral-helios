@@ -1,4 +1,4 @@
-# Explicitly user-authorized staged V1 local 9690 acceptance: 2026-11-18
+# Explicitly user-authorized staged V2 local 9690 acceptance: 2026-11-18
 param()
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -13,18 +13,18 @@ $newParent=Join-Path $env:LOCALAPPDATA ('NERAL/pr561-v1-'+$short)
 $newRoot=Join-Path $newParent 'NERAL-1.0-Local'
 $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
-  'neral_web_search.py'='d9a34976abe4824b2ef7c7ae65613b7f38ba5d40'
-  'neral_everyday_verified.py'='8f04ea7eaf624c5debddc8955012649d6ea1a276'
+  'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
+  'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
   'neral_three_tier_runtime.py'='cdac37cf34b9f12d0a996274fd59f73c93abc2f6'
   'neral_tir_experimental.py'='d6aebf27f52a05bf59027b44053cf518b64e6d72'
-  'static/neral-preview.js'='cd0d36c1224af4e6bafa33546159708c17e5d570'
+  'static/neral-preview.js'='224a691c4ff9869d9513ec18ed7d554cfa3ed079'
 }
 $approvedPrevious=[ordered]@{
-  'neral_web_search.py'='d9a34976abe4824b2ef7c7ae65613b7f38ba5d40'
-  'neral_everyday_verified.py'='8f04ea7eaf624c5debddc8955012649d6ea1a276'
+  'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
+  'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
   'neral_three_tier_runtime.py'='5796223a47c1cec0362548715a775d7731bdaec7'
   'neral_tir_experimental.py'='88fa996078cfbddda987465f4d9a994e5e7195f1'
-  'static/neral-preview.js'='77e124c98e61c54f2427269e840a21de7feee03e'
+  'static/neral-preview.js'='42dcc9338bf5701ed3d982848c3db5ebe240b0b5'
 }
 
 function HashFor([string]$rel,[string]$root) {
