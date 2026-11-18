@@ -1,3 +1,4 @@
+# Owner-approved source equation/percent + compact Z3 JSON live5 retest; exact 5/5 and Chrome gate unchanged.
 # User approved: semantic-preserving Boolean AST normalization and SymPy relational equation solver; 5/5+Chrome or rollback.
 # User-approved live rerun after strict JSON key repair and source equation consistency guard; unchanged 5/5 + Chrome gate.
 # User-approved JSON/schema/math live5 retest after 2/5 failure; rollback on any failure.
@@ -31,8 +32,8 @@ $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
   'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
   'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
-  'neral_three_tier_runtime.py'='e40990fd943021ddcfc50713d18d783b2972b4b2'
-  'neral_z3_json_compiler.py'='245197290ba896373ab48883ccbe50dddd19814e'
+  'neral_three_tier_runtime.py'='5e7ab13f37c693eaf907c9f695d71c9730534d3a'
+  'neral_z3_json_compiler.py'='8513ff6510ca5b9363b8cba5f8d0c927c6a413f9'
   'neral_tir_experimental.py'='d6aebf27f52a05bf59027b44053cf518b64e6d72'
   'static/neral-preview.js'='224a691c4ff9869d9513ec18ed7d554cfa3ed079'
 }
