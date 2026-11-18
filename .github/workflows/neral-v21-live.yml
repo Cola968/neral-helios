@@ -1,0 +1,79 @@
+name: NERAL V2.1 guarded RTX4070 universal/CSV/Chrome acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_v21_attachment_data.py'
+      - 'neral_preview_attachments.py'
+      - 'neral_preview_server.py'
+      - 'static/neral-preview.js'
+      - 'templates/neral_preview.html'
+      - 'scripts/neral_v21_live3.py'
+      - 'scripts/neral_v21_live_upgrade.ps1'
+      - 'scripts/neral_v21_browser_e2e.cjs'
+      - '.github/workflows/neral-v21-live.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  v21-rtx4070-gated:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gate physical PC changes on exact owner-approved commit
+        id: permit
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($env:GITHUB_HEAD_REF -eq 'feat/neral-v21-universal-sandbox-20261118' -and
+             $subject -eq 'ops(live): approve V2.1 on port 9690 with rollback'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V21_LOCAL_INSTALL_EXPLICITLY_APPROVED'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V21_LOCAL_INSTALL_SAFE_SKIP'
+          }
+      - uses: actions/setup-node@v4
+        if: steps.permit.outputs.run == 'true'
+        with:
+          node-version: '22'
+      - name: Parse Windows installer and V2.1 CPU/regression contracts
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=$null;$e=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_v21_live_upgrade.ps1'),[ref]$t,[ref]$e)|Out-Null
+          if(@($e).Count -gt 0){throw 'V2.1 installer PowerShell syntax invalid'}
+          & node --check scripts/neral_v21_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.1 Chrome script syntax failed'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m py_compile neral_three_tier_runtime.py neral_tir_experimental.py neral_preview_attachments.py neral_preview_server.py neral_v21_attachment_data.py scripts/neral_v21_live3.py
+          if($LASTEXITCODE -ne 0){throw 'V2.1 Python syntax failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_v21_universal.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2.1 router and force API contracts failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_v21_attachment_sandbox.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2.1 data staging contracts failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_code_loop_v2.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2 code-loop regression failed'}
+          & node --test tests/test_neral_v21_ui.cjs tests/test_neral_code_loop_ui_v2.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.1 browser API/UI contracts failed'}
+          Write-Host 'NERAL_V21_PREINSTALL_CPU_WINDOWS_GREEN'
+      - name: Deploy only owned NERAL service and prove real HF/Docker/Chrome or rollback
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v21_live_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'V2.1 real localhost acceptance failed, merge blocked'}
+          Write-Host 'NERAL_V21_LIVE_RTX4070_CHROME_HTTP200_PASS'
