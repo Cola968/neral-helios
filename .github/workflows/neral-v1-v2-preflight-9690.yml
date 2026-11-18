@@ -86,6 +86,28 @@ jobs:
               $o.csrf_available=([bool]$receipt.csrf)
             }catch{}
           }
+          $o.http_probes=@()
+          for($n=0;$n -lt 5;$n++){
+            $sample=@{home_200=$false;session_http_200=$false;three_tier=$false;levels_three=$false;
+              exception_type='';elapsed_ms=0}
+            $watch=[Diagnostics.Stopwatch]::StartNew()
+            try{
+              $sess=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $h=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 7 -WebSession $sess
+              $sample.home_200=($h.StatusCode -eq 200)
+              $s=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 7 -WebSession $sess
+              $sample.session_http_200=($s.StatusCode -eq 200)
+              if($sample.session_http_200){
+                $parsed=$s.Content|ConvertFrom-Json
+                $sample.three_tier=($parsed.three_tier_enabled -eq $true)
+                $sample.levels_three=((@($parsed.three_tier_levels) -join ',') -eq 'Luna,Terra,Helios')
+              }
+            }catch{
+              $sample.exception_type=$_.Exception.GetType().Name
+            }finally{$watch.Stop();$sample.elapsed_ms=$watch.ElapsedMilliseconds}
+            $o.http_probes+=,$sample
+          }
+          $o.established_9690_connections=@(Get-NetTCPConnection -LocalPort 9690 -State Established -ErrorAction SilentlyContinue).Count
           Write-Host ('NERAL_STAGE1_READONLY_FACTS '+($o | ConvertTo-Json -Compress -Depth 5))
           if(-not $o.gpu_rtx4070 -or -not $o.python_venv_present){throw 'Windows model environment not available'}
           Write-Host 'NERAL_STAGE1_READONLY_FINISHED'
