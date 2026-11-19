@@ -181,14 +181,14 @@ def prepare_web_dataset(entries: object) -> dict:
         if (type(title) is not str or type(snippet) is not str or
                 type(url) is not str or not 1<=len(title)<=120 or
                 len(snippet)>350 or len(url)>190 or
-                re.fullmatch(r"https://[A-Za-z0-9.-]+(?:/[^\\s]*)?",url) is None):
+                re.fullmatch(r"https://[A-Za-z0-9.-]+(?:/[^\s]*)?",url) is None):
             raise ValueError("Webtreffer enthält ungültige oder unsichere Daten")
         status=entry.get("read_status","not_requested")
         content=entry.get("content","")
         if (type(status) is not str or
                 status not in {"read","empty","unavailable","rejected","not_requested"} or
                 type(content) is not str or len(content)>3000 or
-                (status!="read" and content!="") or "\\x00" in content):
+                (status!="read" and content!="") or "\x00" in content):
             raise ValueError("Webseiteninhalt oder Lesestatus ungültig")
         safe.append({"title":title,"snippet":snippet,"url":url,
                      "read_status":status,"content":content})
@@ -201,7 +201,7 @@ def prepare_web_dataset(entries: object) -> dict:
         "pages_read":read,
         "web_pages":safe,
         "manifest":(
-            "\\nDatenquelle: /work/data/data1.json (JSON-Liste von "
+            "\nDatenquelle: /work/data/data1.json (JSON-Liste von "
             "Suchmaschinen-Treffern mit title, snippet, url, read_status "
             "und content). "+str(read)+" Seiten als gelesener Haupttext vorhanden. "
             "Nur Einträge mit read_status=read enthalten Seiteninhalt. "
