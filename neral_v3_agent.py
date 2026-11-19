@@ -149,9 +149,9 @@ def _material_parameters(question: str, facts: list[dict]):
     if type(question) is not str or type(facts) is not list:
         return None
     masses = list(re.finditer(
-        r"(?iu)(\\d+(?:[,.]\\d+)?)\\s*[- ]?\\s*Gramm\\b",question))
+        r"(?iu)(\d+(?:[,.]\d+)?)\s*[- ]?\s*Gramm\b",question))
     conversion = re.search(
-        r"(?iu)\\b1\\s*Feinunze\\s*=\\s*(\\d+(?:[,.]\\d+)?)\\s*Gramm\\b",
+        r"(?iu)\b1\s*Feinunze\s*=\s*(\d+(?:[,.]\d+)?)\s*Gramm\b",
         question)
     prices = [f for f in facts if type(f) is dict and
               f.get("unit") == "EUR/oz" and
