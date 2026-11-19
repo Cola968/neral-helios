@@ -18,6 +18,7 @@ $paths=@(
   'neral_three_tier_runtime.py',
   'neral_z3_json_compiler.py',
   'neral_tir_experimental.py',
+  'neral_docker_runtime.py',
   'neral_v21_attachment_data.py',
   'neral_preview_attachments.py',
   'neral_preview_server.py',
