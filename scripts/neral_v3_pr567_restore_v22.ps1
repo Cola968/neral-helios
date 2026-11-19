@@ -33,7 +33,10 @@ function GetV22Receipt {
     if($homeExit -eq 0 -and $apiExit -eq 0 -and $homeStatus -eq '200' -and $api -eq '200' -and
        (Test-Path -LiteralPath $body -PathType Leaf)){
       $data=Get-Content -LiteralPath $body -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-      $ok=($data.three_tier_enabled -eq $true -and $data.evidence_agent_enabled -eq $false)
+      $evidenceProperty=$data.PSObject.Properties['evidence_agent_enabled']
+      # Stable V2.2 predates this response field; absence means not V3.
+      $ok=($data.three_tier_enabled -eq $true -and
+           ($null -eq $evidenceProperty -or $evidenceProperty.Value -eq $false))
     }
     return @{ok=$ok;home=$homeStatus;api=$api}
   }finally{
