@@ -88,6 +88,20 @@ foreach($rel in $paths){
 }
 Copy-Item -LiteralPath $original -Destination $service -Force -ErrorAction Stop
 Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+# PR567 regression: a Task Scheduler start request is not proof of a durable service.
+# Observe task, listener and HTTP status after five seconds before waiting for warmup.
+Start-Sleep -Seconds 5
+$fiveSecTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+$fiveSecInfo=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+$fiveSecListeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+$fiveSecHttp=0
+try{
+  $probe=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 3
+  $fiveSecHttp=[int]$probe.StatusCode
+}catch{}
+Write-Host ('NERAL_PR567_RESTORE_AFTER_5S task='+[string]$fiveSecTask.State+
+  ' listeners='+$fiveSecListeners.Count+' http='+$fiveSecHttp+
+  ' last_result='+[int]$fiveSecInfo.LastTaskResult)
 $healthy=$false
 for($i=0;$i -lt 120;$i++){
   Start-Sleep -Seconds 1
@@ -102,5 +116,11 @@ for($i=0;$i -lt 120;$i++){
     }
   }catch{}
 }
-if(-not $healthy){throw 'Restored V2.2 code but localhost did not start: manual review required'}
+if(-not $healthy){
+  $failedTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  $failedInfo=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+  Write-Host ('NERAL_PR567_RESTORE_FAILED task='+[string]$failedTask.State+
+    ' last_result='+[int]$failedInfo.LastTaskResult)
+  throw 'Restored V2.2 code but localhost did not start: manual review required'
+}
 Write-Host ('NERAL_PR567_V22_RECOVERY_HTTP200 sha='+$head+' files='+$copied+' removed_v3='+$removed)
