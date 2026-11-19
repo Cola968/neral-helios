@@ -42,6 +42,9 @@ test("Ready NERAL-owned scheduled task is bootstrapped safely after PC reboot",(
 
 test("V2.1 installer starts only the existing user-scoped Docker Desktop before changing runtime",()=>{
   assert.match(installer,/function EnsurePinnedDockerReady/);
+  assert.match(installer,/function TestPinnedDockerImage/);
+  assert.match(installer,/\$ErrorActionPreference='Continue'/);
+  assert.match(installer,/TestPinnedDockerImage \$docker/);
   assert.match(installer,/DockerDesktop/);
   assert.match(installer,/Start-Process -FilePath \$desktopExe -ErrorAction Stop/);
   assert.match(installer,/neral-python-tools:v2/);
