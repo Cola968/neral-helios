@@ -42,6 +42,41 @@ class ProbabilityRouting(unittest.TestCase):
             self.assertFalse(_is_constraint_task(user_prompt))
 
 
+class SourceGroundedBirthdayProbability(unittest.TestCase):
+    def test_extracted_population_and_days_yield_exact_collision_probability(self):
+        from neral_three_tier_runtime import (
+            _source_birthday_probability_parameters,
+            _source_birthday_probability_expected,
+            _source_birthday_probability_ok)
+        question=("Geburtstagsparadoxon: In einer Gruppe mit genau 23 Personen, "
+                  "wie hoch ist die Wahrscheinlichkeit, dass mindestens zwei "
+                  "am gleichen Kalendertag Geburtstag haben? Nimm 365 "
+                  "gleichwahrscheinliche Geburtstage, keine Schaltjahre. "
+                  "Antwort in Prozent mit zwei Nachkommastellen.")
+        self.assertEqual(_source_birthday_probability_parameters(question),(23,365))
+        self.assertEqual(str(_source_birthday_probability_expected(question)),"50.73")
+        self.assertTrue(_source_birthday_probability_ok(question,"50,73 %"))
+        self.assertFalse(_source_birthday_probability_ok(question,"50.73"))
+        self.assertFalse(_source_birthday_probability_ok(question,"49.27 %"))
+        self.assertFalse(_source_birthday_probability_ok(question,"0.5073"))
+
+    def test_probability_uses_current_input_not_a_fixed_23_person_answer(self):
+        from neral_three_tier_runtime import (
+            _source_birthday_probability_expected,
+            _source_birthday_probability_ok)
+        question=("Geburtstagsparadoxon mit 30 Personen: Wahrscheinlichkeit, "
+                  "dass mindestens zwei am gleichen Kalendertag Geburtstag "
+                  "haben, bei 365 gleichwahrscheinlichen Geburtstagen.")
+        expected=_source_birthday_probability_expected(question)
+        self.assertIsNotNone(expected)
+        self.assertNotEqual(str(expected),"50.73")
+        self.assertFalse(_source_birthday_probability_ok(question,"50.73 %"))
+        self.assertTrue(_source_birthday_probability_ok(
+            question,f"{expected} %"))
+        self.assertIsNone(_source_birthday_probability_ok(
+            "Warum gibt es Geburtstage?", "50,73 %"))
+
+
 class SourceGroundedNightAccounting(unittest.TestCase):
     def test_source_plan_is_derived_not_hardcoded(self):
         from neral_three_tier_runtime import _source_person_nights_plan
