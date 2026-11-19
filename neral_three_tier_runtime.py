@@ -807,6 +807,79 @@ def _source_german_euro_guidance(source: object) -> str:
             if conversions else "")
 
 
+def _source_birthday_probability_parameters(source: object) -> tuple[int,int] | None:
+    """Only unambiguous collision events and explicitly stated day counts."""
+    if type(source) is not str or len(source) > 4096:
+        return None
+    if not re.search(r"(?iu)\b(?:geburtstagsparadoxon|geburtstag\w*)\b",source):
+        return None
+    if not re.search(r"(?iu)\bmindestens\s+(?:zwei|2)\b",source):
+        return None
+    group = re.search(r"(?iu)\b(\d{1,3})\s+Personen\b",source)
+    days = re.search(
+        r"(?iu)\b(\d{1,3})\s+(?:gleichwahrscheinlich\w*\s+)?"
+        r"Geburtstag\w*\b", source)
+    if not group or not days:
+        return None
+    n,d = int(group[1]), int(days[1])
+    return (n,d) if 2 <= n <= 100 and 2 <= d <= 366 else None
+
+
+def _source_birthday_probability_expected(source: object) -> Decimal | None:
+    """Exact rational collision probability, percent rounded once at the end."""
+    params = _source_birthday_probability_parameters(source)
+    if params is None:
+        return None
+    n,days = params
+    no_collision = Fraction(1,1)
+    for i in range(n):
+        no_collision *= Fraction(max(0,days-i),days)
+    collision = 1-no_collision
+    percent = (Decimal(100)*Decimal(collision.numerator) /
+               Decimal(collision.denominator))
+    return percent.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+
+
+def _source_birthday_probability_hint(source: object) -> str:
+    params = _source_birthday_probability_parameters(source)
+    if params is None:
+        return ""
+    n,days=params
+    return (
+        "\nGEBURTSTAGSKOLLISION AUS QUELLTEXT (keine Antwortvorlage): "
+        f"n={n} Personen, days={days} gleichwahrscheinliche Geburtstage. "
+        "Gesucht ist mindestens ein gemeinsamer Tag, nicht das Gegenereignis. "
+        "Schreibe in Python: from fractions import Fraction; "
+        "from decimal import Decimal, ROUND_HALF_UP; "
+        "p_no=Fraction(1,1); "
+        "for i in range(n): p_no*=Fraction(max(0,days-i),days); "
+        "p_yes=1-p_no; "
+        "pct=(Decimal(100)*Decimal(p_yes.numerator)/"
+        "Decimal(p_yes.denominator)).quantize("
+        "Decimal('0.01'),rounding=ROUND_HALF_UP); "
+        "print(f'{pct:.2f} %'). "
+        "Setze n und days aus der AUFGABE ein, NICHT vorab errechnete "
+        "Prozentzahlen; wiederhole kein Beispielergebnis."
+    )
+
+
+def _source_birthday_probability_ok(source: object, stdout: object) -> bool | None:
+    expected=_source_birthday_probability_expected(source)
+    if expected is None:
+        return None
+    if type(stdout) is not str or len(stdout) > 512:
+        return False
+    m=re.fullmatch(
+        r"(?iu)\s*(?:(?:Wahrscheinlichkeit|Ergebnis)\s*[:=]\s*)?"
+        r"(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*",stdout)
+    if m is None:
+        return False
+    try:
+        return Decimal(m[1].replace(",","."))==expected
+    except (ValueError,ArithmeticError):
+        return False
+
+
 _NAME = r"[A-ZÄÖÜ][a-zäöüß]{1,24}"
 _PERSON_NIGHTS_PRICE = re.compile(
     r"(?iu)\b(?:für|kostet|Preis\s+von)\s+"
@@ -1085,6 +1158,7 @@ class ThreeTierRuntime:
                else _CODE_ONLY_SYSTEM +
                     _source_german_euro_guidance(source) +
                     _source_person_nights_hint(source) +
+                    _source_birthday_probability_hint(source) +
                     (_source_loan_equations(source) or "") +
                     (_source_sequential_percent_hint(source) or "")))))}]
         base.extend(dict(t) for t in turns[1:])
@@ -1215,6 +1289,30 @@ class ThreeTierRuntime:
                             "mit Fraction und assert. Gib das Ergebnis als "
                             "Name=Wert für jeden Zahler aus. "
                             "Nur einen vollständigen neuen Python-Codeblock.")}
+                    ]
+                    continue
+                birthday_ok = _source_birthday_probability_ok(source, output)
+                if birthday_ok is False:
+                    last_error = "Geburtstagswahrscheinlichkeit oder Prozentformat falsch"
+                    failure_code = "source_mismatch"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "BirthdayProbabilityMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Dein Python-Programm lief, aber sein Ergebnis "
+                            "entspricht NICHT der aktuellen Geburtstagsfrage "
+                            "oder dem verlangten Prozentformat. Rechne die "
+                            "exakte Gegenwahrscheinlichkeit aller verschiedenen "
+                            "Geburtstage als Produkt mit Fraction und dann "
+                            "1 minus diese Wahrscheinlichkeit. Multipliziere "
+                            "mit 100, runde erst am Ende auf zwei "
+                            "Nachkommastellen und gib ein Prozentzeichen "
+                            "hinter dem Zahlenwert aus. Keine geratenen "
+                            "Beispielwerte und nur ein Python-Codeblock.")}
                     ]
                     continue
                 source_ok = _source_fraction_equation_ok(source, output)
