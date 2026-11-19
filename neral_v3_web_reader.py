@@ -219,3 +219,23 @@ def read_top_pages(hits: list[dict], *, max_pages: int = MAX_PAGES,
                               "text": record["text"][:MAX_PAGE_TEXT],
                               "read":True}
     return [records[i] for i in sorted(records)]
+
+
+def refetch_browser_pages(claims: list[dict], query: str, *, fetcher=None) -> list[dict]:
+    """Never accept client-asserted page content as source evidence.
+
+    The browser sends candidate URLs. This backend ignores its text and read
+    flags, performs a new pinned public TLS GET, and gives Helios only what
+    the server really read. Limits and SSRF gate remain enforced.
+    """
+    if type(claims) is not list or not 1 <= len(claims) <= 3:
+        raise ValueError("Expected one to three browser page candidates")
+    if type(query) is not str or len(query) > 4096:
+        raise ValueError("Invalid search question")
+    candidates=[]
+    for item in claims:
+        if type(item) is not dict:
+            raise ValueError("Invalid candidate")
+        candidates.append({"url":item.get("url"),
+                           "title":item.get("title","")})
+    return read_top_pages(candidates,fetcher=fetcher,query=query)
