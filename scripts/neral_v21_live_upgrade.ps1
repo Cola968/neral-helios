@@ -119,15 +119,32 @@ function WaitForOwnApp {
 }
 if(-not(Test-Path -LiteralPath $service -PathType Leaf)){throw 'Managed NERAL service missing'}
 $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-if([string]$task.State -ne 'Running' -or
-   [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
-  throw 'Unexpected scheduled task; refuse to restart'
+if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
+  throw 'Unexpected scheduled task identity; refuse to restart'
 }
 $startText=[IO.File]::ReadAllText($service)
 if($startText -notmatch 'NERAL_CODE_SANDBOX_V2' -or
    $startText -notmatch '(?i)-m\s+neral_preview_server' -or
    $startText -notmatch '--experimental-three-tier-hf'){
   throw 'Running service is not the approved V2 service'
+}
+Write-Host ('NERAL_V21_OWNED_TASK_INITIAL_STATE '+[string]$task.State)
+if([string]$task.State -ne 'Running'){
+  if([string]$task.State -ne 'Ready'){
+    throw 'NERAL task neither Running nor Ready; refuse unknown service state'
+  }
+  # After a user PC reboot the signed task may be Ready, with no listener.
+  # Start ONLY the exact previously registered NERAL service. Never touch
+  # another process or replace a task definition.
+  $otherListener=ReadOwnedListener
+  if($null -ne $otherListener){throw 'Ready task already has a port owner; preserve it'}
+  Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  WaitForOwnApp
+  $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  if([string]$task.State -ne 'Running'){
+    throw 'Owned NERAL task did not enter Running state after restart'
+  }
+  Write-Host 'NERAL_V21_RESTART_EXISTING_TASK_HTTP_200'
 }
 $before=ReadOwnedListener
 if($null -eq $before){throw 'Expected owned NERAL HTTP listener absent'}
