@@ -27,6 +27,18 @@ def question(text="Wie viel sind 2 plus 3?"):
     return [{"role":"system","content":"NERAL offline"},{"role":"user","content":text}]
 
 
+class ProbabilityRouting(unittest.TestCase):
+    def test_probability_asks_are_not_misrouted_to_z3_by_mindestens(self):
+        from neral_three_tier_runtime import _is_constraint_task, _is_free_compute_task
+        for user_prompt in (
+            "Geburtstagsparadoxon mit 23 Personen: Wahrscheinlichkeit mindestens zwei?",
+            "Wie hoch ist die Wahrscheinlichkeit für höchstens drei Treffer?",
+            "Wie groß ist die Chance von mindestens einem Fehler in 100 Tests?",
+        ):
+            self.assertTrue(_is_free_compute_task(user_prompt))
+            self.assertFalse(_is_constraint_task(user_prompt))
+
+
 class HeliosFallback(unittest.TestCase):
     def runtime(self,replies,tool):
         h=Model(replies)
