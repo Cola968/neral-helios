@@ -645,28 +645,52 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if passages:
                 compared = _is_qualitative_web_comparison(question, plan, sources)
                 if compared:
-                    left_name, right_name = _comparison_entities(question)
-                    schema = _object(left=_string(520), right=_string(520),
-                                     synthesis=_string(480),
-                                     citations=_array({"enum": list(passages)}, 6, 1))
-                    proposal = ask(
-                        WORKER + "Schreibe einen qualitativen Vergleich mit getrennten "
-                        "Feldern: left beschreibt ausschließlich das erste Vergleichsobjekt, "
-                        "right ausschließlich das zweite, synthesis fasst beide fair zusammen. "
-                        "Erfinde keine Eigenschaften oder Zahlen. Wenn Quellen eine Eigenschaft "
-                        "nicht belegen, benenne die Lücke. citations muss wörtlich belegte "
-                        "Passagenkennungen wie p1 enthalten, möglichst zu beiden Objekten. "
-                        "Nenne bei left und right Eigenschaften, nicht nur die Produktnamen.",
-                        {"question": question, "left_name": left_name,
-                         "right_name": right_name, "passages": passages,
-                         "correction": issue}, schema)
-                    if not all(_short(proposal.get(field), limit)
-                               for field, limit in (("left", 520), ("right", 520),
-                                                    ("synthesis", 480))):
-                        raise AgentError("Beide Vergleichsseiten und eine Synthese fehlen.")
-                    composed = (f"{left_name}: {proposal['left']}\n"
-                                f"{right_name}: {proposal['right']}\n"
-                                f"Vergleich: {proposal['synthesis']}")
+                    names = _comparison_entities(question)
+                    if len(names) == 2:
+                        left_name, right_name = names
+                        schema = _object(left=_string(520), right=_string(520),
+                                         synthesis=_string(480),
+                                         citations=_array({"enum": list(passages)}, 6, 1))
+                        proposal = ask(
+                            WORKER + "Vergleiche beide Gegenstände getrennt: left "
+                            "beschreibt nur left_name, right nur right_name und "
+                            "synthesis fasst Unterschiede und Gemeinsamkeiten zusammen. "
+                            "Keine erfundenen Fakten oder Zahlen. citations enthält "
+                            "wörtlich belegte Passagenkennungen p1 usw.",
+                            {"question": question, "left_name": left_name,
+                             "right_name": right_name, "passages": passages,
+                             "correction": issue}, schema)
+                        if not all(_short(proposal.get(field), limit)
+                                   for field, limit in (("left", 520),
+                                                        ("right", 520),
+                                                        ("synthesis", 480))):
+                            raise AgentError("Beide Vergleichsseiten und eine Synthese fehlen.")
+                        composed = (f"{left_name}: {proposal['left']}\n"
+                                    f"{right_name}: {proposal['right']}\n"
+                                    f"Vergleich: {proposal['synthesis']}")
+                    else:
+                        schema = _object(
+                            sides=_array(_object(entity={"enum": list(names)},
+                                                 details=_string(520)), 4, len(names)),
+                            synthesis=_string(480),
+                            citations=_array({"enum": list(passages)}, 6, 1))
+                        proposal = ask(
+                            WORKER + "Beschreibe jedes der genannten Vergleichsobjekte "
+                            "genau einmal mit belegten Eigenschaften in sides. "
+                            "Füge eine faire synthesis und wörtliche citations hinzu.",
+                            {"question": question, "entities": names,
+                             "passages": passages, "correction": issue}, schema)
+                        sides = proposal.get("sides")
+                        if (not isinstance(sides, list) or len(sides) != len(names) or
+                                set(row.get("entity") for row in sides
+                                    if isinstance(row, dict)) != set(names) or
+                                not all(isinstance(row, dict) and
+                                        _short(row.get("details"), 520) for row in sides) or
+                                not _short(proposal.get("synthesis"), 480)):
+                            raise AgentError("Vergleichsseiten sind unvollständig.")
+                        ordered = {row["entity"]: row["details"] for row in sides}
+                        composed = ("\n".join(f"{name}: {ordered[name]}" for name in names)
+                                    + "\nVergleich: " + proposal["synthesis"])
                 else:
                     schema = _object(answer=_string(1800),
                                      citations=_array({"enum": list(passages)}, 6, 1))
