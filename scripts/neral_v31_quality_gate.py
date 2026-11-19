@@ -259,6 +259,13 @@ def summarize(cases, rows):
     lookup = {row.get("id"): row for row in rows if isinstance(row, dict)}
     if len(lookup) != TOTAL or set(lookup) != {c["id"] for c in cases}:
         raise ValueError("Missing or duplicate case IDs")
+    for case in cases:
+        item = lookup[case["id"]]
+        if (item.get("question_sha256") != case["question_sha256"] or
+                item.get("category") != case["category"] or
+                type(item.get("passed")) is not bool or
+                type(item.get("critical_unverified")) is not bool):
+            raise ValueError("Score row disagrees with the frozen case manifest")
     cats = {
         name: {"n": 20, "passed": sum(r["passed"] is True for r in rows
                                       if r["category"] == name)}
