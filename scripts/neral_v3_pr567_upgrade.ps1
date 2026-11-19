@@ -110,9 +110,13 @@ function StopOwnedTask([string]$name,[string]$expectedService){
     if($childNow){
       if([string]$childNow.CreationDate -ne [string]$live.child.CreationDate -or
          [string]$childNow.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
-        throw 'NERAL child identity changed after parent stop'
+        # The former child exited and Windows may have recycled its PID.
+        # Never kill a different process. Only proceed if 9690 is free.
+        $remaining=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+        if($remaining.Count -gt 0){throw 'NERAL child identity changed while port still in use'}
+      }else{
+        Stop-Process -Id ([int]$live.child.ProcessId) -Force -ErrorAction Stop
       }
-      Stop-Process -Id ([int]$live.child.ProcessId) -Force -ErrorAction Stop
     }
   }
   for($i=0;$i -lt 12;$i++){
@@ -130,13 +134,13 @@ function GetLocalSessionViaCurl {
   $jar=$prefix+'.cookies'; $body=$prefix+'.json'
   try {
     $ErrorActionPreference='Continue'
-    $home=@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 10 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+    $homepageStatus=@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 10 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
     $homeExit=$LASTEXITCODE
     $api=@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 10 --cookie-jar $jar --cookie $jar --output $body --write-out '%{http_code}' 'http://127.0.0.1:9690/api/neral/preview/session' 2>$null)
     $apiExit=$LASTEXITCODE
     $ErrorActionPreference='Stop'
     if($homeExit -ne 0 -or $apiExit -ne 0 -or
-       ($home -join '').Trim() -ne '200' -or ($api -join '').Trim() -ne '200' -or
+       ($homepageStatus -join '').Trim() -ne '200' -or ($api -join '').Trim() -ne '200' -or
        -not(Test-Path -LiteralPath $body -PathType Leaf)){return $null}
     $session=Get-Content -LiteralPath $body -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
     if($session.three_tier_enabled -ne $true -or
