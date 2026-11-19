@@ -135,8 +135,10 @@ jobs:
           & .\scripts\neral_v3_pr567_upgrade.ps1
           if($LASTEXITCODE -ne 0){throw 'V3 main deployment failed; rollback required'}
           $resp=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 8
-          $session=Invoke-RestMethod -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 8
-          if($resp.StatusCode -ne 200 -or $session.evidence_agent_enabled -ne $true){
+          $cookies=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          $home=Invoke-WebRequest -UseBasicParsing -WebSession $cookies -Uri 'http://127.0.0.1:9690/' -TimeoutSec 8
+          $session=Invoke-RestMethod -WebSession $cookies -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 8
+          if($home.StatusCode -ne 200 -or $session.evidence_agent_enabled -ne $true){
             throw 'V3 main HTTP200 and active-agent proof missing'
           }
           Write-Host ('NERAL_V3_PR567_MERGED_MAIN_HTTP_200 sha='+(& git rev-parse HEAD).Trim())
