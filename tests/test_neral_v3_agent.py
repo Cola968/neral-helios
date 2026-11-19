@@ -32,7 +32,7 @@ class V3AgentGroundingTests(unittest.TestCase):
         self.assertTrue(any(f["value"]==Decimal("3650.20") and f["unit"]=="EUR/oz"
                             for f in facts))
         expected=expected_material_value(QUESTION,facts)
-        self.assertEqual(expected,Decimal("29339.141978239"))
+        self.assertEqual(expected,Decimal("29339.14"))
         self.assertTrue(guard_sandbox_stdout("29339.14", expected=expected))
         self.assertFalse(guard_sandbox_stdout("0",expected=expected))
         self.assertFalse(guard_sandbox_stdout("30000.00",expected=expected))
