@@ -121,22 +121,47 @@ function StopOwnedTask([string]$name,[string]$expectedService){
   }
   throw 'Owned NERAL process did not release port 9690'
 }
-function WaitForOwnApp {
-  for($i=0;$i -lt 180;$i++){
-    Start-Sleep -Seconds 1
-    try{
-      $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-      $h=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 5
-      $a=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 8
-      $receipt=$a.Content | ConvertFrom-Json
-      if($h.StatusCode -eq 200 -and $a.StatusCode -eq 200 -and
-         $receipt.three_tier_enabled -eq $true -and
-         (@($receipt.three_tier_levels) -join ',') -eq 'Luna,Terra,Helios'){
-        return
+function GetLocalSessionViaCurl {
+  # On the owned Windows runner, curl's cookie jar passes the real Flask
+  # session handshake while PowerShell WebSession incorrectly returns 403.
+  # Never echo session contents or the CSRF token into GitHub Actions logs.
+  $curl=(Get-Command curl.exe -ErrorAction Stop).Source
+  $prefix=Join-Path $env:TEMP ('neral-pr567-'+[guid]::NewGuid().ToString('N'))
+  $jar=$prefix+'.cookies'; $body=$prefix+'.json'
+  try {
+    $ErrorActionPreference='Continue'
+    $home=@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 10 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+    $homeExit=$LASTEXITCODE
+    $api=@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 10 --cookie-jar $jar --cookie $jar --output $body --write-out '%{http_code}' 'http://127.0.0.1:9690/api/neral/preview/session' 2>$null)
+    $apiExit=$LASTEXITCODE
+    $ErrorActionPreference='Stop'
+    if($homeExit -ne 0 -or $apiExit -ne 0 -or
+       ($home -join '').Trim() -ne '200' -or ($api -join '').Trim() -ne '200' -or
+       -not(Test-Path -LiteralPath $body -PathType Leaf)){return $null}
+    $session=Get-Content -LiteralPath $body -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    if($session.three_tier_enabled -ne $true -or
+       (@($session.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){return $null}
+    $v3=($null -ne $session.PSObject.Properties['evidence_agent_enabled'] -and
+         $session.evidence_agent_enabled -eq $true)
+    # Return only a Boolean receipt, never the auth cookie or CSRF token.
+    return @{three_tier=$true;v3=$v3}
+  }catch{
+    return $null
+  }finally{
+    $ErrorActionPreference='Stop'
+    foreach($file in @($jar,$body)){
+      if(Test-Path -LiteralPath $file -PathType Leaf){
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
       }
-    }catch{}
+    }
   }
-  throw 'NERAL local homepage/API did not return HTTP 200 and expected modes'
+}
+function WaitForOwnApp {
+  for($i=0;$i -lt 150;$i++){
+    Start-Sleep -Seconds 1
+    if($null -ne (GetLocalSessionViaCurl)){return $true}
+  }
+  throw 'NERAL homepage and Flask API did not return verified HTTP 200'
 }
 function TestPinnedDockerImage([string]$docker) {
   # A stopped Docker engine is an expected negative readiness result.
@@ -304,15 +329,10 @@ try{
       ([System.Text.UTF8Encoding]::new($false)))
   }
   Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-  WaitForOwnApp
-  # The session endpoint is cookie-protected. Establish a real same-origin
-  # browser-like session first; probing it without the homepage cookie is a
-  # false negative even when the upgraded service is healthy.
-  $proofSession=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-  $proofHome=Invoke-WebRequest -UseBasicParsing -WebSession $proofSession -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
-  $s=Invoke-RestMethod -WebSession $proofSession -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 12
-  if($proofHome.StatusCode -ne 200 -or $s.evidence_agent_enabled -ne $true){
-    throw 'Port 9690 did not serve a working V3 session'
+  WaitForOwnApp | Out-Null
+  $receipt=GetLocalSessionViaCurl
+  if($null -eq $receipt -or $receipt.v3 -ne $true){
+    throw 'Port 9690 does not run V3 with authenticated HTTP 200'
   }
   $after=ReadOwnedListener
   if($null -eq $after -or
@@ -353,7 +373,11 @@ try{
       }
       Copy-Item -LiteralPath $serviceBackup -Destination $service -Force -ErrorAction Stop
       Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-      WaitForOwnApp
+      WaitForOwnApp | Out-Null
+      $restored=GetLocalSessionViaCurl
+      if($null -eq $restored -or $restored.v3 -eq $true){
+        throw 'Rollback did not restore the V2.2 local session'
+      }
       Write-Host 'NERAL_V3_PR567_ROLLBACK_HTTP_200'
     }catch{
       $failure=[string]$_.Exception.Message
