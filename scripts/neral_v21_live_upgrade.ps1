@@ -120,6 +120,42 @@ function WaitForOwnApp {
   }
   throw 'NERAL local homepage/API did not return HTTP 200 and expected modes'
 }
+function EnsurePinnedDockerReady {
+  # The Docker client and Desktop binary must belong to the SAME existing
+  # user-scoped DockerDesktop install. No downloads, installs or system services.
+  $expectedCli=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/resources/bin/docker.exe'
+  $desktopExe=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/Docker Desktop.exe'
+  $command=Get-Command docker.exe -ErrorAction Stop
+  $docker=[string]$command.Source
+  if(([IO.Path]::GetFullPath($docker)) -ine
+     ([IO.Path]::GetFullPath($expectedCli)) -or
+     -not(Test-Path -LiteralPath $desktopExe -PathType Leaf)){
+    throw 'Unrecognized Docker Desktop installation; no local changes'
+  }
+  & $docker image inspect neral-python-tools:v2 *> $null
+  if($LASTEXITCODE -ne 0){
+    $existing=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)
+    if($existing.Count -eq 0){
+      Start-Process -FilePath $desktopExe -ErrorAction Stop
+      Write-Host 'NERAL_V21_EXISTING_DOCKER_DESKTOP_START_REQUESTED'
+    }
+    $ready=$false
+    for($i=0;$i -lt 75;$i++){
+      Start-Sleep -Seconds 2
+      & $docker image inspect neral-python-tools:v2 *> $null
+      if($LASTEXITCODE -eq 0){$ready=$true;break}
+    }
+    if(-not $ready){
+      throw 'Docker Desktop engine or existing solver image unavailable; V2.0 preserved'
+    }
+  }
+  $probe=@(& $docker run --rm --pull never --network none --read-only --memory 256m --cpus 0.5 --pids-limit 32 neral-python-tools:v2 python -B -c 'import sympy,z3;print(7*8)' 2>$null)
+  if($LASTEXITCODE -ne 0 -or ($probe -join '').Trim() -ne '56'){
+    throw 'Existing offline Docker solver did not execute; no V2.1 installation'
+  }
+  Write-Host 'NERAL_V21_DOCKER_PINNED_READY'
+}
+
 if(-not(Test-Path -LiteralPath $service -PathType Leaf)){throw 'Managed NERAL service missing'}
 $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
 if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
@@ -151,6 +187,8 @@ if([string]$task.State -ne 'Running'){
 }
 $before=ReadOwnedListener
 if($null -eq $before){throw 'Expected owned NERAL HTTP listener absent'}
+# Verify local offline Docker BEFORE copying/stopping any V2.1 runtime files.
+EnsurePinnedDockerReady
 $changes=@()
 foreach($rel in $paths){
   $repoHash=(HashFor $rel $repo)
