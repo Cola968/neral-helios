@@ -291,9 +291,16 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                                     max_prompt_bytes=MAX_AUGMENTED_PROMPT)
                     turns[0]["content"]=build_identity_prompt(
                         "web","local_neral_lora_experimental")
-                    result=three_tier_runtime.answer(
-                        turns,tier,force_sandbox=True,
-                        sandbox_files=prepared["staged_files"])
+                    import os
+                    if os.environ.get("NERAL_V3_AGENT") == "1":
+                        from neral_v3_runtime import answer_v3
+                        result=answer_v3(three_tier_runtime,turns,tier,
+                            sandbox_files=prepared["staged_files"],
+                            force_sandbox=True)
+                    else:
+                        result=three_tier_runtime.answer(
+                            turns,tier,force_sandbox=True,
+                            sandbox_files=prepared["staged_files"])
                     return jsonify({**result,"runtime_tier_verified":True,
                         "attachments":[{"name":n,"kind":"dataset","truncated":False}
                                        for n,_,_ in incoming],
