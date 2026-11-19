@@ -134,6 +134,9 @@ async function main(){
             "page_read_count:Array.isArray(d.sources)?d.sources.filter(s=>s.page_read===true).length:0,"+
             "source_hosts:Array.isArray(d.sources)?d.sources.map(s=>{try{return new URL(s.url).hostname}catch{return ''}}):[],"+
             "verified:d.verified===true,agent_attempts:d.agent_attempts||0,"+
+            "review_failure_hint:d.agent_checked===false&&typeof d.text==='string'&&"+
+              "d.text.startsWith('Ich konnte die Aufgabe nicht vollständig absichern.')?"+
+              "d.text.slice(51,201).replace(/[^\\p{L}\\p{N} .,:;!?()\\-]/gu,''):null,"+
             "source_citation:typeof d.text==='string'&&/\\[web\\d+\\]/i.test(d.text),"+
             "has_z3_line:typeof d.text==='string'&&/Z3:/i.test(d.text),"+
             "has_missing_source:typeof d.text==='string'&&/Keine lesbare Webseite|Kein belegter Wert/i.test(d.text),"+
@@ -156,6 +159,11 @@ async function main(){
         return data?.length?data.at(-1):null;
       },20000);
       check(network.status===200,label+": real local API HTTP "+network.status);
+      if(network.agent_checked!==true){
+        out.checker_diagnostic={task:label,attempts:network.agent_attempts,
+          readable_pages:network.page_read_count,source_hosts:network.source_hosts,
+          agent_steps:network.agent_steps,review_failure_hint:network.review_failure_hint};
+      }
       check(network.agent_checked===true,label+": agent checker rejected real answer");
       check(network.verified===false,label+": model checker incorrectly promoted to proof");
       return {ui,network};
