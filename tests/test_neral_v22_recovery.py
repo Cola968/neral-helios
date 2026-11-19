@@ -42,6 +42,55 @@ class ProbabilityRouting(unittest.TestCase):
             self.assertFalse(_is_constraint_task(user_prompt))
 
 
+class SourceGroundedNightAccounting(unittest.TestCase):
+    def test_source_plan_is_derived_not_hardcoded(self):
+        from neral_three_tier_runtime import _source_person_nights_plan
+        user_prompt=("Drei Freundinnen mieten gemeinsam eine Berghütte für 1.260 €. "
+            "Nora übernachtet dort die vollen 6 Nächte, Kim reist nach 4 Nächten "
+            "wieder ab, und Pia kommt erst zur Hälfte der Zeit dazu, bringt aber "
+            "für ihre letzten 2 Nächte noch ihren Bruder mit. Alle Übernachtungsplätze "
+            "kosten pro Person und Nacht exakt gleich viel. Wie viel zahlt jede "
+            "der drei Freundinnen (Pia inklusive ihres Bruders)?")
+        plan=_source_person_nights_plan(user_prompt)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["nights"],{"Nora":6,"Kim":4,"Pia":3,"Bruder":2})
+        self.assertEqual(plan["total_nights"],15)
+        self.assertEqual(plan["shares"]["Nora"],504)
+        self.assertEqual(plan["shares"]["Kim"],336)
+        self.assertEqual(plan["shares"]["Pia"],420)
+
+    def test_same_grammar_with_different_names_nights_and_price(self):
+        from neral_three_tier_runtime import _source_person_nights_plan
+        prompt=("Drei Freunde mieten gemeinsam eine Hütte für 1.400 €. "
+            "Eva übernachtet dort die vollen 6 Nächte, Leo reist nach 3 Nächten "
+            "wieder ab, und Mia kommt erst zur Hälfte der Zeit dazu, bringt aber "
+            "für ihre letzten 2 Nächte noch ihren Bruder mit. "
+            "Wie viel zahlt jede Person (Mia inklusive ihres Bruders)?")
+        plan=_source_person_nights_plan(prompt)
+        self.assertEqual(plan["total_nights"],14)
+        self.assertEqual(plan["shares"],{"Eva":600,"Leo":300,"Mia":500})
+        self.assertIsNone(_source_person_nights_plan(
+            "Eine Berghütte kostet 900 €. Drei Gäste sind dort."))
+
+    def test_rejects_executed_output_that_disagrees_with_original_person_nights(self):
+        from neral_three_tier_runtime import (
+            _source_person_nights_plan, _source_person_nights_output_ok)
+        q=("Drei Freundinnen mieten gemeinsam eine Berghütte für 1.260 €. "
+           "Nora übernachtet dort die vollen 6 Nächte, Kim reist nach 4 Nächten "
+           "wieder ab, und Pia kommt erst zur Hälfte der Zeit dazu, bringt aber "
+           "für ihre letzten 2 Nächte noch ihren Bruder mit. "
+           "Pia inklusive ihres Bruders.")
+        self.assertIsNotNone(_source_person_nights_plan(q))
+        self.assertFalse(_source_person_nights_output_ok(
+            q,"Nora=420; Kim=420; Pia=420"))
+        self.assertFalse(_source_person_nights_output_ok(
+            q,"Nora=252; Kim=420; Pia=588"))
+        self.assertTrue(_source_person_nights_output_ok(
+            q,"Nora=504; Kim=336; Pia=420"))
+        self.assertIsNone(_source_person_nights_output_ok(
+            "Warum glitzern Sterne?", "Nora=504; Kim=336; Pia=420"))
+
+
 class LocaleAndOvernightHints(unittest.TestCase):
     def test_german_euro_thousands_separator_not_misread_as_decimal(self):
         from neral_three_tier_runtime import _source_german_euro_guidance
