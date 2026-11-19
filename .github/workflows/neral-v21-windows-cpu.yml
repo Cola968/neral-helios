@@ -28,6 +28,17 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+      - name: Read-only installer PowerShell parser diagnostics
+        run: |
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $env:GITHUB_WORKSPACE 'scripts/neral_v21_live_upgrade.ps1'),
+            [ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -gt 0){
+            foreach($issue in @($errors)){Write-Host ('NERAL_V21_PS_PARSE_LINE '+$issue.Extent.StartLineNumber+' '+$issue.Message)}
+            throw 'Installer PowerShell parser returned errors'
+          }
+          Write-Host 'NERAL_V21_INSTALLER_PS_PARSE_GREEN'
       - name: Assert V2.1 source syntax and old/new CPU behavior only
         run: |
           $ErrorActionPreference='Stop'
