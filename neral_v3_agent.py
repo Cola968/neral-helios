@@ -301,7 +301,7 @@ def run_v3_web_agent(runtime, turns: list[dict], tier: str, pages: list[dict]) -
             raw=runtime.helios.respond_chat([
                 {"role":"system","content":instructions},
                 {"role":"user","content":question},
-            ],max_new_tokens=384,temperature=0.0,max_time_seconds=80.0)
+            ],max_new_tokens=256,temperature=0.0)
         except (RuntimeError,ValueError):
             break
         plan=plan_request(question,raw,has_web=True)
@@ -414,7 +414,7 @@ def run_v3_local_agent(runtime, turns: list[dict], tier: str) -> dict | None:
             raw=runtime.helios.respond_chat([
                 {"role":"system","content":planner_system},
                 {"role":"user","content":question},
-            ],max_new_tokens=384,temperature=0.0,max_time_seconds=80.0)
+            ],max_new_tokens=256,temperature=0.0)
         except (RuntimeError,ValueError):
             break
         plan=plan_request(question,raw,has_web=False)
@@ -457,7 +457,7 @@ def run_v3_local_agent(runtime, turns: list[dict], tier: str) -> dict | None:
                         "\"missing\":[]}. Keine Fakten hinzuerfinden.")},
                     {"role":"user","content":"FRAGE:\n"+question+
                      "\nUNGEPRÜFTER MODELLENTWURF:\n"+raw_answer[:1000]},
-                ],max_new_tokens=256,temperature=0.0,max_time_seconds=80.0)
+                ],max_new_tokens=256,temperature=0.0)
                 data=json.loads(review)
                 checked=(type(data) is dict and
                          data.get("complete") is True and
