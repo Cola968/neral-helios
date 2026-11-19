@@ -241,7 +241,7 @@ if(-not $hasEnforcer){
   $ErrorActionPreference='Stop'
   if($pipExit -ne 0){throw 'V3 isolated JSON enforcer wheel installation failed; service unchanged'}
   $ErrorActionPreference='Continue'
-  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")' 2>$null
+  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")'
   $probeExit=$LASTEXITCODE
   $ErrorActionPreference='Stop'
   if($probeExit -ne 0){throw 'V3 isolated dependency import failed; service unchanged'}
