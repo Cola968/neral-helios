@@ -13,6 +13,7 @@ import re
 import unicodedata
 from urllib.parse import urlsplit
 from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url, is_fresh_news_query
+from neral_v3_web_reader import read_top_pages
 
 
 def register_web_search_api(app, service=None):
@@ -235,6 +236,30 @@ def register_web_search_api(app, service=None):
                 "provider":result_provider,
                 "providers_contacted":list(contacted)}
 
+    def enrich_with_read_pages(result: dict, on_page=None) -> dict:
+        """Only the three top provider-discovered HTTPS pages, in parallel.
+
+        Failed or blocked reads keep the original search result intact, with
+        explicit read_status. 'reachable' remains only a prior URL check.
+        """
+        candidates = result.get("previews") or result.get("results") or []
+        page_reads = read_top_pages(candidates, limit=3)
+        by_url = {row["url"]: row for row in page_reads}
+        def enriched(row):
+            match = by_url.get(row.get("url"))
+            if match is None:
+                return {**row, "read_status": "not_requested", "content": ""}
+            return {**row, "read_status": match["read_status"],
+                    "content": match["content"]}
+        if on_page:
+            for page in page_reads:
+                on_page({"url": page["url"], "read_status": page["read_status"]})
+        return {**result,
+                "results": [enriched(row) for row in result.get("results", [])],
+                "previews": [enriched(row) for row in result.get("previews", [])],
+                "pages_read": sum(x["read_status"] == "read" for x in page_reads),
+                "read_scope": "bounded_https_html_main_text"}
+
     @app.post("/api/web/search/stream")
     def web_search_stream():
         """NDJSON stream of real contacted providers and verified source hits.
@@ -245,7 +270,9 @@ def register_web_search_api(app, service=None):
         if not request.is_json:
             return jsonify(error="Nur JSON erlaubt."), 415
         data = request.get_json(silent=True)
-        if (not isinstance(data, dict) or set(data) != {"query", "verify_links"}
+        if (not isinstance(data, dict) or not {"query", "verify_links"} <= set(data)
+            or not set(data) <= {"query", "verify_links", "read_pages"}
+            or ("read_pages" in data and type(data["read_pages"]) is not bool)
             or data.get("verify_links") is not True
             or not isinstance(data.get("query"), str)
             or not 2 <= len(data["query"].strip()) <= 160
@@ -266,6 +293,10 @@ def register_web_search_api(app, service=None):
                     on_provider=lambda name: emit({"type": "provider", "name": name}),
                     on_source=lambda source: emit({"type": "source", "source": source}),
                     on_candidate=lambda source: emit({"type": "candidate", "source": source}))
+                if data.get("read_pages") is True:
+                    emit({"type": "status", "state": "reading"})
+                    verified = enrich_with_read_pages(verified,
+                        on_page=lambda source: emit({"type": "page", "source": source}))
                 emit({"type": "result", "result": verified})
             except (WebSearchInputError, WebSearchRateLimitError):
                 emit({"type": "error", "message": "Websuche konnte nicht ausgeführt werden."})
@@ -340,13 +371,17 @@ def register_web_search_api(app, service=None):
             return jsonify(error="Nur JSON erlaubt."), 415
         data = request.get_json(silent=True)
         if (not isinstance(data, dict) or "query" not in data or
-                not set(data).issubset({"query", "verify_links"}) or
-                ("verify_links" in data and data["verify_links"] is not True)):
+                not set(data).issubset({"query", "verify_links", "read_pages"}) or
+                ("verify_links" in data and data["verify_links"] is not True) or
+                ("read_pages" in data and type(data["read_pages"]) is not bool) or
+                (data.get("read_pages") is True and data.get("verify_links") is not True)):
             return jsonify(error="Nur ein expliziter Suchbegriff ist erlaubt."), 400
         try:
             result = search.search(data["query"])
             if data.get("verify_links") is True:
                 result = verified_with_fallback(result, data["query"])
+            if data.get("read_pages") is True:
+                result = enrich_with_read_pages(result)
             return jsonify(result)
         except WebSearchInputError as exc:
             return jsonify(error=str(exc)), 400
