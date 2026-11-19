@@ -509,17 +509,45 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             worker_data = {"numbers": numeric_evidence} if plan["tool"] == "python_sandbox" else {"evidence": evidence}
             passages = _passages(evidence, web_query or question) if plan["tool"] == "direct_reasoning" and external else {}
             if passages:
-                schema = _object(answer=_string(1800), citations=_array({"enum": list(passages)}, 6, 1))
-                proposal = ask(WORKER + "Beantworte die Frage mit den Auszügen. citations enthält ausschließlich Kennungen wie p1. "
-                               "Bei einem Vergleich stelle die Funktionen mit ihrem jeweils belegten Zweck gegenüber. "
-                               "Wenn die Quelle sie einzeln beschreibt, kennzeichne die Gegenüberstellung als deine Zusammenfassung. "
-                               "Nutze mehrere verschiedene, konkrete Belege.",
-                               {"question": question, "passages": passages, "correction": issue}, schema)
+                compared = _is_qualitative_web_comparison(question, plan, sources)
+                if compared:
+                    left_name, right_name = _comparison_entities(question)
+                    schema = _object(left=_string(520), right=_string(520),
+                                     synthesis=_string(480),
+                                     citations=_array({"enum": list(passages)}, 6, 1))
+                    proposal = ask(
+                        WORKER + "Schreibe einen qualitativen Vergleich mit getrennten "
+                        "Feldern: left beschreibt ausschließlich das erste Vergleichsobjekt, "
+                        "right ausschließlich das zweite, synthesis fasst beide fair zusammen. "
+                        "Erfinde keine Eigenschaften oder Zahlen. Wenn Quellen eine Eigenschaft "
+                        "nicht belegen, benenne die Lücke. citations muss wörtlich belegte "
+                        "Passagenkennungen wie p1 enthalten, möglichst zu beiden Objekten. "
+                        "Nenne bei left und right Eigenschaften, nicht nur die Produktnamen.",
+                        {"question": question, "left_name": left_name,
+                         "right_name": right_name, "passages": passages,
+                         "correction": issue}, schema)
+                    if not all(_short(proposal.get(field), limit)
+                               for field, limit in (("left", 520), ("right", 520),
+                                                    ("synthesis", 480))):
+                        raise AgentError("Beide Vergleichsseiten und eine Synthese fehlen.")
+                    composed = (f"{left_name}: {proposal['left']}\n"
+                                f"{right_name}: {proposal['right']}\n"
+                                f"Vergleich: {proposal['synthesis']}")
+                else:
+                    schema = _object(answer=_string(1800),
+                                     citations=_array({"enum": list(passages)}, 6, 1))
+                    proposal = ask(
+                        WORKER + "Beantworte die Frage mit den Auszügen. "
+                        "citations enthält ausschließlich Kennungen wie p1. "
+                        "Benutze wörtliche Quellenbelege für jede wesentliche Aussage.",
+                        {"question": question, "passages": passages,
+                         "correction": issue}, schema)
+                    composed = proposal.get("answer")
                 selected = proposal.get("citations")
                 if not isinstance(selected, list) or not selected or len(selected) > 6 or any(
                         not isinstance(key, str) or key not in passages for key in selected):
                     raise AgentError("Gültige Belegkennung fehlt.")
-                packet = {"answer": proposal.get("answer"), "citations": [
+                packet = {"answer": composed, "citations": [
                     {"source": passages[key][0], "quote": passages[key][1]} for key in dict.fromkeys(selected)
                 ]}
             else:
