@@ -42,6 +42,27 @@ class ProbabilityRouting(unittest.TestCase):
             self.assertFalse(_is_constraint_task(user_prompt))
 
 
+class LocaleAndOvernightHints(unittest.TestCase):
+    def test_german_euro_thousands_separator_not_misread_as_decimal(self):
+        from neral_three_tier_runtime import _source_german_euro_guidance
+        hint=_source_german_euro_guidance(
+            "Die Berghütte kostet 1.260 € für alle Gäste zusammen.")
+        self.assertIn("1.260",hint)
+        self.assertIn("1260",hint)
+        self.assertNotIn("1.26 Euro",hint)
+        self.assertEqual(_source_german_euro_guidance("200 € kosten die Zimmer."),"")
+
+    def test_generic_person_night_hint_is_provided_before_helios_code(self):
+        from neral_three_tier_runtime import _source_person_nights_hint
+        hint=_source_person_nights_hint(
+            "Eine Berghütte kostet 1.260 €. Nora bleibt 6 Nächte, "
+            "Kim 4, Pia 3 und ihr Bruder 2 Nächte.")
+        self.assertIn("Personennächte",hint)
+        self.assertIn("Zusatzgäste",hint)
+        self.assertIn("Gesamtpreis",hint)
+        self.assertNotIn("504",hint)  # no answer hard-coding
+
+
 class HeliosFallback(unittest.TestCase):
     def runtime(self,replies,tool):
         h=Model(replies)
