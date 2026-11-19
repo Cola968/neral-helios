@@ -16,14 +16,14 @@ _PRICE_PER_OZ = re.compile(
 )
 _PRICE_UNIT_FIRST = re.compile(
     r"(?iu)\b(?:Feinunze|Unze|oz)\b.{0,35}?"
-    r"(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR|Euro)\b"
+    r"(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR\b|Euro\b)"
 )
 _PRICE_SYMBOL_FIRST = re.compile(
     r"(?iu)\b(?:Feinunze|Unze|oz)\b.{0,35}?"
     r"(?:€|EUR|Euro)\s*(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\b"
 )
 _CURRENCY = re.compile(
-    r"(?iu)(?<!\w)(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR|Euro)\b"
+    r"(?iu)(?<!\w)(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR\b|Euro\b)"
 )
 _NUMERIC_REQUEST = re.compile(
     r"(?iu)\b(?:rechn\w*|berechn\w*|kost\w*|preis\w*|wert\w*|"
