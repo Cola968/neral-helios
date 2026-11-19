@@ -181,10 +181,12 @@ class EverydayLiveChat(unittest.TestCase):
         self.assertEqual(result["tier"],"Helios")
         self.assertEqual(result.get("auto_escalated_from"),"Luna")
         self.assertEqual(luna.calls,[])
-        # A malformed non-code response receives at most two bounded retries
-        # without ever becoming a fabricated verified/tool-executed answer.
-        self.assertEqual(helios.calls,[768,768,768])
+        # Three bounded code attempts, plus one separate direct model fallback.
+        # The fallback must not count as a fourth sandbox execution or proof.
+        self.assertEqual(helios.calls,[768,768,768,768])
         self.assertEqual(result.get("sandbox_attempts"),3)
+        self.assertTrue(result.get("model_fallback_generated"))
+        self.assertIn("Helios-Antwort (ohne Sandbox, ungeprüft)",result["text"])
         self.assertFalse(result.get("sandbox_executed"))
 
 

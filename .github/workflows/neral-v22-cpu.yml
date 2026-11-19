@@ -1,0 +1,42 @@
+name: NERAL V2.2 focused CPU and UI contracts
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_docker_runtime.py'
+      - 'static/neral-preview.js'
+      - 'tests/test_neral_v22_recovery.py'
+      - 'tests/test_neral_v22_ui.cjs'
+      - '.github/workflows/neral-v22-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  v22-cpu:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Test V2.2 recovery and unchanged V2 contracts without GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local CPU Python absent'}
+          & $py -B -m unittest discover -s tests -p test_neral_v22_recovery.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2.2 reproduction/recovery contracts failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_code_loop_v2.py -q
+          if($LASTEXITCODE -ne 0){throw 'V2 code loop regression failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_code_sandbox_image_v2.py -q
+          if($LASTEXITCODE -ne 0){throw 'Docker execution boundary changed'}
+          & node --check scripts/neral_v22_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.2 Chrome E2E JavaScript syntax failed'}
+          & node --test tests/test_neral_v22_ui.cjs tests/test_neral_v21_ui.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.2 status UI contract failed'}
+          Write-Host 'NERAL_V22_CPU_CONTRACTS_GREEN'

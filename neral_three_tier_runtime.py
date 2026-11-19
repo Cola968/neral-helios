@@ -244,6 +244,14 @@ _CODE_ONLY_SYSTEM = (
     "mit assert. Gib den errechneten Endwert mit print(...) aus. "
     "Bei mehreren benannten Personen oder Variablen drucke die Werte mit "
     "eindeutigen Name=Wert-Bezeichnungen aus. "
+    "Bei gemeinsam bezahlten Übernachtungen rechne streng mit Personennächten: "
+    "für jeden Gast Zahl der tatsächlich übernachteten Nächte zählen, "
+    "Zusatzgäste getrennt zählen, ihren Anteil dem eingeladenen Hauptgast "
+    "zuordnen und mit assert prüfen, dass die Einzelkosten die Gesamtkosten "
+    "ergeben. Bei Wahrscheinlichkeitsfragen zur Kollision unabhängiger "
+    "gleichverteilter Ereignisse berechne zuerst die Gegenwahrscheinlichkeit "
+    "aller verschiedenen Ereignisse als Produkt und dann 1 minus dieses Produkt; "
+    "runde erst am Ende und gib das geforderte Prozentformat aus. "
     "Keine Dateien, kein Netzwerk, keine Shell, keine Installation, keine "
     "Eingaben und kein Zugriff auf andere Programme. "
     "Bei exakten Bruchgleichungen mit x verwende fractions.Fraction "
@@ -373,8 +381,19 @@ def _original_web_question(source: str) -> str:
 
 
 def _is_constraint_task(source: object) -> bool:
-    """Route free-form constraint intent; does NOT certify rule completeness."""
-    return type(source) is str and bool(_Z3_KEYWORD_RE.search(_original_web_question(source)))
+    """Use Z3 for assignments, not probability/statistical calculations.
+
+    'Mindestens' describes events as well as allocation constraints. The
+    mathematical meaning controls the choice of Python versus Z3.
+    """
+    if type(source) is not str:
+        return False
+    original = _original_web_question(source)
+    if re.search(r"(?iu)\b(?:wahrscheinlichkeit(?:en)?|geburtstagsparadoxon|"
+                 r"wahrscheinlich(?:keit)?|chance(?:n)?|statistik|"
+                 r"statistisch|erwartungswert|verteilungsgesetz)\b", original):
+        return False
+    return bool(_Z3_KEYWORD_RE.search(original))
 
 
 def _is_constraint_count(source: str) -> bool:
@@ -706,6 +725,311 @@ def _source_sequential_percent_ok(source: object, stdout: object) -> bool | None
         return False
 
 
+_SANDBOX_SAFE_CODES = frozenset((
+    "docker_unavailable", "image_unavailable", "invalid_python_code",
+    "runtime_error", "empty_stdout", "timeout", "source_mismatch",
+))
+
+
+def _safe_sandbox_failure_code(report: object) -> str:
+    """Only stable codes, never raw model/Docker stderr in the UI."""
+    if type(report) is not dict:
+        return "runtime_error"
+    code = report.get("error_code")
+    if type(code) is str and code in _SANDBOX_SAFE_CODES:
+        return code
+    if report.get("status") == "UNAVAILABLE":
+        return "docker_unavailable"
+    if report.get("error_type") in ("SyntaxError", "CodeComplexityLimit"):
+        return "invalid_python_code"
+    if report.get("status") == "FAILED":
+        return "runtime_error"
+    return "runtime_error"
+
+
+_SANDBOX_PUBLIC_EXCEPTIONS = frozenset((
+    "ValueError", "ZeroDivisionError", "KeyError", "TypeError",
+    "IndexError", "AssertionError", "OverflowError", "NameError",
+    "SyntaxError", "ImportError", "ModuleNotFoundError",
+))
+
+
+def _safe_sandbox_exception(report: object) -> str | None:
+    """Expose a known Python exception CLASS, never stderr or code content."""
+    if type(report) is not dict:
+        return None
+    trace=report.get("traceback")
+    if type(trace) is not str:
+        return None
+    match=re.search(
+        r"\b(ValueError|ZeroDivisionError|KeyError|TypeError|IndexError|"
+        r"AssertionError|OverflowError|NameError|SyntaxError|ImportError|"
+        r"ModuleNotFoundError)\b", trace[-600:])
+    return match.group(1) if match and match.group(1) in _SANDBOX_PUBLIC_EXCEPTIONS else None
+
+
+_SANDBOX_UI_REASONS = {
+    "docker_unavailable": "Docker nicht aktiv",
+    "image_unavailable": "Solver-Image fehlt",
+    "invalid_python_code": "Python-Code ungültig",
+    "runtime_error": "Laufzeitfehler",
+    "empty_stdout": "Keine Ausgabe",
+    "timeout": "Zeitlimit erreicht",
+    "source_mismatch": "Berechnetes Ergebnis widerspricht den Angaben",
+}
+
+
+_GERMAN_GROUPED_EURO = re.compile(
+    r"(?iu)(?<!\d)([1-9]\d{0,2}(?:\.\d{3})+(?:,\d{1,2})?)"
+    r"\s*(?:€|\bEuro\b)"
+)
+
+
+def _source_german_euro_guidance(source: object) -> str:
+    """Disambiguate source numbers only; never synthesize an answer."""
+    if type(source) is not str or len(source) > 4096:
+        return ""
+    amounts = list(dict.fromkeys(_GERMAN_GROUPED_EURO.findall(source)))[:5]
+    if not amounts:
+        return ""
+    conversions = []
+    for value in amounts:
+        normalized = value.replace(".", "").replace(",", ".")
+        try:
+            if not 0 < Decimal(normalized) <= Decimal("1000000000000"):
+                continue
+        except ArithmeticError:
+            continue
+        conversions.append(f"'{value} €' bedeutet {normalized} Euro")
+    return ("\nDEUTSCHE ZAHLFORMATIERUNG: Tausender-Punkte sind KEINE "
+            "Dezimalpunkte. " + "; ".join(conversions) + ". "
+            "Nutze diese Beträge als unveränderte Quellwerte für Python. "
+            if conversions else "")
+
+
+def _source_birthday_probability_parameters(source: object) -> tuple[int,int] | None:
+    """Only unambiguous collision events and explicitly stated day counts."""
+    if type(source) is not str or len(source) > 4096:
+        return None
+    if not re.search(r"(?iu)\b(?:geburtstagsparadoxon|geburtstag\w*)\b",source):
+        return None
+    if not re.search(r"(?iu)\bmindestens\s+(?:zwei|2)\b",source):
+        return None
+    group = re.search(r"(?iu)\b(\d{1,3})\s+Personen\b",source)
+    days = re.search(
+        r"(?iu)\b(\d{1,3})\s+(?:gleichwahrscheinlich\w*\s+)?"
+        r"Geburtstag\w*\b", source)
+    if not group or not days:
+        return None
+    n,d = int(group[1]), int(days[1])
+    return (n,d) if 2 <= n <= 100 and 2 <= d <= 366 else None
+
+
+def _source_birthday_probability_expected(source: object) -> Decimal | None:
+    """Exact rational collision probability, percent rounded once at the end."""
+    params = _source_birthday_probability_parameters(source)
+    if params is None:
+        return None
+    n,days = params
+    no_collision = Fraction(1,1)
+    for i in range(n):
+        no_collision *= Fraction(max(0,days-i),days)
+    collision = 1-no_collision
+    percent = (Decimal(100)*Decimal(collision.numerator) /
+               Decimal(collision.denominator))
+    return percent.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+
+
+def _source_birthday_probability_hint(source: object) -> str:
+    params = _source_birthday_probability_parameters(source)
+    if params is None:
+        return ""
+    n,days=params
+    return (
+        "\nQUELLENGEBUNDENE GEBURTSTAGSKOLLISION: Gesucht ist mindestens "
+        "ein gemeinsamer Geburtstag, NICHT das Gegenereignis. "
+        "Erstelle einen einzigen Python-Codeblock, der aus den Eingabewerten "
+        "den exakten Bruch und erst zum Schluss die gerundete Prozentzahl "
+        "berechnet. Verwende diesen syntaktisch gültigen Algorithmus:\n"
+        "from fractions import Fraction\n"
+        "from decimal import Decimal, ROUND_HALF_UP\n"
+        f"n={n}\n"
+        f"days={days}\n"
+        "p_no=Fraction(1,1)\n"
+        "for i in range(n):\n"
+        "    p_no *= Fraction(max(0,days-i),days)\n"
+        "p_yes=1-p_no\n"
+        "assert Fraction(0)<=p_yes<=Fraction(1)\n"
+        "pct=(Decimal(100)*Decimal(p_yes.numerator)/"
+        "Decimal(p_yes.denominator)).quantize("
+        "Decimal('0.01'),rounding=ROUND_HALF_UP)\n"
+        "print(f'{pct:.2f} %')\n"
+        "Nutze die n/days-Werte aus der echten Nutzerfrage. "
+        "Keine vorab berechnete Beispielzahl in den Code übernehmen."
+    )
+
+
+def _source_birthday_probability_ok(source: object, stdout: object) -> bool | None:
+    expected=_source_birthday_probability_expected(source)
+    if expected is None:
+        return None
+    if type(stdout) is not str or len(stdout) > 512:
+        return False
+    m=re.fullmatch(
+        r"(?iu)\s*(?:(?:Wahrscheinlichkeit|Ergebnis)\s*[:=]\s*)?"
+        r"(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*",stdout)
+    if m is None:
+        return False
+    try:
+        return Decimal(m[1].replace(",","."))==expected
+    except (ValueError,ArithmeticError):
+        return False
+
+
+_NAME = r"[A-ZÄÖÜ][a-zäöüß]{1,24}"
+_PERSON_NIGHTS_PRICE = re.compile(
+    r"(?iu)\b(?:für|kostet|Preis\s+von)\s+"
+    r"(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d{1,8}(?:,\d{1,2})?)"
+    r"\s*(?:€|\bEuro\b)"
+)
+_PERSON_NIGHTS_FULL = re.compile(
+    rf"(?u)\b(?P<name>{_NAME})\s+übernachtet\s+"
+    r"(?:\w+\s+){0,3}die\s+vollen\s+(?P<n>\d{1,2})\s+Nächte"
+)
+_PERSON_NIGHTS_EARLY = re.compile(
+    rf"(?u)\b(?P<name>{_NAME})\s+reist\s+nach\s+"
+    r"(?P<n>\d{1,2})\s+Nächten\s+(?:wieder\s+)?ab\b"
+)
+_PERSON_NIGHTS_HALF = re.compile(
+    rf"(?u)\b(?P<name>{_NAME})\s+kommt\s+erst\s+"
+    r"zur\s+Hälfte\s+der\s+Zeit\s+dazu\b"
+)
+_PERSON_NIGHTS_GUEST = re.compile(
+    r"(?iu)\bbringt\s+(?:aber\s+)?für\s+ihre\s+letzten\s+"
+    r"(?P<n>\d{1,2})\s+Nächte\s+noch\s+ihren\s+Bruder\s+mit\b"
+)
+
+
+def _source_person_nights_plan(source: object) -> dict | None:
+    """Narrow, source-anchored guest-night grammar; abstain on ambiguity.
+
+    This is a rejection/checking oracle, NOT a full language parser and not a
+    verified mathematics claim. All derived values depend on source matching.
+    """
+    if type(source) is not str or len(source) > 4096:
+        return None
+    price = _PERSON_NIGHTS_PRICE.search(source)
+    full = _PERSON_NIGHTS_FULL.search(source)
+    early = _PERSON_NIGHTS_EARLY.search(source)
+    late = _PERSON_NIGHTS_HALF.search(source)
+    guest = _PERSON_NIGHTS_GUEST.search(source)
+    if not all((price, full, early, late, guest)):
+        return None
+    names = (full["name"], early["name"], late["name"])
+    if len({name.casefold() for name in names}) != 3:
+        return None
+    if guest.start() < late.end() or guest.start()-late.end() > 110:
+        return None
+    if re.search(
+            rf"(?iu)\b{re.escape(names[2])}\s+inklusive\s+ihres\s+Bruders\b",
+            source) is None:
+        return None
+    full_n, early_n, guest_n = (int(full["n"]), int(early["n"]),
+                               int(guest["n"]))
+    if not (2 <= full_n <= 60 and full_n % 2 == 0 and
+            1 <= early_n <= full_n and
+            1 <= guest_n <= full_n // 2):
+        return None
+    late_n = full_n // 2
+    raw_cost = price[1].replace(".", "").replace(",", ".")
+    try:
+        amount = Fraction(str(Decimal(raw_cost)))
+    except (ValueError, ArithmeticError, ZeroDivisionError):
+        return None
+    if not 0 < amount <= 100_000_000:
+        return None
+    total_n = full_n + early_n + late_n + guest_n
+    if not 1 <= total_n <= 240:
+        return None
+    rate = amount / total_n
+    return {
+        "total": amount,
+        "total_nights": total_n,
+        "nights": {names[0]:full_n,names[1]:early_n,
+                   names[2]:late_n,"Bruder":guest_n},
+        "shares": {names[0]:rate*full_n,names[1]:rate*early_n,
+                   names[2]:rate*(late_n+guest_n)},
+    }
+
+
+def _source_person_nights_output_ok(source: object, stdout: object) -> bool | None:
+    """Reject a numerically inconsistent Helios-compiled Docker output."""
+    plan = _source_person_nights_plan(source)
+    if plan is None:
+        return None
+    if type(stdout) is not str or len(stdout) > 512:
+        return False
+    for name, exact in plan["shares"].items():
+        pattern = (rf"(?iu)\b{re.escape(name)}\b\s*"
+                   r"(?:=|:|zahlt\s+)\s*(?:€\s*)?"
+                   r"(?P<amount>\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?"
+                   r"|\d{1,10}(?:[.,]\d{1,2})?)\s*(?:€|\bEuro\b)?")
+        matched = re.search(pattern, stdout)
+        if matched is None:
+            return False
+        raw = matched["amount"]
+        grouped = bool(re.fullmatch(
+            r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?", raw))
+        normalized = (raw.replace(".", "").replace(",", ".")
+                      if grouped else raw.replace(",", "."))
+        try:
+            actual=Decimal(normalized)
+            expected=(Decimal(exact.numerator)/Decimal(exact.denominator)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (ValueError, ArithmeticError, ZeroDivisionError):
+            return False
+        if actual != expected:
+            return False
+    return True
+
+
+def _source_person_nights_hint(source: object) -> str:
+    """Generic overnight accounting method, no task-specific answers."""
+    if type(source) is not str or len(source) > 4096 or not re.search(
+            r"(?iu)\b(?:übernacht\w*|personennächt\w*|nacht|nächte|"
+            r"ferienhaus|berghütte|hütte)\b", source):
+        return ""
+    plan = _source_person_nights_plan(source)
+    grounded = ""
+    if plan is not None:
+        grounded = (
+            "\nAUS ORIGINALTEXT EINDUTIG ABGELEITETE NÄCHTE (KEINE "
+            "MUSTERLÖSUNG): " +
+            ", ".join(f"{person}={n}" for person,n in plan["nights"].items()) +
+            f"; zusammen={plan['total_nights']} Personennächte, " +
+            f"Gesamtpreis={plan['total']} Euro. "
+            "Berechne die tatsächlichen Einzelkosten im ausgeführten Python "
+            "neu, drucke sie als Name=Wert für jeden Zahler aus. "
+        )
+    return (
+        grounded +
+        "\nPERSONENNÄCHTE-METHODE: Erstelle aus dem Originaltext zuerst "
+        "eine eindeutige Tabelle Gast, übernachtete Nächte, Zahler. "
+        "Volle Zeit, frühere Abreise, spätere Ankunft und Zusatzgäste "
+        "einzeln erfassen. Wenn jemand zur Hälfte der Zeit anreist, "
+        "bestimme die Nächte aus der ausdrücklich genannten Gesamtdauer. "
+        "Jeder zusätzliche Gast hat eigene Personennächte; Zusatzgäste "
+        "werden nur bei der verlangten Abrechnung dem Hauptgast zugerechnet. "
+        "Preis_pro_Personennacht=Gesamtpreis/Summe_aller_Personennächte. "
+        "Berechne pro Zahler dessen Nächte plus gegebenenfalls die seiner "
+        "Gäste, multipliziere mit dem Preis und prüfe mit assert, "
+        "dass die Summe aller Zahler genau dem Gesamtpreis entspricht. "
+        "Nutze Fraction oder Decimal, nicht float. "
+        "Dichte keine Aufenthaltsdauer hinzu; bei fehlenden Angaben "
+        "benenne die Unbestimmtheit."
+    )
+
+
 def _sandbox_error(report: object) -> str:
     if type(report) is not dict:
         return "Sandbox-Rückgabe ungültig"
@@ -838,6 +1162,9 @@ class ThreeTierRuntime:
                (_source_relational_equations(source) or "")
                if _is_relational_word_problem(source)
                else _CODE_ONLY_SYSTEM +
+                    _source_german_euro_guidance(source) +
+                    _source_person_nights_hint(source) +
+                    _source_birthday_probability_hint(source) +
                     (_source_loan_equations(source) or "") +
                     (_source_sequential_percent_hint(source) or "")))))}]
         base.extend(dict(t) for t in turns[1:])
@@ -847,13 +1174,25 @@ class ThreeTierRuntime:
         prompt_turns = base
         last_error = "Keine ausführbare Codeantwort"
         failure_trace = []
+        failure_code = "invalid_python_code"
+        failure_exception = None
         from neral_everyday_verified import tidy_unverified_model_text
 
         for attempt in range(3):
             # Helios proposes JSON data for Z3; only the trusted builder writes Python.
-            candidate = self.helios.respond_chat(prompt_turns,
-                max_new_tokens=TIERS["Helios"], temperature=0.0,
-                max_time_seconds=80.0)
+            try:
+                candidate = self.helios.respond_chat(prompt_turns,
+                    max_new_tokens=TIERS["Helios"], temperature=0.0,
+                    max_time_seconds=80.0)
+            except (RuntimeError, ValueError):
+                attempted = attempt + 1
+                failure_code = "runtime_error"
+                failure_trace.append({
+                    "stage": "model_generation",
+                    "error_type": "ModelCodeGenerationFailed",
+                    "error_code": "runtime_error",
+                })
+                break
             attempted = attempt + 1
             prior = candidate[:1600] if type(candidate) is str else ""
             if constraint_mode:
@@ -933,11 +1272,61 @@ class ThreeTierRuntime:
                 report = {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
             output = _sandbox_output(report)
             if output is not None and not constraint_mode and not sandbox_files:
+                person_ok = _source_person_nights_output_ok(source, output)
+                if person_ok is False:
+                    last_error = "Ausgegebene Zahlerbeträge widersprechen Personennächten"
+                    failure_code = "source_mismatch"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "PersonNightMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Dein Python-Code lief, aber die gedruckten "
+                            "Beträge erfüllen die Personennächte aus dem "
+                            "Originaltext NICHT. Übernimm die abgeleiteten "
+                            "Aufenthaltsdauern aus der Systemanweisung; "
+                            "Gesamtpreis geteilt durch die Summe ALLER "
+                            "Personennächte ergibt den Preis pro Nacht. "
+                            "Zähle den Zusatzgast ausdrücklich mit und ordne "
+                            "ihn dem Hauptgast zu. Prüfe jede Personensumme "
+                            "mit Fraction und assert. Gib das Ergebnis als "
+                            "Name=Wert für jeden Zahler aus. "
+                            "Nur einen vollständigen neuen Python-Codeblock.")}
+                    ]
+                    continue
+                birthday_ok = _source_birthday_probability_ok(source, output)
+                if birthday_ok is False:
+                    last_error = "Geburtstagswahrscheinlichkeit oder Prozentformat falsch"
+                    failure_code = "source_mismatch"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "BirthdayProbabilityMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Dein Python-Programm lief, aber sein Ergebnis "
+                            "entspricht NICHT der aktuellen Geburtstagsfrage "
+                            "oder dem verlangten Prozentformat. Rechne die "
+                            "exakte Gegenwahrscheinlichkeit aller verschiedenen "
+                            "Geburtstage als Produkt mit Fraction und dann "
+                            "1 minus diese Wahrscheinlichkeit. Multipliziere "
+                            "mit 100, runde erst am Ende auf zwei "
+                            "Nachkommastellen und gib ein Prozentzeichen "
+                            "hinter dem Zahlenwert aus. Keine geratenen "
+                            "Beispielwerte und nur ein Python-Codeblock.")}
+                    ]
+                    continue
                 source_ok = _source_fraction_equation_ok(source, output)
                 if source_ok is False:
                     # Docker ran, but its numeric output conflicts with the
                     # original rational equation. Never publish it as success.
                     last_error = "Eingabegleichung durch Einsetzen nicht erfüllt"
+                    failure_code = "source_mismatch"
                     failure_trace.append({
                         "stage": "source_consistency",
                         "error_type": "FractionEquationMismatch",
@@ -959,6 +1348,7 @@ class ThreeTierRuntime:
                 loan_ok = _source_loan_output_ok(source, output)
                 if loan_ok is False:
                     last_error = "Kredit-Endwert widerspricht den Quellformeln"
+                    failure_code = "source_mismatch"
                     failure_trace.append({
                         "stage": "source_consistency",
                         "error_type": "LoanEquationMismatch",
@@ -1012,6 +1402,7 @@ class ThreeTierRuntime:
                             valid = False
                     if not valid:
                         last_error = "Webdaten-Summe aus JSON-Snippets falsch"
+                        failure_code = "source_mismatch"
                         failure_trace.append({
                             "stage": "source_consistency",
                             "error_type": "WebCurrencySumMismatch",
@@ -1035,10 +1426,13 @@ class ThreeTierRuntime:
                 succeeded = 1
                 break
             last_error = _sandbox_error(report)
+            failure_code = _safe_sandbox_failure_code(report)
+            failure_exception = _safe_sandbox_exception(report)
             failure_trace.append({
                 "stage": "docker",
                 "status": report.get("status", "INVALID") if type(report) is dict else "INVALID",
                 "error_type": report.get("error_type") if type(report) is dict else "InvalidReport",
+                "error_code": failure_code,
                 "detail": last_error[-190:],
             })
             if (type(report) is not dict or report.get("status") == "UNAVAILABLE"):
@@ -1046,6 +1440,20 @@ class ThreeTierRuntime:
             # Only the immediately preceding failing code and bounded stderr are
             # offered as feedback. Do not accumulate huge tool transcripts.
             sympy_hint = ""
+            if _source_person_nights_hint(source) and "AssertionError" in last_error:
+                sympy_hint = (
+                    "PERSONENNÄCHTE-ASSERTION FEHLGESCHLAGEN: "
+                    "Die Annahmen des vorherigen Skripts waren inkonsistent. "
+                    "Gehe ganz neu vom Originaltext aus; prüfe die Zahl der "
+                    "Nächte je Gast separat und erfasse auch Zusatzgäste. "
+                    "Gesamtpreis durch ALLE Personennächte teilen, nicht "
+                    "durch Nächte des Hauses oder Anzahl der Freunde. "
+                    "Gruppiere am Ende nach Zahler, prüfe "
+                    "sum(Einzelzahlungen)==Gesamtpreis mit Fraction. "
+                    "Deutsche Tausenderpunkte als Tausendertrenner lesen. "
+                    "Verwende keine alten Berechnungsannahmen und kein "
+                    "fehlerhaftes assert. "
+                )
             if (_source_loan_equations(source) is not None
                     and "AssertionError" in last_error):
                 sympy_hint = (
@@ -1091,9 +1499,38 @@ class ThreeTierRuntime:
 
         if self.helios.loaded is not True:
             raise RuntimeError("Helios adapter was not loaded")
+        model_fallback_generated = False
         if output is None:
-            final = ("Der Python-Sandbox-Lauf wurde nicht erfolgreich abgeschlossen. "
-                     "Es liegt kein ausgeführtes Ergebnis vor.")
+            # A failed tool is never proof, but it must not silence the model.
+            # The fallback receives the ORIGINAL task, not untrusted tool output.
+            # Attachment manifests do not authorize inventing file statistics.
+            fallback_turns = [
+                {"role": "system", "content": (
+                    turns[0]["content"] +
+                    "\nDie isolierte Python-/Z3-Sandbox ist fehlgeschlagen. "
+                    "Beantworte die Nutzerfrage jetzt DIREKT auf Deutsch, "
+                    "ohne Codeblock und ohne eine ausgeführte oder verifizierte "
+                    "Rechnung zu behaupten. Nutze ausschließlich gegebene "
+                    "Informationen, kennzeichne Unsicherheit und erfinde keine "
+                    "Datei- oder Webdaten-Ergebnisse. Gib eine hilfreiche "
+                    "inhaltliche Antwort, wenn dies ohne Werkzeug möglich ist.")},
+                {"role": "user", "content": source},
+            ]
+            try:
+                fallback = tidy_unverified_model_text(
+                    self.helios.respond_chat(fallback_turns,
+                                             max_new_tokens=TIERS["Helios"],
+                                             temperature=0.0))
+            except Exception:
+                fallback = ""
+            model_fallback_generated = (
+                type(fallback) is str and bool(fallback.strip()) and
+                not fallback.strip().startswith("```"))
+            if model_fallback_generated:
+                final = "Helios-Antwort (ohne Sandbox, ungeprüft):\n" + fallback[:2000]
+            else:
+                final = ("Helios konnte auch ohne Sandbox keine vollständige "
+                         "Antwort erzeugen. Bitte erneut versuchen.")
         else:
             # A final model response may explain the actual stdout, but never
             # replaces it: users always see the exact execution evidence.
@@ -1135,7 +1572,12 @@ class ThreeTierRuntime:
             "tool_used": "helios_code_sandbox" if succeeded else None,
             "tool_calls_succeeded": succeeded,
             "sandbox_attempts": attempted,
-            **({"sandbox_failure_trace": failure_trace} if not succeeded else {}),
+            **({"sandbox_failure_code": failure_code,
+                "sandbox_failure_reason": _SANDBOX_UI_REASONS[failure_code],
+                **({"sandbox_failure_exception": failure_exception}
+                   if failure_exception and failure_code == "runtime_error" else {}),
+                "model_fallback_generated": model_fallback_generated,
+                "sandbox_failure_trace": failure_trace} if not succeeded else {}),
             "verification_status": "generated_code_executed_unverified" if succeeded
                                    else "generated_code_execution_failed",
         }

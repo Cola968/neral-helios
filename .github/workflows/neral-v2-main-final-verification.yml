@@ -5,6 +5,7 @@ on:
     paths:
       - 'neral_three_tier_runtime.py'
       - 'neral_tir_experimental.py'
+      - 'neral_docker_runtime.py'
       - 'static/neral-preview.js'
       - 'neral_v21_attachment_data.py'
       - 'neral_preview_attachments.py'
@@ -104,6 +105,7 @@ jobs:
             throw 'Installed service script does not enable V2 solver'
           }
           $paths=@('neral_three_tier_runtime.py','neral_z3_json_compiler.py','neral_tir_experimental.py',
+            'neral_docker_runtime.py',
             'neral_v21_attachment_data.py','neral_preview_attachments.py','neral_preview_server.py',
             'neral_everyday_verified.py','neral_web_search.py','neral_web_api.py',
             'templates/neral_preview.html','static/neral-preview.js',

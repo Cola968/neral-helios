@@ -196,6 +196,24 @@ class PreviewStandaloneTests(unittest.TestCase):
                 self.assertNotIn("NERAL-1.0-Local/local_state/chats.sqlite3",names)
                 self.assertFalse(any("safetensors" in n or "adapter_model" in n for n in names))
 
+    def test_v22_local_sandbox_dependencies_are_shipped_in_offline_zip(self):
+        """V2.2 must not import missing solver and Docker recovery modules."""
+        from zipfile import ZipFile
+        required=(
+            "neral_z3_json_compiler.py",
+            "neral_docker_runtime.py",
+            "neral_v21_attachment_data.py",
+        )
+        for filename in required:
+            self.assertIn(filename,REQUIRED_FILES)
+        with tempfile.TemporaryDirectory() as td:
+            output=Path(td)/"preview.zip"
+            build_preview(ROOT,output)
+            with ZipFile(output) as archive:
+                names=set(archive.namelist())
+                for filename in required:
+                    self.assertIn("NERAL-1.0-Local/"+filename,names)
+
     def test_every_local_python_import_is_present_in_shipped_source_allowlist(self):
         """Protect all lazy agent and THINK imports, not only a single use case."""
         included=set(REQUIRED_FILES)

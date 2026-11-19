@@ -62,8 +62,12 @@ def verify_main_integrity():
                 'b886736b5be3cccf2fb4657124ff8ca4fef2f1a2',
                 '42dcc9338bf5701ed3d982848c3db5ebe240b0b5',
                 '224a691c4ff9869d9513ec18ed7d554cfa3ed079',
+                # V2.2 status UI passed real guarded Chrome on 2026-11-19.
+                '18ce89cc02977b878659ddfe6d7635f1a5212c12',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
+            # Already present in current main (f960b3e7); legacy CURRENT_MAIN is older.
+            'templates/neral_preview.html': '329de3759a9cd59f153569bb9ac180a0ecafe3eb',
         }
         approved = approved_blobs.get(name)
         allowed_pinned_patch = (base == CURRENT_MAIN and approved is not None

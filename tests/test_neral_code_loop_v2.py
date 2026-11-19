@@ -443,7 +443,7 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertEqual(seen,[])
         self.assertFalse(result["sandbox_executed"])
         self.assertFalse(result["verified"])
-        self.assertEqual(helios.temperatures,[0.0,0.0,0.0])
+        self.assertEqual(helios.temperatures,[0.0,0.0,0.0,0.0])
 
     def test_sanitized_gpu_failure_categories_without_model_output_leak(self):
         from neral_three_tier_runtime import _safe_runtime_error_code
@@ -494,7 +494,7 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertFalse(r["verified"])
         self.assertFalse(r["sandbox_executed"])
         self.assertNotEqual(r.get("tool_calls_succeeded"),1)
-        self.assertEqual(len(helios.calls),3)
+        self.assertEqual(len(helios.calls),4)  # one honest Helios fallback attempt
         self.assertNotIn("12",r["text"])
         self.assertEqual([x["stage"] for x in r["sandbox_failure_trace"]],
                          ["docker", "docker", "docker"])
@@ -504,8 +504,9 @@ class GenericCodeLoop(unittest.TestCase):
         rt,_,helios=runtime(["\x60\x60\x60python\nprint(2+3)\n\x60\x60\x60"],
             lambda code:seen.append(code) or {"status":"UNAVAILABLE","error_type":"SandboxUnavailable"})
         r=rt.answer(turns("Wie viel sind 2 plus 3?"),"Luna")
-        self.assertEqual(len(helios.calls),1)
+        self.assertEqual(len(helios.calls),2)  # one fallback chat attempt
         self.assertEqual(len(seen),1)
+        self.assertEqual(r["sandbox_failure_code"],"docker_unavailable")
         self.assertFalse(r["sandbox_executed"])
         self.assertFalse(r["verified"])
 
@@ -530,7 +531,7 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertEqual(seen,[])
         self.assertFalse(r["sandbox_executed"])
         self.assertFalse(r["verified"])
-        self.assertEqual(len(helios.calls),3)
+        self.assertEqual(len(helios.calls),4)  # an additional direct-model fallback attempt
         self.assertNotIn("42",r["text"])
         self.assertEqual([x["stage"] for x in r["sandbox_failure_trace"]],
                          ["model_format", "model_format", "model_format"])
