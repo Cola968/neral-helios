@@ -144,14 +144,19 @@ def anchored_numeric_facts(pages: list[dict]) -> list[dict]:
     return facts
 
 
-def expected_material_value(question: str, facts: list[dict]) -> Decimal | None:
-    """Independent rejection oracle for any bar mass and provided oz conversion."""
-    if type(question) is not str:
+def _material_parameters(question: str, facts: list[dict]):
+    """Parse a general mass / quoted ounce-price unit conversion."""
+    if type(question) is not str or type(facts) is not list:
         return None
-    masses = list(re.finditer(r"(?iu)(\d+(?:[,.]\d+)?)\s*[- ]?\s*Gramm\b",question))
+    masses = list(re.finditer(
+        r"(?iu)(\\d+(?:[,.]\\d+)?)\\s*[- ]?\\s*Gramm\\b",question))
     conversion = re.search(
-        r"(?iu)\b1\s*Feinunze\s*=\s*(\d+(?:[,.]\d+)?)\s*Gramm\b",question)
-    prices = [f["value"] for f in facts if f.get("unit") == "EUR/oz"]
+        r"(?iu)\\b1\\s*Feinunze\\s*=\\s*(\\d+(?:[,.]\\d+)?)\\s*Gramm\\b",
+        question)
+    prices = [f for f in facts if type(f) is dict and
+              f.get("unit") == "EUR/oz" and
+              type(f.get("value")) is Decimal and
+              type(f.get("url")) is str and safe_result_url(f["url"])]
     if not masses or conversion is None or not prices:
         return None
     weights = [m for m in masses if m.start() < conversion.start()]
@@ -159,13 +164,74 @@ def expected_material_value(question: str, facts: list[dict]) -> Decimal | None:
         return None
     grams = _decimal(weights[0].group(1))
     per_ounce = _decimal(conversion.group(1))
-    if grams is None or per_ounce is None or grams <= 0 or per_ounce <= 0:
+    rate = prices[0]["value"]
+    if (grams is None or per_ounce is None or
+            not grams.is_finite() or not per_ounce.is_finite() or
+            not rate.is_finite() or
+            grams <= 0 or per_ounce <= 0 or rate <= 0):
         return None
-    # Different publishers can quote slightly different times/spot prices.
-    # Use the first directly quoted rate and cite THAT exact page.
-    return (grams * prices[0] / per_ounce).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return grams, per_ounce, rate, prices[0]["url"]
 
+
+def expected_material_value(question: str, facts: list[dict]) -> Decimal | None:
+    """Independent arithmetic rejection oracle from source-anchored units."""
+    params=_material_parameters(question,facts)
+    if params is None:
+        return None
+    mass,per_ounce,rate,_url=params
+    return (mass * rate / per_ounce).quantize(
+        Decimal("0.01"),rounding=ROUND_HALF_UP)
+
+
+def try_source_anchored_unit_worker(runtime, question: str,
+                                   facts: list[dict]) -> dict | None:
+    """Run an audited UNIT-CONVERSION formula in networkless Docker.
+
+    Helios selected the planning tools, but no model gets to invent the
+    numeric operands or Python code here. All literals are validated Decimal
+    objects parsed from the user's quantities and real HTTPS page text.
+    A completed Docker execution is not independent evidence that the
+    publisher's price is correct or timely.
+    """
+    params=_material_parameters(question,facts)
+    if params is None:
+        return None
+    grams,per_ounce,rate,url=params
+    expected=expected_material_value(question,facts)
+    if expected is None:
+        return None
+    code=(
+        "from decimal import Decimal, ROUND_HALF_UP\\n"
+        "mass=Decimal("+repr(str(grams))+")\\n"
+        "price_per_ounce=Decimal("+repr(str(rate))+")\\n"
+        "grams_per_ounce=Decimal("+repr(str(per_ounce))+")\\n"
+        "assert mass>0 and price_per_ounce>0 and grams_per_ounce>0\\n"
+        "result=(mass*price_per_ounce/grams_per_ounce).quantize("
+        "Decimal('0.01'),rounding=ROUND_HALF_UP)\\n"
+        "print(result)\\n"
+    )
+    try:
+        report=runtime.execute_python(code)
+    except Exception:
+        return None
+    if (type(report) is not dict or report.get("status")!="PASSED" or
+            not guard_sandbox_stdout(report.get("output"),expected=expected)):
+        return None
+    numeric=f"{expected:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return {
+        "text":("Quellenbasierte Materialwertrechnung (Euro-Preis nicht "
+                "unabhängig als aktuell bestätigt):\\n"
+                +numeric+" € = "+str(grams)+" g × "+str(rate)
+                +" EUR/Feinunze ÷ "+str(per_ounce)+" g/Feinunze\\n"
+                +"Gelesene Quelle: "+url),
+        "model_generated":False,"verified":False,
+        "safe_to_promote":False,"verification_scope":"none",
+        "proof_backend":None,"sandbox_executed":True,
+        "tool_used":"python_sandbox","tool_calls_succeeded":1,
+        "sandbox_attempts":1,
+        "verification_status":"source_anchored_docker_execution_unverified",
+        "v3_validation":"source_quote_and_independent_arithmetic_rejection",
+    }
 
 def guard_sandbox_stdout(stdout: object, *, expected: Decimal | None = None,
                          missing_required: bool = False) -> bool:
