@@ -219,8 +219,24 @@ $python='D:/neral-qlora/venv/Scripts/python.exe'
 if(-not(Test-Path -LiteralPath $python -PathType Leaf)){
   throw 'Expected isolated NERAL inference environment not installed'
 }
-& $python -B -c 'from lmformatenforcer import JsonSchemaParser; print("NERAL_V3_LMFE_AVAILABLE")'
-if($LASTEXITCODE -ne 0){throw 'Pinned V3 JSON-token enforcer missing in local inference environment'}
+# Install only the two small pinned JSON grammar wheels into a separate
+# LOCAL STATE directory, never the QLoRA/model environment. No torch updates.
+$deps=Join-Path $root 'local_state/neral-v3-json-deps'
+$existing=Join-Path $root 'local_state/three-tier-web-deps'
+$previousPythonPath=$env:PYTHONPATH
+$env:PYTHONPATH=$deps+[IO.Path]::PathSeparator+$existing+[IO.Path]::PathSeparator+$root
+& $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")' 2>$null
+$hasEnforcer=($LASTEXITCODE -eq 0)
+if(-not $hasEnforcer){
+  New-Item -ItemType Directory -Force -Path $deps | Out-Null
+  # Binary wheels only, no transitive dependency installation or model
+  # downloads. Existing pinned venv must already have Pydantic/YAML.
+  & $python -m pip install --disable-pip-version-check --no-input --only-binary=:all: --no-deps --target $deps 'lm-format-enforcer==0.11.3' 'interegular==0.3.3'
+  if($LASTEXITCODE -ne 0){throw 'V3 isolated JSON enforcer wheel installation failed; service unchanged'}
+  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")'
+  if($LASTEXITCODE -ne 0){throw 'V3 isolated dependency import failed; service unchanged'}
+}
+$env:PYTHONPATH=$previousPythonPath
 # Verify local offline Docker BEFORE copying/stopping any V2.2 runtime files.
 EnsurePinnedDockerReady
 $changes=@()
@@ -265,8 +281,16 @@ try{
   # Opt in only this owned service. The exact original is stored for rollback.
   # A process-scoped env var avoids rewriting the trusted executable arguments.
   if($startText -notmatch 'NERAL_V3_AGENT_ENABLED'){
+    if($startText -notmatch [regex]::Escape('Set-Location -LiteralPath $root')){
+      throw 'Managed service script lacks audited V2.2 launch marker'
+    }
+    # Prepend explicit agent opt-in; add the isolated import folder AFTER
+    # V2.2's original PYTHONPATH assignment and BEFORE the Python command.
     $header = '$env:NERAL_V3_AGENT_ENABLED="1"' + [Environment]::NewLine
-    [IO.File]::WriteAllText($service, $header+$startText,
+    $addPath = '$env:PYTHONPATH=(Join-Path $PSScriptRoot ''local_state/neral-v3-json-deps'') + [IO.Path]::PathSeparator + $env:PYTHONPATH' + [Environment]::NewLine
+    $newService=$header+$startText.Replace('Set-Location -LiteralPath $root',
+                                           $addPath+'Set-Location -LiteralPath $root')
+    [IO.File]::WriteAllText($service, $newService,
       ([System.Text.UTF8Encoding]::new($false)))
   }
   Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
