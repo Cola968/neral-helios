@@ -340,7 +340,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     """Only the user-authorized search query can leave the machine."""
     sources = []
     evidence = {"user": question, **(files or {})}
-    context = [{"role": m["role"], "content": m["content"][:400]} for m in history] if not web_query and not files else []
+    # Standalone task isolation: earlier chat turns remain in the UI but do
+    # not become constraints, numbers, or checker instructions for this task.
+    # Explicit follow-ups must carry the needed facts in their current prompt.
     steps = ["planner"]
     if files:
         steps.append("file_reader")
@@ -364,7 +366,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if plan is None:
                 proposed = _plan(ask(PLANNER, {"question": question, "web_requested": bool(web_query),
                                                "files": list(files or {}), "correction": issue,
-                                               "force_sandbox": force_sandbox, "history": context},
+                                               "force_sandbox": force_sandbox},
                                       PLAN_SCHEMA))
                 if force_sandbox and proposed["tool"] == "direct_reasoning":
                     raise AgentError("Für diese Frage konnte kein belegter Sandbox-Rechenplan erstellt werden.")
@@ -417,14 +419,14 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             else:
                 packet = ask(WORKER + WORK_INSTRUCTIONS[plan["tool"]],
                          {"question": question, "plan": plan, **worker_data,
-                          "correction": issue, "history": context}, _worker_schema(plan, evidence))
+                          "correction": issue}, _worker_schema(plan, evidence))
             answer = _work(plan, packet, evidence, execute, external, numeric_evidence)
             if plan["tool"] != "direct_reasoning":
                 executed = plan["tool"]
             steps.append("validation_checker")
             review_data = ({"question": question, "answer": packet["answer"], "quotes": packet["citations"]}
                            if passages else {"question": question, "plan": plan, "proposal": packet,
-                                             "draft": answer, "history": context})
+                                             "draft": answer})
             review = ask(WEB_CHECKER if passages else CHECKER, review_data, CHECK_SCHEMA, budget=256)
             if set(review) != {"ok", "issue"} or type(review["ok"]) is not bool or not isinstance(review["issue"], str):
                 raise AgentError("Prüfer lieferte kein gültiges Urteil.")
