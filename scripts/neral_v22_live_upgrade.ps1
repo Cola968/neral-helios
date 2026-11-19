@@ -1,3 +1,4 @@
+# V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
 # Owner-authorized rerun for safe HTTP-only diagnosis of genuine hut sandbox failure; all live changes rollback unless both Chrome cases pass.
 # Approval renewed for isolated V2.2 browser-gate concurrency; user PC stays protected by exact process checks and rollback.
 # V2.2 RTX4070 real browser acceptance: hut+probability; rollback on any failure; owner-approved.
