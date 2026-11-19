@@ -18,6 +18,12 @@ class ScriptedModel:
         self.loaded=False
         self.calls=[]
     def respond_chat(self,turns,*,max_new_tokens,temperature=None,max_time_seconds=None):
+        if max_new_tokens not in (96,256,768):
+            raise ValueError("Unapproved NERAL inference budget")
+        if max_time_seconds is not None and not (
+                max_new_tokens == 768 and temperature == 0.0 and
+                max_time_seconds == 80.0):
+            raise ValueError("Unapproved model time budget")
         self.loaded=True
         self.calls.append([t["content"] for t in turns])
         return self.answers.pop(0) if self.answers else "Fertig."
