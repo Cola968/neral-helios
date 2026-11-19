@@ -1773,6 +1773,16 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
                 web_stage = prepare_web_dataset(payload["web_data"])
             turns = _messages({"prompt": payload["prompt"],
                                "history": payload.get("history", [])})
+            if web_pages is not None:
+                # A browser-supplied read=True flag and text are not proof.
+                # Only server-fetched TLS content enters the model or sandbox.
+                from neral_v3_web_reader import refetch_browser_pages
+                web_pages = refetch_browser_pages(
+                    web_pages, turns[-1]["content"])
+                if not web_pages:
+                    return jsonify(
+                        error="Webseiten konnten serverseitig nicht gelesen werden. Keine Rechnung mit Ersatzwerten.",
+                        error_code="v3_source_unavailable"), 422
             if web_stage:
                 expanded = turns[-1]["content"] + web_stage["manifest"]
                 if len(expanded.encode("utf-8")) > 6500:
