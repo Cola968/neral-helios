@@ -71,8 +71,11 @@ class V3HttpIntegrationTests(unittest.TestCase):
         result=next(event["result"] for event in events
                     if event["type"]=="result")
         self.assertEqual(result["pages_read"],1)
-        self.assertIn("3.450,20 EUR",result["results"][0]["content"])
-        self.assertEqual(result["results"][0]["url"],"https://example.org/gold")
+        # Fresh searches return provider metadata in previews rather than
+        # marking the destination as independently reachable by HEAD.
+        seen=result["previews"] or result["results"]
+        self.assertIn("3.450,20 EUR",seen[0]["content"])
+        self.assertEqual(seen[0]["url"],"https://example.org/gold")
 
     def test_old_search_schema_remains_compatible_with_new_full_page_data(self):
         from neral_v21_attachment_data import prepare_web_dataset
