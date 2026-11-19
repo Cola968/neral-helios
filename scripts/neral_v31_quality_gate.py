@@ -89,20 +89,27 @@ def _generate():
         ("math", mathematics), ("logic", logic), ("programming", programming)
     ):
         for i in range(20):
+            # A second independently computed operation changes BOTH the
+            # problem and the oracle, rather than merely adding a case ID.
+            # This also extends low-entropy old template families that the
+            # earlier two 100-case suites had already exhausted.
+            offset = 101 + i*17 + {"math": 0, "logic": 1000,
+                                    "programming": 2000}[category]
             for attempt in range(300):
-                # Rotate the five families instead of favoring one template.
-                question, gold, family = generator(i, rng)
-                # Distinguish this prospective set from the two earlier 100s.
+                original, raw_gold, family = generator(i, rng)
+                question = (original + "\nNew final step: Add exactly "
+                            + str(offset) + " to the result of the task above. "
+                            "Return ONLY that new final integer without explanation.")
                 if digest(question) not in used:
                     used.add(digest(question))
                     break
             else:
-                raise RuntimeError("Could not generate unseen objective case")
+                raise RuntimeError("Could not generate unseen " +
+                                   category + " case " + str(i+1))
             cases.append({
                 "id": f"v31-{category}-{i+1:02d}", "category": category,
-                "family": family, "question": question +
-                    "\nReturn exactly one final integer. No explanation.",
-                "gold": gold,
+                "family": family + "_two_step", "question": question,
+                "gold": raw_gold + offset,
             })
     for i, (left, right, facet) in enumerate(WEB_PAIRS, 1):
         question = (f"Suche aktuelle Webseiten und vergleiche {left} mit {right}: "
