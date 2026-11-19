@@ -1,3 +1,4 @@
+# Explicit owner approval: run sealed synthetic cases only against the existing local V3 app.
 name: NERAL V3.1 sealed prospective 100-case quality gate
 on:
   pull_request:
