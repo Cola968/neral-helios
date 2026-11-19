@@ -139,6 +139,13 @@ async function main(){
         "(1 Feinunze = 31,1035 Gramm). Nenne mir deine Quellen.";
       const g=await send(gold,{web:true,kind:"gold-web-250g",force:false});
       const gNet=await net("chat");
+      out.v3.gold={http:gNet.status,sandbox_executed:gNet.sandbox_executed===true,
+        tool_used:gNet.tool_used||null,v3_validation:gNet.v3_validation||null,
+        sandbox_attempts:gNet.sandbox_attempts||0,
+        plan:gNet.v3_plan||[],source_links:g.source_links.length,
+        badge:String(g.status||"").slice(0,80),
+        missing_required:/benötigte Angabe|nicht eindeutig gefunden|Ersatzwert/iu.test(g.body),
+        fallback:/Helios-Antwort \(ohne Sandbox/iu.test(g.body)};
       check(gNet.status===200,"Gold: local chat HTTP failed");
       check(gNet.sandbox_executed===true && gNet.tool_used==="helios_code_sandbox",
         "Gold: executed Docker result absent (or missing source price)");
