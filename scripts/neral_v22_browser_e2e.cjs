@@ -165,7 +165,7 @@ async function main(){
             "Birthday: real forced Helios sandbox HTTP result absent");
       check(second.status==="Werkzeug: Helios Code-Sandbox (ausgeführt)",
             "Birthday: executed sandbox status missing");
-      check(/50[.,]73\\s*%/.test(second.body),
+      check(/50[.,]73\s*%/.test(second.body),
             "Birthday: expected 50.73% not visible in actual browser reply");
       out.v22.birthday={sandbox_executed:true,percent:"50.73",force_sandbox:true};
       out.status="V22_BROWSER_E2E_PASS";
