@@ -441,6 +441,46 @@ def _qualitative_comparison_issue(question, answer, citations, evidence, sources
     return None
 
 
+
+def _include_literal_comparison_sources(question, packet, evidence, sources):
+    """Add missing product-name passages, only from actually read page text.
+
+    The model may choose relevant citations about an engine or tracking while
+    omitting the passage identifying which browser they concern. No snippet
+    or product claim is constructed from search previews or model free text.
+    """
+    selected = packet["citations"]
+    for name in _comparison_entities(question):
+        pattern = r"(?<!\w)" + re.escape(name) + r"(?!\w)"
+        if any(isinstance(citation, dict) and
+               re.search(pattern, citation.get("quote", ""), re.I)
+               for citation in selected):
+            continue
+        added = False
+        for i, source in enumerate(sources, 1):
+            if source.get("page_read") is not True:
+                continue
+            source_id = f"web{i}"
+            for line in evidence.get(source_id, "").splitlines():
+                match = re.search(pattern, line, re.I)
+                if not match:
+                    continue
+                quote = line[max(0, match.start()-110):match.end()+270].strip()
+                if not 15 <= len(quote) <= 650:
+                    continue
+                citation = {"source": source_id, "quote": quote}
+                # This uses the same literal provenance check as _work.
+                _quote(citation, evidence)
+                if citation not in selected:
+                    if len(selected) >= 8:
+                        return packet
+                    selected.append(citation)
+                added = True
+                break
+            if added:
+                break
+    return packet
+
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False):
     """Only the user-authorized search query can leave the machine."""
@@ -554,6 +594,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 packet = ask(WORKER + WORK_INSTRUCTIONS[plan["tool"]],
                          {"question": question, "plan": plan, **worker_data,
                           "correction": issue}, _worker_schema(plan, evidence))
+            if passages and _is_qualitative_web_comparison(question, plan, sources):
+                packet = _include_literal_comparison_sources(
+                    question, packet, evidence, sources)
             answer = _work(plan, packet, evidence, execute, external, numeric_evidence)
             if plan["tool"] != "direct_reasoning":
                 executed = plan["tool"]
