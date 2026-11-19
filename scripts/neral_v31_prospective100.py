@@ -319,9 +319,12 @@ def _open_client():
             if len(data) > MAX_RESPONSE_BYTES:
                 raise ValueError("Oversized local API response")
             return f.status, json.loads(data)
-    status, _ = fetch("/")
-    if status != 200:
-        raise RuntimeError("Local app unavailable")
+    # The homepage is deliberately HTML. Visit it to establish the signed
+    # Flask session cookie, then parse JSON only from the session endpoint.
+    with opener.open(Request(BASE + "/", method="GET"), timeout=12) as home:
+        if home.status != 200:
+            raise RuntimeError("Local app unavailable")
+        home.read(65536)
     code, session = fetch("/api/neral/preview/session")
     if (code != 200 or session.get("three_tier_enabled") is not True or
             session.get("evidence_agent_enabled") is not True or
