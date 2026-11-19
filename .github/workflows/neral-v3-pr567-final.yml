@@ -113,7 +113,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'V3 live Chrome gate failed; rollback required'}
           Write-Host 'NERAL_V3_PR567_REAL_CHROME_4OF4_PASS'
   merged-main-local-sync:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'PR #567')
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'PR #567')"
     needs: [context-and-source-cpu]
     runs-on: [self-hosted, windows, x64, neral-gpu]
     concurrency:
