@@ -88,6 +88,8 @@ REQUIRED_FILES = (
     "neral_formal_constraints.py",
     "neral_web_search.py",
     "neral_web_api.py",
+    "neral_v3_web_reader.py",
+    "neral_v3_agent.py",
     "agent_mode.py",
     "static/neral-preview.js",
     "static/neral-web-live.js",
