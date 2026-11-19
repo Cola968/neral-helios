@@ -73,8 +73,7 @@ $removed=0
 foreach($rel in $paths){
   $target=Join-Path $root $rel
   $source=Join-Path $baseline $rel
-  $tracked=(& git -C $baseline ls-files --error-unmatch -- $rel 2>$null)
-  if($LASTEXITCODE -eq 0){
+  if(Test-Path -LiteralPath $source -PathType Leaf){
     if(-not(Test-Path -LiteralPath $source -PathType Leaf)){throw 'Expected pinned main source absent'}
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
     Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
