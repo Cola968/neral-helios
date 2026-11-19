@@ -723,8 +723,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 packet = _include_literal_comparison_sources(
                     question, packet, evidence, sources)
             answer = _work(plan, packet, evidence, execute, external, numeric_evidence)
-            if plan["tool"] != "direct_reasoning":
-                executed = plan["tool"]
+            # Report the selected reasoning path even when no sandbox or Z3
+            # subprocess was needed. Chrome E2E verifies this observable mode.
+            executed = plan["tool"]
             steps.append("validation_checker")
             if passages and _is_qualitative_web_comparison(question, plan, sources):
                 issue = _qualitative_comparison_issue(
