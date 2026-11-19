@@ -14,7 +14,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: neral-v1-v2-windows-deploy
+  # One physical neral-gpu runner serializes PC mutations. Keep V2.2 queued
+  # rather than allowing unrelated legacy workflows to replace the pending run.
+  group: neral-v22-gpu-browser-acceptance
   cancel-in-progress: false
 jobs:
   v22-live:
