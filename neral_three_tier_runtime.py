@@ -373,8 +373,19 @@ def _original_web_question(source: str) -> str:
 
 
 def _is_constraint_task(source: object) -> bool:
-    """Route free-form constraint intent; does NOT certify rule completeness."""
-    return type(source) is str and bool(_Z3_KEYWORD_RE.search(_original_web_question(source)))
+    """Use Z3 for assignments, not probability/statistical calculations.
+
+    'Mindestens' describes events as well as allocation constraints. The
+    mathematical meaning controls the choice of Python versus Z3.
+    """
+    if type(source) is not str:
+        return False
+    original = _original_web_question(source)
+    if re.search(r"(?iu)\b(?:wahrscheinlichkeit(?:en)?|geburtstagsparadoxon|"
+                 r"wahrscheinlich(?:keit)?|chance(?:n)?|statistik|"
+                 r"statistisch|erwartungswert|verteilungsgesetz)\b", original):
+        return False
+    return bool(_Z3_KEYWORD_RE.search(original))
 
 
 def _is_constraint_count(source: str) -> bool:
