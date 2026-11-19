@@ -39,7 +39,7 @@ class V3LocalLoopTests(unittest.TestCase):
         runtime=ThreeTierRuntime(luna,helios,execute_python=docker)
         turns=[{"role":"system","content":"System"},
                {"role":"user","content":QUESTION}]
-        answer=runtime.answer(turns,"Luna")
+        answer=runtime.answer(turns,"Luna",v3_agent=True)
         self.assertTrue(called)
         self.assertFalse(answer["verified"])
         self.assertEqual(answer["v3_plan"],["python_sandbox","validation_checker"])
