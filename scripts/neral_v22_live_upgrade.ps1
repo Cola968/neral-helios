@@ -1,3 +1,4 @@
+# Owner-authorized V2.2 RTX4070/Chrome local acceptance; changes only allowed NERAL files, rollback mandatory.
 # Owner-approved real V2.2/RTX4070/Chrome retest after safe Docker Desktop cold-start parser gate; rollback remains mandatory.
 # Corrected PowerShell 5.1 Docker Desktop cold-boot readiness; owner-approved V2.2 must still pass 3/3 + Chrome.
 # Owner-approved cold-boot Docker Desktop recovery and pinned offline image preflight; require real 3/3 + Chrome or rollback.
