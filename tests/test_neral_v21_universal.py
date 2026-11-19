@@ -46,6 +46,22 @@ def turns(question):
 
 
 class UniversalRouter(unittest.TestCase):
+    def test_live_diagnostics_expose_only_safe_status_and_error_categories(self):
+        from scripts.neral_v21_live3 import safe_execution_metadata
+        packet = {"text": "PRIVATE USER QUESTION", "tier": "Helios",
+                  "sandbox_executed": False,"verified":False,
+                  "tool_used":None, "sandbox_attempts":3,
+                  "sandbox_failure_trace":[{"stage":"model_format",
+                                             "error_type":"InvalidPythonFence",
+                                             "detail":"PRIVATE USER QUESTION"}]}
+        summary=safe_execution_metadata(packet)
+        self.assertEqual(summary["tier"], "Helios")
+        self.assertEqual(summary["sandbox_failure_trace"],
+                         [{"stage":"model_format","error_type":"InvalidPythonFence"}])
+        self.assertNotIn("PRIVATE USER QUESTION",str(summary))
+        self.assertNotIn("text",summary)
+
+
     def test_noncanonical_quantitative_prompts_route_helios(self):
         cases=[
             "Lena, Tom und Mira teilen sich ein Ferienhaus für 840 €. Lena reist nach der Hälfte der Zeit ab, Tom bleibt die volle Woche und Mira bringt einen Gast für die letzten zwei Tage.",
