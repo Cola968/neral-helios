@@ -66,6 +66,8 @@ def verify_main_integrity():
                 '18ce89cc02977b878659ddfe6d7635f1a5212c12',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
+            # Already present in current main (f960b3e7); legacy CURRENT_MAIN is older.
+            'templates/neral_preview.html': '329de3759a9cd59f153569bb9ac180a0ecafe3eb',
         }
         approved = approved_blobs.get(name)
         allowed_pinned_patch = (base == CURRENT_MAIN and approved is not None
