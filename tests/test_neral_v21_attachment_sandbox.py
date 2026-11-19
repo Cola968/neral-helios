@@ -16,6 +16,8 @@ class DatasetSandboxContracts(unittest.TestCase):
     def test_readonly_staged_csv_available_only_during_docker_run(self):
         observed=[]
         def subprocess_fake(cmd, **kwargs):
+            if cmd[:2]==["docker","info"]:
+                return subprocess.CompletedProcess(cmd,0,b"28.0",b"")
             if cmd[:3]==["docker","image","inspect"]:
                 return subprocess.CompletedProcess(cmd,0,b"ok",b"")
             if cmd[:2]==["docker","run"]:
