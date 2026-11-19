@@ -15,9 +15,19 @@ from urllib.parse import urlsplit
 from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url, is_fresh_news_query
 
 
-def register_web_search_api(app, service=None):
+def register_web_search_api(app, service=None, page_reader=None):
     """Parent Flask app's existing localhost, session and Origin guards apply."""
     search = service if service is not None else WebSearch()
+    from neral_v3_web_reader import fetch_and_extract, read_top_pages
+    fetch_page = page_reader if page_reader is not None else fetch_and_extract
+
+    def enrich_with_read_pages(result):
+        """Fetch real article HTML, never claim snippets were opened."""
+        candidates = result.get("previews") or result.get("results") or []
+        pages = read_top_pages(candidates, fetcher=fetch_page, max_pages=3)
+        return {**result, "pages": pages,
+                "page_read": "main_text_https" if pages else "not_available"}
+
     # Cache only public, already-sanitized icon bytes. The UI displays the same
     # site icon in its live status, source stack and source cards.
     favicon_cache = OrderedDict()
@@ -266,7 +276,11 @@ def register_web_search_api(app, service=None):
                     on_provider=lambda name: emit({"type": "provider", "name": name}),
                     on_source=lambda source: emit({"type": "source", "source": source}),
                     on_candidate=lambda source: emit({"type": "candidate", "source": source}))
-                emit({"type": "result", "result": verified})
+                emit({"type": "status", "state": "reading_pages"})
+                enriched = enrich_with_read_pages(verified)
+                for page in enriched["pages"]:
+                    emit({"type": "page", "page": page})
+                emit({"type": "result", "result": enriched})
             except (WebSearchInputError, WebSearchRateLimitError):
                 emit({"type": "error", "message": "Websuche konnte nicht ausgeführt werden."})
             except Exception:
@@ -329,7 +343,7 @@ def register_web_search_api(app, service=None):
 
     @app.get("/api/web/search/status")
     def web_search_status():
-        return jsonify(configured=True, live_verified=False, free_for_all=True,
+        return jsonify(configured=True, live_verified=False, page_reader=True, free_for_all=True,
                        requires_account=False, requires_api_key=False,
                        provider="DuckDuckGo HTML / Bing RSS / Google News RSS (aktuell) / Wikipedia DE", model_provider="none",
                        disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing, Google News (aktuelle Nachrichten) oder Wikipedia gesendet.")
@@ -347,6 +361,7 @@ def register_web_search_api(app, service=None):
             result = search.search(data["query"])
             if data.get("verify_links") is True:
                 result = verified_with_fallback(result, data["query"])
+                result = enrich_with_read_pages(result)
             return jsonify(result)
         except WebSearchInputError as exc:
             return jsonify(error=str(exc)), 400
