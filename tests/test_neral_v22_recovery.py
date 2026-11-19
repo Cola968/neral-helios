@@ -100,7 +100,8 @@ class DockerRecovery(unittest.TestCase):
     def test_missing_daemon_yields_machine_readable_error(self):
         def unavailable(cmd,**kwargs):
             return subprocess.CompletedProcess(cmd,1,b"",b"not running")
-        with patch("neral_tir_experimental.subprocess.run",side_effect=unavailable):
+        with patch("neral_tir_experimental.subprocess.run",side_effect=unavailable), patch(
+                "neral_docker_runtime._launch_existing_desktop",return_value=False):
             got=_run_ephemeral_python("print(2+3)")
         self.assertEqual(got["status"],"UNAVAILABLE")
         self.assertEqual(got["error_code"],"docker_unavailable")
