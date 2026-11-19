@@ -59,6 +59,17 @@ class EvidenceAgentTest(unittest.TestCase):
         self.assertEqual(result["agent_attempts"], 2)
         self.search.search.assert_called_once()
 
+    def test_comparison_citations_are_copied_from_source_passages(self):
+        self.pages.return_value[0]["page_text"] = (
+            "Gerät A nimmt den Ton für spätere Wiedergabe auf.\n"
+            "Gerät B spielt gespeicherte Töne ab.")
+        plan = {"tool": "direct_reasoning", "parts": ["Funktionen vergleichen"]}
+        worker = {"answer": "A nimmt auf und B spielt ab.", "citations": ["p1", "p2"]}
+        result = self.run_agent([plan, worker, {"ok": True, "issue": ""}])
+        self.assertIn("[web1] „Gerät A nimmt den Ton für spätere Wiedergabe auf.“", result["text"])
+        self.assertIn("[web1] „Gerät B spielt gespeicherte Töne ab.“", result["text"])
+        self.execute.assert_not_called()
+
 
 class PageReaderTest(unittest.TestCase):
     def test_extracts_text_without_navigation_or_scripts(self):

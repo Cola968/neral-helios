@@ -396,7 +396,10 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             passages = _passages(evidence, web_query or question) if plan["tool"] == "direct_reasoning" and external else {}
             if passages:
                 schema = _object(answer=_string(1800), citations=_array({"enum": list(passages)}, 6, 1))
-                proposal = ask(WORKER + "Beantworte die Frage mit den Auszügen. citations enthält ausschließlich Kennungen wie p1. Nutze mehrere verschiedene, konkrete Belege.",
+                proposal = ask(WORKER + "Beantworte die Frage mit den Auszügen. citations enthält ausschließlich Kennungen wie p1. "
+                               "Bei einem Vergleich stelle die Funktionen mit ihrem jeweils belegten Zweck gegenüber. "
+                               "Wenn die Quelle sie einzeln beschreibt, kennzeichne die Gegenüberstellung als deine Zusammenfassung. "
+                               "Nutze mehrere verschiedene, konkrete Belege.",
                                {"question": question, "passages": passages, "correction": issue}, schema)
                 selected = proposal.get("citations")
                 if not isinstance(selected, list) or not selected or len(selected) > 6 or any(
@@ -413,7 +416,13 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if plan["tool"] != "direct_reasoning":
                 executed = plan["tool"]
             steps.append("validation_checker")
-            review = ask(CHECKER, {"question": question, "plan": plan, "proposal": packet,
+            checker = CHECKER
+            if passages:
+                checker += ("Vergleiche dürfen aus einzeln belegten Merkmalen abgeleitet werden. "
+                            "Die Quelle muss keinen direkten Vergleich formulieren. "
+                            "Prüfe stattdessen, ob die zitierten Textstellen die jeweiligen Merkmale tatsächlich stützen "
+                            "und die Antwort diese konkret gegenüberstellt.")
+            review = ask(checker, {"question": question, "plan": plan, "proposal": packet,
                                    "draft": answer, "history": context}, CHECK_SCHEMA, budget=256)
             if set(review) != {"ok", "issue"} or type(review["ok"]) is not bool or not isinstance(review["issue"], str):
                 raise AgentError("Prüfer lieferte kein gültiges Urteil.")
