@@ -378,7 +378,7 @@
       valid.push({url:parsed.href,host:parsed.hostname,
         title:String(source.title||parsed.hostname).slice(0,160),
         snippet:String(source.snippet||"").slice(0,180),
-        reachable:source.reachable===true});
+        reachable:source.reachable===true,read:source.read===true});
     }
     if(!valid.length){
       if(searchAttempted){
@@ -412,9 +412,11 @@
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
     const note=document.createElement("p");note.className="neral-source-notice";
-    note.textContent=allReachable?
-      "HTTPS-Adressen erreichbar · Seiteninhalte nicht unabhängig geprüft":
-      "Suchmaschinen-Treffer · Erreichbarkeit der Zielseiten nicht geprüft · Inhalte nicht gelesen";
+    note.textContent=valid.some(item=>item.read)
+      ? "Markierte Seiten als HTML gelesen · externe Fakten nicht unabhängig bestätigt"
+      : allReachable
+      ? "HTTPS-Adressen erreichbar · Seiteninhalte nicht unabhängig geprüft"
+      : "Suchmaschinen-Treffer · Erreichbarkeit der Zielseiten nicht geprüft · Inhalte nicht gelesen";
     list.append(note);
     valid.forEach((v,index)=>{
       const link=document.createElement("a");link.className="neral-source-link";
@@ -843,7 +845,7 @@
         onPaint:()=>{messages.scrollTop=messages.scrollHeight;}
       });
     }
-    let sources=[],verifiedSources=[],webAttempted=false;
+    let sources=[],verifiedSources=[],readPages=[],webAttempted=false;
     try {
       let modelPrompt=text;
       // Attached files are processed locally even if the optional web tool is on.
@@ -901,6 +903,15 @@
           ? search.previews.filter(hit=>hit.discovered===true && usable(hit)).slice(0,5):[];
         sources=[...verifiedSources,
           ...previews.filter(hit=>!verifiedSources.some(checked=>checked.url===hit.url))].slice(0,5);
+        // V3: only the server-side HTTPS reader may mark a page as read.
+        // Source snippets remain metadata if a publisher blocks HTML fetching.
+        readPages=(Array.isArray(search.pages)?search.pages:[])
+          .filter(page=>page?.read===true && typeof page.text==="string" &&
+            page.text.length>=35 && page.text.length<=3000 &&
+            sources.some(hit=>hit.url===page.url))
+          .slice(0,3);
+        sources=sources.map(hit=>({...hit,
+          read:readPages.some(page=>page.url===hit.url)}));
         // Real provider results exist even if the sites refuse HTTPS probes.
         for(const source of sources)
           liveHandler({type:source.reachable===true?"source":"candidate",source});
@@ -917,12 +928,13 @@
         // The search was really executed even when no topic-matched source
         // survived filtering. Tell the model the truthful empty-result status,
         // without passing irrelevant third-party snippets or invented facts.
-        modelPrompt=webEvidencePrompt(text,evidence,true,verifiedSources.length);
+        modelPrompt=threeTierEnabled && readPages.length
+          ? text : webEvidencePrompt(text,evidence,true,verifiedSources.length);
         // Search hits are already real provider metadata. Do not make the user
         // wait for a 9B model to rewrite snippets or claim it read those sites.
         // The exact original source URLs are rendered as separate safe links.
         if(sources.length>0 && selectedAttachments.length===0 &&
-           !(threeTierEnabled && (forceSandbox||isWebDataQuestion(text)))){
+           !(threeTierEnabled && readPages.length>0)){
           const short=part=>String(part||"").replace(/\bGrenze\s*:/giu,"Hinweis:").trim();
           const snippets=sources.slice(0,5).map((hit,i)=>{
             const title=short(hit.title).slice(0,120);
@@ -932,7 +944,8 @@
           const answer="Gefundene Suchtreffer zu „"+webQuery+"“:\n"+
             snippets.join("\n")+"\n\n"+
             "Die Angaben stammen aus Suchmaschinen-Snippets. "+
-            "Die verlinkten Seiten wurden nicht inhaltlich unabhängig geprüft.";
+            "Die Zielseiten konnten nicht vollständig gelesen werden. "+
+            "Ohne belegte Zahlen erfolgt keine Berechnung.";
           const origin="Werkzeug: Websuche ("+sources.length+" "+
             (sources.length===1?"Quelle":"Quellen")+")";
           motionActivity("done",mode);
@@ -943,6 +956,17 @@
           browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
             detail:{user:text,assistant:answer}
           }));
+          completedTurn=true;
+          return;
+        }
+        if(threeTierEnabled && !readPages.length && !sources.length &&
+           !selectedAttachments.length){
+          const answer="Die Websuche hat keine lesbaren, passenden Webseiten geliefert. "+
+            "Aktuelle Zahlen lassen sich deshalb nicht belegen. "+
+            "NERAL setzt keinen Ersatzwert wie 0 ein.";
+          const answerNode=append("assistant",answer,"Werkzeug: Websuche (keine Quelldaten)",true);
+          appendSources(answerNode,[],true);
+          memory.push({role:"user",content:text},{role:"assistant",content:answer});
           completedTurn=true;
           return;
         }
@@ -977,7 +1001,9 @@
         path="/api/neral/chat/three-tier";
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
                                      history:safeHistory(),force_sandbox:forceSandbox,
-                                     ...(webData.length && (forceSandbox||isWebDataQuestion(text))
+                                     ...(readPages.length ? {web_pages:readPages}: {}),
+                                     ...(webData.length && !readPages.length &&
+                                         (forceSandbox||isWebDataQuestion(text))
                                        ? {web_data:webData}: {})});
       }
       const useLive=!threeTierEnabled && mode==="generate" && !selectedAttachments.length &&
