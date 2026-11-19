@@ -19,12 +19,13 @@ def register_web_search_api(app, service=None, page_reader=None):
     """Parent Flask app's existing localhost, session and Origin guards apply."""
     search = service if service is not None else WebSearch()
     from neral_v3_web_reader import fetch_and_extract, read_top_pages
-    fetch_page = page_reader if page_reader is not None else fetch_and_extract
+    fetch_page = page_reader
 
     def enrich_with_read_pages(result):
         """Fetch real article HTML, never claim snippets were opened."""
         candidates = result.get("previews") or result.get("results") or []
-        pages = read_top_pages(candidates, fetcher=fetch_page, max_pages=3)
+        pages = read_top_pages(candidates, fetcher=fetch_page, max_pages=3,
+                               query=result.get('query', ''))
         return {**result, "pages": pages,
                 "page_read": "main_text_https" if pages else "not_available"}
 
