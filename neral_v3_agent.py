@@ -318,8 +318,8 @@ def run_v3_web_agent(runtime, turns: list[dict], tier: str, pages: list[dict]) -
     compute=any(s in steps for s in ("python_sandbox","z3_solver"))
     facts=anchored_numeric_facts(page_data)
     if compute:
-        needs_ounce_price=(bool(re.search(r"(?iu)\\bFeinunze\\b",question))
-                           and bool(re.search(r"(?iu)\\b(?:Gramm|Goldbarren)\\b",question)))
+        needs_ounce_price=(bool(re.search(r"(?iu)\bFeinunze\b",question))
+                           and bool(re.search(r"(?iu)\b(?:Gramm|Goldbarren)\b",question)))
         expected=expected_material_value(question,facts)
         if not facts or (needs_ounce_price and expected is None):
             result=missing_web_data_reply(question,page_data,
