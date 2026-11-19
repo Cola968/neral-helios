@@ -727,7 +727,7 @@ def _source_sequential_percent_ok(source: object, stdout: object) -> bool | None
 
 _SANDBOX_SAFE_CODES = frozenset((
     "docker_unavailable", "image_unavailable", "invalid_python_code",
-    "runtime_error", "empty_stdout", "timeout",
+    "runtime_error", "empty_stdout", "timeout", "source_mismatch",
 ))
 
 
@@ -775,6 +775,7 @@ _SANDBOX_UI_REASONS = {
     "runtime_error": "Laufzeitfehler",
     "empty_stdout": "Keine Ausgabe",
     "timeout": "Zeitlimit erreicht",
+    "source_mismatch": "Berechnetes Ergebnis widerspricht den Angaben",
 }
 
 
@@ -1194,6 +1195,7 @@ class ThreeTierRuntime:
                 person_ok = _source_person_nights_output_ok(source, output)
                 if person_ok is False:
                     last_error = "Ausgegebene Zahlerbeträge widersprechen Personennächten"
+                    failure_code = "source_mismatch"
                     failure_trace.append({
                         "stage": "source_consistency",
                         "error_type": "PersonNightMismatch",
@@ -1220,6 +1222,7 @@ class ThreeTierRuntime:
                     # Docker ran, but its numeric output conflicts with the
                     # original rational equation. Never publish it as success.
                     last_error = "Eingabegleichung durch Einsetzen nicht erfüllt"
+                    failure_code = "source_mismatch"
                     failure_trace.append({
                         "stage": "source_consistency",
                         "error_type": "FractionEquationMismatch",
@@ -1241,6 +1244,7 @@ class ThreeTierRuntime:
                 loan_ok = _source_loan_output_ok(source, output)
                 if loan_ok is False:
                     last_error = "Kredit-Endwert widerspricht den Quellformeln"
+                    failure_code = "source_mismatch"
                     failure_trace.append({
                         "stage": "source_consistency",
                         "error_type": "LoanEquationMismatch",
@@ -1294,6 +1298,7 @@ class ThreeTierRuntime:
                             valid = False
                     if not valid:
                         last_error = "Webdaten-Summe aus JSON-Snippets falsch"
+                        failure_code = "source_mismatch"
                         failure_trace.append({
                             "stage": "source_consistency",
                             "error_type": "WebCurrencySumMismatch",
