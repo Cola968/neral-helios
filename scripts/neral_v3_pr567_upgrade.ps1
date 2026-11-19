@@ -1,4 +1,4 @@
-# NERAL V3 PR #567: user-approved real RTX4070 Chrome 4/4 on port9690 after proven cookie-session HTTP200; stage exact NERAL files and rollback on failure.
+# NERAL V3 PR #567: user-approved direct RTX4070 four-task Chrome gate; requires verified 9690 HTTP200, all answers checked, automatic V2.2 rollback.
 # Owner-approved RTX4070 V2.2 final acceptance following green full CPU regressions; strict rollback of 4 files on any failed Chrome case.
 # Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
