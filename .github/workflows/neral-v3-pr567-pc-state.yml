@@ -68,4 +68,22 @@ jobs:
           }
           Write-Host ('NERAL_PR567_SAFE_IMPORT_DIAG last_task_result='+$last+
             ' python_modules='+($importResult -join ',')+' installed='+($hashes -join ','))
+          # HTTP probe uses no cookies, credentials or user prompt content.
+          $owner="unknown";$ownerName="unknown";$status="not_attempted"
+          if($listeners.Count -eq 1){
+            $p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$listeners[0].OwningProcess) -ErrorAction SilentlyContinue
+            $owner=if($p -and [string]$p.CommandLine -match '(?i)neral_preview_server' -and
+                      [string]$p.CommandLine -match '--experimental-three-tier-hf'){'neral-hf'}else{'unexpected'}
+            $ownerName=if($p){[string]$p.Name}else{'missing'}
+          }
+          $curl=Get-Command curl.exe -ErrorAction SilentlyContinue
+          if($curl){
+            $ErrorActionPreference='Continue'
+            $probe=@(& $curl.Source --noproxy '*' --silent --show-error --connect-timeout 4 --max-time 18 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+            $curlExit=$LASTEXITCODE
+            $ErrorActionPreference='Stop'
+            $status='curl_exit_'+$curlExit+'_http_'+($probe -join '')
+          }
+          Write-Host ('NERAL_PR567_HTTP_DIAG owner='+$owner+' process_name='+$ownerName+' probe='+$status)
+
 
