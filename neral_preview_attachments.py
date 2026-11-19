@@ -292,7 +292,7 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                     turns[0]["content"]=build_identity_prompt(
                         "web","local_neral_lora_experimental")
                     import os
-                    if os.environ.get("NERAL_V3_AGENT") == "1":
+                    if os.environ.get("NERAL_V3_AGENT", "1") == "1":
                         from neral_v3_runtime import answer_v3
                         result=answer_v3(three_tier_runtime,turns,tier,
                             sandbox_files=prepared["staged_files"],
