@@ -175,16 +175,20 @@ def _run_ephemeral_python(code: str, *, staged_files: dict[str, bytes] | None = 
     except SyntaxError as exc:
         reason = "".join(c for c in str(exc.msg)[:95] if
                          c.isalnum() or c in " .,:;-_")
-        return {"status": "FAILED", "error_type": "SyntaxError",
+        return {"status": "FAILED", "error_code": "invalid_python_code", "error_type": "SyntaxError",
                 "traceback": f"Python syntax invalid at line {exc.lineno or 0}: {reason}"}
     except (RecursionError, ValueError):
-        return {"status": "FAILED", "error_type": "SyntaxError",
+        return {"status": "FAILED", "error_code": "invalid_python_code", "error_type": "SyntaxError",
                 "traceback": "Python source nesting or parser input invalid"}
     nodes = sum(1 for _ in ast.walk(tree))
     if nodes > 384:
-        return {"status": "FAILED", "error_type": "CodeComplexityLimit",
+        return {"status": "FAILED", "error_code": "invalid_python_code", "error_type": "CodeComplexityLimit",
                 "traceback": f"Python AST has {nodes} nodes; maximum 384. "
                              "Write shorter SymPy equations, loops or functions."}
+    from neral_docker_runtime import ensure_docker_ready
+    if not ensure_docker_ready():
+        return {"status": "UNAVAILABLE", "error_code": "docker_unavailable",
+                "error_type": "SandboxUnavailable"}
     from neral_agent_sandbox import IMAGE
     # Optional, locally prebuilt solver image only. This flag cannot pick
     # arbitrary images; there is no docker pull or host-code fallback.
@@ -193,10 +197,12 @@ def _run_ephemeral_python(code: str, *, staged_files: dict[str, bytes] | None = 
         inspect = subprocess.run(
             ["docker", "image", "inspect", image],
             capture_output=True, timeout=3, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
+    except subprocess.TimeoutExpired:
+        return {"status": "UNAVAILABLE", "error_code": "timeout", "error_type": "SandboxUnavailable"}
+    except OSError:
+        return {"status": "UNAVAILABLE", "error_code": "docker_unavailable", "error_type": "SandboxUnavailable"}
     if inspect.returncode != 0:
-        return {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
+        return {"status": "UNAVAILABLE", "error_code": "image_unavailable", "error_type": "SandboxUnavailable"}
     with tempfile.TemporaryDirectory(prefix="neral-tir-offline-") as folder:
         root = Path(folder)
         program = root / "run.py"
@@ -212,7 +218,7 @@ def _run_ephemeral_python(code: str, *, staged_files: dict[str, bytes] | None = 
             root.chmod(0o755)
             program.chmod(0o644)
         except OSError:
-            return {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
+            return {"status": "UNAVAILABLE", "error_code": "runtime_error", "error_type": "SandboxUnavailable"}
         cmd = [
             "docker", "run", "--rm", "--pull", "never",
             "--network", "none", "--read-only",
@@ -229,23 +235,24 @@ def _run_ephemeral_python(code: str, *, staged_files: dict[str, bytes] | None = 
             completed = subprocess.run(
                 cmd, capture_output=True, check=False, timeout=5)
         except subprocess.TimeoutExpired:
-            return {"status": "FAILED", "error_type": "RuntimeError",
+            return {"status": "FAILED", "error_code": "timeout", "error_type": "RuntimeError",
                     "traceback": "Sandbox timeout (5s)"}
         except OSError:
-            return {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
+            return {"status": "UNAVAILABLE", "error_code": "docker_unavailable", "error_type": "SandboxUnavailable"}
     if completed.returncode in (125, 126, 127):
-        return {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
+        return {"status": "UNAVAILABLE", "error_code": "docker_unavailable", "error_type": "SandboxUnavailable"}
     if len(completed.stdout) > 4096 or len(completed.stderr) > 4096:
-        return {"status": "FAILED", "error_type": "RuntimeError",
+        return {"status": "FAILED", "error_code": "runtime_error", "error_type": "RuntimeError",
                 "traceback": "Sandbox output exceeded limit"}
     if completed.returncode != 0:
         error = completed.stderr.decode("utf-8", "replace")[-600:]
-        return {"status": "FAILED", "error_type": "RuntimeError",
+        return {"status": "FAILED", "error_code": "runtime_error", "error_type": "RuntimeError",
                 "traceback": error or "Program exited with nonzero status"}
     result = completed.stdout.decode("utf-8", "replace").strip()
     if not result or len(result) > 512 or any(
             ord(c) < 32 and c not in "\t\n" for c in result):
-        return {"status": "FAILED", "error_type": "RuntimeError",
+        return {"status": "FAILED", "error_code": "empty_stdout" if not result else "runtime_error",
+                "error_type": "RuntimeError",
                 "traceback": "Empty or invalid program output"}
     return {"status": "PASSED", "output": result,
             "stderr": completed.stderr.decode("utf-8", "replace").strip()[:512],
