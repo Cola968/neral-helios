@@ -1,11 +1,10 @@
 "use strict";
-/* NERAL Live Search: NDJSON events from actual contacted providers and
- * reachable HTTPS search hits. No page-reading or fabricated steps. */
+/* NERAL V3 Live Search: user-consented sources and optional bounded actual page reading. */
 (() => {
   async function search({query,csrf,signal,onEvent}){
     const options={method:"POST",credentials:"same-origin",cache:"no-store",
       headers:{"Content-Type":"application/json","Accept":"text/event-stream","X-Neral-CSRF":csrf},
-      body:JSON.stringify({query,verify_links:true}),signal};
+      body:JSON.stringify({query,verify_links:true,read_pages:true}),signal};
     let response=await fetch("/api/web/search/stream",options);
     if(response.status===404||response.status===405){
       // An older local installation still works until the entire ZIP updates.
@@ -30,8 +29,11 @@
       let event;
       try{event=JSON.parse(line);}catch{throw new Error("Ungültiges Live-Suchergebnis.");}
       if(!event||typeof event!=="object")throw new Error("Ungültiges Live-Suchergebnis.");
-      if(event.type==="status"&&event.state==="searching"){
-        onEvent?.({type:"status",state:"searching"});
+      if(event.type==="status"&&["searching","reading"].includes(event.state)){
+        onEvent?.({type:"status",state:event.state});
+      }
+      if(event.type==="page"&&event.source?.url){
+        onEvent?.({type:"page",source:event.source});
       }
       if(event.type==="error")throw new Error(String(event.message||"Websuche fehlgeschlagen."));
       if(event.type==="provider"&&typeof event.name==="string"){
