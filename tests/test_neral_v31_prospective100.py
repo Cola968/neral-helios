@@ -93,6 +93,44 @@ class V31ProspectiveSuite(unittest.TestCase):
         with self.assertRaises(ValueError):
             summarize(cases, rows[:-1] + [rows[0]])
 
+    def test_html_homepage_bootstraps_json_session(self):
+        import io
+        from unittest.mock import patch
+        from scripts.neral_v31_prospective100 import _open_client
+        calls = []
+
+        class FakeResponse:
+            def __init__(self, status, payload):
+                self.status = status
+                self.stream = io.BytesIO(payload)
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def read(self, n=-1):
+                return self.stream.read(n)
+
+        class FakeOpener:
+            def open(self, req, timeout):
+                calls.append((req.full_url, req.get_method(), timeout))
+                if req.full_url.endswith(":9690/"):
+                    return FakeResponse(200, b"<html>NERAL V3</html>")
+                if req.full_url.endswith("/api/neral/preview/session"):
+                    return FakeResponse(200, json.dumps({
+                        "csrf": "signed-local-csrf",
+                        "three_tier_enabled": True,
+                        "evidence_agent_enabled": True
+                    }).encode())
+                raise AssertionError("Unexpected API call")
+
+        with patch("scripts.neral_v31_prospective100.build_opener",
+                   return_value=FakeOpener()):
+            fetch, csrf = _open_client()
+        self.assertEqual(csrf, "signed-local-csrf")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1], "GET")
+        self.assertEqual(calls[1][1], "GET")
+
     def test_knowledge_scoring_avoids_answer_in_long_text(self):
         case = {"category": "knowledge", "kind": "word", "gold": "Sauerstoff"}
         self.assertTrue(evaluate_case(case, {"text": "Sauerstoff"}, 200)["correct"])
