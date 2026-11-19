@@ -6,7 +6,7 @@ test("explicit unverified Helios fallback tool status shows typed sandbox reason
   for(const reason of ["docker_unavailable","invalid_python_code","runtime_error","empty_stdout","timeout"]){
     assert.ok(js.includes(reason),"missing stable error code: "+reason);
   }
-  assert.match(js,/Modus: Helios \\(Modellantwort ungeprüft\\)/);
+  assert.match(js,/Modus: Helios \(Modellantwort ungeprüft\)/);
   assert.match(js,/result\.sandbox_executed===false/);
   assert.match(js,/result\.sandbox_failure_code/);
 });
