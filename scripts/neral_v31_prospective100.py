@@ -110,11 +110,19 @@ def build_suite(seed: str) -> list[dict]:
         cases.append(_mk("mathematics", i+1, q, gold=gold, kind="integer", tool="python_sandbox"))
 
     from itertools import permutations
+    unique_constraints = set()
     for i in range(20):
         names = ("Ada", "Ben", "Cem", "Dora")
-        fixed = rng.randrange(4)
-        excluded = rng.randrange(4)
-        other = rng.randrange(4)
+        for _ in range(128):
+            fixed = rng.randrange(4)
+            excluded = rng.randrange(4)
+            other = rng.randrange(4)
+            triple = (fixed, excluded, other)
+            if triple not in unique_constraints:
+                unique_constraints.add(triple)
+                break
+        else:
+            raise ValueError("Insufficient unique schedule cases")
         # One-to-one assignment to four ordered shifts; conditions are fully
         # enumerated independently of NERAL's Z3 tool.
         assignments = tuple(p for p in permutations(range(1, 5))
