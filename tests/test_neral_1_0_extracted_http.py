@@ -56,7 +56,11 @@ class RealExtractedHttpTests(unittest.TestCase):
                 last_error=None
                 for _ in range(65):
                     if process.poll() is not None:
-                        self.fail("Extracted NERAL HTTP server exited on startup.")
+                        # CI-only process has no user prompt, account or secret
+                        # printed. Expose only a bounded Python exception tail.
+                        detail=(process.stderr.read(2048) if process.stderr else b"")
+                        safe=detail.decode("utf-8","replace")[-600:]
+                        self.fail("Extracted NERAL HTTP server exited on startup: "+safe)
                     try:
                         with client.open(BASE+"/",timeout=1.0) as response:
                             html=response.read(120_000)
