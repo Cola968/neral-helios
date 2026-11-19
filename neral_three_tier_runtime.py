@@ -778,6 +778,58 @@ _SANDBOX_UI_REASONS = {
 }
 
 
+_GERMAN_GROUPED_EURO = re.compile(
+    r"(?iu)(?<!\d)([1-9]\d{0,2}(?:\.\d{3})+(?:,\d{1,2})?)"
+    r"\s*(?:€|\bEuro\b)"
+)
+
+
+def _source_german_euro_guidance(source: object) -> str:
+    """Disambiguate source numbers only; never synthesize an answer."""
+    if type(source) is not str or len(source) > 4096:
+        return ""
+    amounts = list(dict.fromkeys(_GERMAN_GROUPED_EURO.findall(source)))[:5]
+    if not amounts:
+        return ""
+    conversions = []
+    for value in amounts:
+        normalized = value.replace(".", "").replace(",", ".")
+        try:
+            if not 0 < Decimal(normalized) <= Decimal("1000000000000"):
+                continue
+        except ArithmeticError:
+            continue
+        conversions.append(f"'{value} €' bedeutet {normalized} Euro")
+    return ("\nDEUTSCHE ZAHLFORMATIERUNG: Tausender-Punkte sind KEINE "
+            "Dezimalpunkte. " + "; ".join(conversions) + ". "
+            "Nutze diese Beträge als unveränderte Quellwerte für Python. "
+            if conversions else "")
+
+
+def _source_person_nights_hint(source: object) -> str:
+    """Generic overnight accounting method, no task-specific answers."""
+    if type(source) is not str or len(source) > 4096 or not re.search(
+            r"(?iu)\b(?:übernacht\w*|personennächt\w*|nacht|nächte|"
+            r"ferienhaus|berghütte|hütte)\b", source):
+        return ""
+    return (
+        "\nPERSONENNÄCHTE-METHODE: Erstelle aus dem Originaltext zuerst "
+        "eine eindeutige Tabelle Gast, übernachtete Nächte, Zahler. "
+        "Volle Zeit, frühere Abreise, spätere Ankunft und Zusatzgäste "
+        "einzeln erfassen. Wenn jemand zur Hälfte der Zeit anreist, "
+        "bestimme die Nächte aus der ausdrücklich genannten Gesamtdauer. "
+        "Jeder zusätzliche Gast hat eigene Personennächte; Zusatzgäste "
+        "werden nur bei der verlangten Abrechnung dem Hauptgast zugerechnet. "
+        "Preis_pro_Personennacht=Gesamtpreis/Summe_aller_Personennächte. "
+        "Berechne pro Zahler dessen Nächte plus gegebenenfalls die seiner "
+        "Gäste, multipliziere mit dem Preis und prüfe mit assert, "
+        "dass die Summe aller Zahler genau dem Gesamtpreis entspricht. "
+        "Nutze Fraction oder Decimal, nicht float. "
+        "Dichte keine Aufenthaltsdauer hinzu; bei fehlenden Angaben "
+        "benenne die Unbestimmtheit."
+    )
+
+
 def _sandbox_error(report: object) -> str:
     if type(report) is not dict:
         return "Sandbox-Rückgabe ungültig"
@@ -910,6 +962,8 @@ class ThreeTierRuntime:
                (_source_relational_equations(source) or "")
                if _is_relational_word_problem(source)
                else _CODE_ONLY_SYSTEM +
+                    _source_german_euro_guidance(source) +
+                    _source_person_nights_hint(source) +
                     (_source_loan_equations(source) or "") +
                     (_source_sequential_percent_hint(source) or "")))))}]
         base.extend(dict(t) for t in turns[1:])
@@ -1133,6 +1187,20 @@ class ThreeTierRuntime:
             # Only the immediately preceding failing code and bounded stderr are
             # offered as feedback. Do not accumulate huge tool transcripts.
             sympy_hint = ""
+            if _source_person_nights_hint(source) and "AssertionError" in last_error:
+                sympy_hint = (
+                    "PERSONENNÄCHTE-ASSERTION FEHLGESCHLAGEN: "
+                    "Die Annahmen des vorherigen Skripts waren inkonsistent. "
+                    "Gehe ganz neu vom Originaltext aus; prüfe die Zahl der "
+                    "Nächte je Gast separat und erfasse auch Zusatzgäste. "
+                    "Gesamtpreis durch ALLE Personennächte teilen, nicht "
+                    "durch Nächte des Hauses oder Anzahl der Freunde. "
+                    "Gruppiere am Ende nach Zahler, prüfe "
+                    "sum(Einzelzahlungen)==Gesamtpreis mit Fraction. "
+                    "Deutsche Tausenderpunkte als Tausendertrenner lesen. "
+                    "Verwende keine alten Berechnungsannahmen und kein "
+                    "fehlerhaftes assert. "
+                )
             if (_source_loan_equations(source) is not None
                     and "AssertionError" in last_error):
                 sympy_hint = (
