@@ -1,3 +1,4 @@
+# Owner-authorized rerun after qualitative comparison regression coverage (PR567).
 name: NERAL PR567 direct RTX4070 four-task Chrome acceptance
 on:
   pull_request:
