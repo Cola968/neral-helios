@@ -747,6 +747,27 @@ def _safe_sandbox_failure_code(report: object) -> str:
     return "runtime_error"
 
 
+_SANDBOX_PUBLIC_EXCEPTIONS = frozenset((
+    "ValueError", "ZeroDivisionError", "KeyError", "TypeError",
+    "IndexError", "AssertionError", "OverflowError", "NameError",
+    "SyntaxError", "ImportError", "ModuleNotFoundError",
+))
+
+
+def _safe_sandbox_exception(report: object) -> str | None:
+    """Expose a known Python exception CLASS, never stderr or code content."""
+    if type(report) is not dict:
+        return None
+    trace=report.get("traceback")
+    if type(trace) is not str:
+        return None
+    match=re.search(
+        r"\b(ValueError|ZeroDivisionError|KeyError|TypeError|IndexError|"
+        r"AssertionError|OverflowError|NameError|SyntaxError|ImportError|"
+        r"ModuleNotFoundError)\b", trace[-600:])
+    return match.group(1) if match and match.group(1) in _SANDBOX_PUBLIC_EXCEPTIONS else None
+
+
 _SANDBOX_UI_REASONS = {
     "docker_unavailable": "Docker nicht aktiv",
     "image_unavailable": "Solver-Image fehlt",
@@ -899,6 +920,7 @@ class ThreeTierRuntime:
         last_error = "Keine ausführbare Codeantwort"
         failure_trace = []
         failure_code = "invalid_python_code"
+        failure_exception = None
         from neral_everyday_verified import tidy_unverified_model_text
 
         for attempt in range(3):
@@ -1098,6 +1120,7 @@ class ThreeTierRuntime:
                 break
             last_error = _sandbox_error(report)
             failure_code = _safe_sandbox_failure_code(report)
+            failure_exception = _safe_sandbox_exception(report)
             failure_trace.append({
                 "stage": "docker",
                 "status": report.get("status", "INVALID") if type(report) is dict else "INVALID",
@@ -1230,6 +1253,8 @@ class ThreeTierRuntime:
             "sandbox_attempts": attempted,
             **({"sandbox_failure_code": failure_code,
                 "sandbox_failure_reason": _SANDBOX_UI_REASONS[failure_code],
+                **({"sandbox_failure_exception": failure_exception}
+                   if failure_exception and failure_code == "runtime_error" else {}),
                 "model_fallback_generated": model_fallback_generated,
                 "sandbox_failure_trace": failure_trace} if not succeeded else {}),
             "verification_status": "generated_code_executed_unverified" if succeeded
