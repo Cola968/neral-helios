@@ -1,4 +1,4 @@
-# Owner-authorized rerun after qualitative comparison regression coverage (PR567).
+# Owner-authorized real 4/4 Chrome retest after structured two-sided Firefox comparison.
 name: NERAL PR567 direct RTX4070 four-task Chrome acceptance
 on:
   pull_request:
