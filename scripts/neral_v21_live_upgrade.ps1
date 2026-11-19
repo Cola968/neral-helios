@@ -1,3 +1,4 @@
+# Owner-approved RTX4070 live retest with privacy-safe failure categories; 3/3 + Chrome and rollback still mandatory.
 # User-approved final reboot-ready V2.1 RTX4070+Chrome reacceptance; merge only on 3/3 plus browser and rollback otherwise.
 # Owner-approved reboot recovery retest: exact registered NERAL task only, 3/3 real HF/Docker, Chrome, rollback otherwise.
 # Explicit owner approval: rerun V2.1 real RTX4070 and Chrome after exact browser response diagnostics; retain 3/3 + Chrome/rollback gates.
