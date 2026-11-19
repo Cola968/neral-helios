@@ -207,3 +207,68 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract):
                        "page_read": page is not None, "reachable": page is not None,
                        "discovered": True})
     return result
+
+
+def entity_evidence_excerpt(text, entity):
+    """Literal page-text excerpt with a named subject and descriptive facts.
+
+    Never use a search title/snippet, hostname or generated text as evidence.
+    The exact returned substring can safely be attached as a citation.
+    """
+    if not isinstance(text, str) or not isinstance(entity, str) or not entity.strip():
+        return None
+    name = re.compile(r"(?<!\w)" + re.escape(entity.strip()) + r"(?!\w)", re.I)
+    for match in name.finditer(text):
+        start = text.rfind("\n", 0, match.start()) + 1
+        finish = text.find("\n", match.end())
+        finish = len(text) if finish == -1 else finish
+        # Include one adjacent line when the name occurs in a heading.
+        if finish - start < 35:
+            next_end = text.find("\n", finish + 1)
+            finish = len(text) if next_end == -1 else next_end
+        start = max(start, match.start() - 100)
+        finish = min(finish, match.end() + 300)
+        excerpt = text[start:finish].strip()
+        without_name = name.sub(" ", excerpt)
+        facts = re.findall(r"[^\W\d_]{3,}", without_name, re.UNICODE)
+        if len(facts) >= 3 and len(excerpt) >= 20:
+            return excerpt
+    return None
+
+
+def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
+                      max_pages=2, exclude_urls=()):
+    """Read ranked HTTPS candidates until an actual page covers *entity*.
+
+    The first three search hits can all be off-topic. Inspect at most nine
+    unique candidates in three bounded batches; never trust search previews.
+    The supplied reader is the same hardened pinned-TLS reader used normally.
+    """
+    found = []
+    seen = set(exclude_urls)
+    candidates = []
+    for hit in hits if isinstance(hits, list) else ():
+        if not isinstance(hit, dict):
+            continue
+        url = safe_result_url(hit.get("url"))
+        if url and url not in seen:
+            seen.add(url)
+            candidates.append(hit)
+        if len(candidates) == 9:
+            break
+    for offset in range(0, len(candidates), 3):
+        batch = reader(candidates[offset:offset+3], query)
+        for page in batch if isinstance(batch, list) else ():
+            if not isinstance(page, dict) or page.get("page_read") is not True:
+                continue
+            if not safe_result_url(page.get("url")):
+                continue
+            if entity_evidence_excerpt(page.get("page_text"), entity) is None:
+                continue
+            found.append(page)
+            if len(found) == max_pages:
+                return found
+        # A relevant read page is sufficient; do not burn retries on more sites.
+        if found:
+            break
+    return found
