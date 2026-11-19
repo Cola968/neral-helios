@@ -41,6 +41,44 @@ jobs:
           & git merge-base --is-ancestor bf06134566caf0b48932c3690d7a4c570b9bef6a HEAD
           if($LASTEXITCODE -ne 0){throw 'PR562 merge commit missing from main'}
           Write-Host 'NERAL_PR562_MAIN_SYNC_SCRIPT_PARSE_PASS'
+      - name: Ensure pinned user Docker Desktop engine persists across Actions jobs
+        env:
+          RUNNER_TRACKING_ID: ""
+        run: |
+          $ErrorActionPreference='Stop'
+          # V2.1's Docker daemon must survive GitHub's post-job orphan cleanup.
+          # No downloads, installer, new Windows service or remote image pull.
+          $docker=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/resources/bin/docker.exe'
+          $desktopExe=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/Docker Desktop.exe'
+          if(-not(Test-Path -LiteralPath $docker -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $desktopExe -PathType Leaf)){
+            throw 'Existing user-scoped Docker Desktop installation missing'
+          }
+          function TestSolverImage {
+            $ErrorActionPreference='Continue'
+            $lines=@(& $docker image inspect --format '{{.Id}}' neral-python-tools:v2 2>$null)
+            return ($LASTEXITCODE -eq 0 -and $lines.Count -ge 1)
+          }
+          function TestSolverRun {
+            $ErrorActionPreference='Continue'
+            $lines=@(& $docker run --rm --pull never --network none --read-only --memory 256m --cpus 0.5 --pids-limit 32 neral-python-tools:v2 python -B -c 'import sympy,z3;print(7*8)' 2>$null)
+            return ($LASTEXITCODE -eq 0 -and ($lines -join '').Trim() -eq '56')
+          }
+          if(-not(TestSolverImage)){
+            $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)
+            if($running.Count -eq 0){
+              Start-Process -FilePath $desktopExe -ErrorAction Stop
+              Write-Host 'NERAL_V21_PERSISTENT_DESKTOP_STARTED'
+            }
+            $ready=$false
+            for($i=0;$i -lt 75;$i++){
+              Start-Sleep -Seconds 2
+              if(TestSolverImage){$ready=$true;break}
+            }
+            if(-not $ready){throw 'Pinned offline Docker engine/image unavailable'}
+          }
+          if(-not(TestSolverRun)){throw 'Pinned offline Docker solver executable probe failed'}
+          Write-Host 'NERAL_V21_PERSISTENT_DOCKER_READY'
       - name: Synchronize approved main files and restart owned NERAL V2 service with rollback
         run: |
           $ErrorActionPreference='Stop'
