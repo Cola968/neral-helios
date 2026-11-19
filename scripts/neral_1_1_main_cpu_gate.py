@@ -55,7 +55,7 @@ def verify_main_integrity():
             ),
             'neral_web_api.py': ('a4d621b318666d8521a758e7699ee19f408756ee',
                 # V3 guarded page reader integration (PR #566).
-                '7ef24255d6a3cd229e9f2ebeb2282e904d50f5e5'),
+                '8d4958e2528c11f304d4dbfc5004d56c24e6dd86'),
             'static/neral-web-live.js': 'a0e30ebf2dbca66a25556a07740b5ac93bb4c472',
             'static/neral-preview.js': (
                 '666a9e4b2d2467f6397a16b107a709dcf34746c2',
