@@ -13,6 +13,8 @@ class DockerImageV2Contracts(TestCase):
 
         def fake_run(cmd, **kwargs):
             commands.append(cmd)
+            if cmd[:2] == ["docker", "info"]:
+                return subprocess.CompletedProcess(cmd, 0, b"28.0", b"")
             if cmd[:3] == ["docker", "image", "inspect"]:
                 return subprocess.CompletedProcess(cmd, 0, b"ok", b"")
             if cmd[:2] == ["docker", "run"]:
@@ -24,8 +26,9 @@ class DockerImageV2Contracts(TestCase):
             result = _run_ephemeral_python("print(3+4)")
         self.assertEqual(result["status"],"PASSED")
         self.assertEqual(result["output"],"7")
-        self.assertEqual(len(commands),2)
-        command = commands[1]
+        self.assertEqual(len(commands),3)
+        self.assertEqual(commands[0][:2],["docker","info"])
+        command = commands[2]
         self.assertIn("--network", command)
         self.assertEqual(command[command.index("--network")+1],"none")
         self.assertIn("--read-only", command)
@@ -48,10 +51,10 @@ class DockerImageV2Contracts(TestCase):
 
     def test_default_legacy_sandbox_image_is_preserved(self):
         commands = self._inspect_command(enabled=False)
-        self.assertEqual(commands[0][-1],"python:3.11-alpine")
+        self.assertEqual(commands[1][-1],"python:3.11-alpine")
 
     def test_opt_in_solver_image_is_preinstalled_and_no_downloads(self):
         commands = self._inspect_command(enabled=True)
-        self.assertEqual(commands[0][-1],"neral-python-tools:v2")
-        self.assertIn("neral-python-tools:v2",commands[1])
-        self.assertIn("256m",commands[1])
+        self.assertEqual(commands[1][-1],"neral-python-tools:v2")
+        self.assertIn("neral-python-tools:v2",commands[2])
+        self.assertIn("256m",commands[2])
