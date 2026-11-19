@@ -87,6 +87,8 @@ REQUIRED_FILES = (
     "neral_turn0_extractor.py",
     "neral_formal_constraints.py",
     "neral_web_search.py",
+    "neral_page_reader.py",
+    "neral_evidence_agent.py",
     "neral_web_api.py",
     "agent_mode.py",
     "static/neral-preview.js",

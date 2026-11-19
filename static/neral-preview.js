@@ -10,6 +10,7 @@
   const encoder=new TextEncoder();
   let csrf=null, busy=false, recognizer=null, listening=false;
   let threeTierEnabled=false; // Explicit local HF opt-in; legacy default unchanged.
+  let evidenceAgentEnabled=false;
   const sandboxToggle=$("forceSandbox");
   let activeRequest=null, conversationEpoch=0;
   stopRequest.disabled=true;
@@ -378,7 +379,7 @@
       valid.push({url:parsed.href,host:parsed.hostname,
         title:String(source.title||parsed.hostname).slice(0,160),
         snippet:String(source.snippet||"").slice(0,180),
-        reachable:source.reachable===true});
+        reachable:source.reachable===true,pageRead:source.page_read===true});
     }
     if(!valid.length){
       if(searchAttempted){
@@ -412,7 +413,8 @@
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
     const note=document.createElement("p");note.className="neral-source-notice";
-    note.textContent=allReachable?
+    const readCount=valid.filter(item=>item.pageRead).length;
+    note.textContent=readCount ? readCount+" Seiteninhalte abgerufen · Quellenangaben prüfen" : allReachable?
       "HTTPS-Adressen erreichbar · Seiteninhalte nicht unabhängig geprüft":
       "Suchmaschinen-Treffer · Erreichbarkeit der Zielseiten nicht geprüft · Inhalte nicht gelesen";
     list.append(note);
@@ -464,6 +466,7 @@
          status.model!==session.model || status.adapter_loaded!==false) {
         throw new Error("Unbekannte Modellherkunft. NERAL-Chat verweigert.");
       }
+      evidenceAgentEnabled=session.evidence_agent_enabled===true;
       if(session.three_tier_enabled===true){
         const pinned=await json("/api/neral/chat/three-tier/status");
         if(pinned.enabled!==true || pinned.luna!=="qwen3.5:4b" ||
@@ -822,7 +825,7 @@
     prompt.value="";
     let partialNode=null, painter=null, partialBody=null;
     let completedTurn=false;
-    const deadline=AbortSignal.timeout(threeTierEnabled ? 260000
+    const deadline=AbortSignal.timeout(evidenceAgentEnabled ? 540000 : threeTierEnabled ? 260000
       : selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
     const signal=AbortSignal.any([controller.signal,deadline]);
@@ -843,7 +846,7 @@
         onPaint:()=>{messages.scrollTop=messages.scrollHeight;}
       });
     }
-    let sources=[],verifiedSources=[],webAttempted=false;
+    let sources=[],verifiedSources=[],webAttempted=false,agentWebQuery="";
     try {
       let modelPrompt=text;
       // Attached files are processed locally even if the optional web tool is on.
@@ -853,7 +856,10 @@
          (shouldSearchWeb(text,lastWebQuery) ||
           (pendingTopicRequested && isPendingWebTopic(text))) &&
          (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
-        const webQuery=makeSearchQuery(text,lastWebQuery);
+        const searchText=evidenceAgentEnabled && !selectedAttachments.length
+          ? text.split(/\s+und\s+(?:rechne|berechne|ermittle|calculate|compute)\b/iu,1)[0]
+          : text;
+        const webQuery=makeSearchQuery(searchText,lastWebQuery);
         if(!webQuery){
           const answer="Wonach soll ich im Internet suchen? Nenne bitte ein konkretes Thema oder eine Frage.";
           lastWebQuery="";
@@ -869,6 +875,11 @@
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
         motionActivity("search-query",mode,{query:webQuery});
+        if(evidenceAgentEnabled && !selectedAttachments.length){
+          agentWebQuery=webQuery;
+          webAttempted=true;
+          lastWebQuery=webQuery;
+        } else {
         const searchSignal=AbortSignal.any([signal,AbortSignal.timeout(45000)]);
         const liveHandler=event=>{
           if(controller.signal.aborted||startedEpoch!==conversationEpoch ||
@@ -946,6 +957,7 @@
           completedTurn=true;
           return;
         }
+        }
       }
       const webData=sources.filter(hit=>typeof hit?.url==="string" &&
         /^https:\/\/[^\s]+$/i.test(hit.url)).slice(0,5).map(hit=>({
@@ -977,6 +989,7 @@
         path="/api/neral/chat/three-tier";
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
                                      history:safeHistory(),force_sandbox:forceSandbox,
+                                     ...(agentWebQuery ? {web_query:agentWebQuery} : {}),
                                      ...(webData.length && (forceSandbox||isWebDataQuestion(text))
                                        ? {web_data:webData}: {})});
       }
@@ -1079,12 +1092,17 @@
       // The provisional display is replaced by the verified complete answer.
       partialNode?.remove();
       partialNode=null;
+      if(agentWebQuery && Array.isArray(result.sources))sources=result.sources;
       const verified=result.verified===true && result.model_generated===false &&
         result.verification_scope!=="none";
       let origin = verified
         ? (result.tool_used === "z3_solver"
             ? "Werkzeug: Z3-Solver (verifiziert)"
             : "Werkzeug: Python-Sandbox (verifiziert)")
+        : result.agent_checked === true && result.tool_used === "z3_solver"
+        ? "V3.0 · Z3 und Modellprüfung"
+        : result.agent_checked === true && result.tool_used === "python_sandbox"
+        ? "V3.0 · Python-Sandbox und Modellprüfung"
         : result.tool_used === "helios_code_sandbox" &&
           result.sandbox_executed === true &&
           result.verified === false && result.safe_to_promote === false
@@ -1111,7 +1129,8 @@
           }[result.sandbox_failure_code])+
           ") · Modus: Helios (Modellantwort ungeprüft)"
         : sources.length
-        ? "Werkzeug: Websuche ("+sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
+        ? (sources.some(s=>s.page_read===true)?"Werkzeug: Web-Reader (":"Werkzeug: Websuche (")+
+          sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
         : tierResponse
         ? "Modus: "+result.tier+" ("+(result.tier === "Luna" ? "Direktantwort ohne Werkzeug" : "Modellantwort ungeprüft")+")"
         : (mode === "think" ? "Modus: HIGH (ungeprüft)" : "Modus: LOW (Direktantwort)");

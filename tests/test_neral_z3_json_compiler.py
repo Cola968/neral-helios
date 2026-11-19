@@ -29,7 +29,8 @@ class Compiler(unittest.TestCase):
     def test_real_full_count_builder_checks_each_rule_and_blocks_all_vars(self):
         code = compile_z3_json(json.dumps(sample(), ensure_ascii=False))
         ast.parse(code)
-        self.assertIn("while solver.check() == z3.sat:", code)
+        self.assertIn("while (status:=solver.check()) == z3.sat:", code)
+        self.assertIn("if status != z3.unsat: raise RuntimeError", code)
         self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))", code)
         self.assertEqual(code.count("assert z3.is_true("), 1)
         self.assertIn("for rid,rule in zip(rule_ids,rules):",code)
@@ -147,7 +148,8 @@ class Compiler(unittest.TestCase):
         s = sample()
         s["objective"] = "find_one"
         code = compile_z3_json(json.dumps(s))
-        self.assertIn("if solver.check() == z3.sat:", code)
+        self.assertIn("if (status:=solver.check()) == z3.sat:", code)
+        self.assertIn("elif status == z3.unsat: print('UNSAT')", code)
         self.assertNotIn("while solver.check() == z3.sat:", code)
         s["variables"][0]["min"] = True
         with self.assertRaises(SchemaError):
