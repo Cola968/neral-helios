@@ -225,6 +225,7 @@ class EvidenceAgentTest(unittest.TestCase):
         self.assertTrue(result["agent_checked"])
         self.assertEqual(result["agent_attempts"], 1)
         self.assertIn("Firefox: verwendet Gecko.", result["text"])
+        self.assertEqual(result["tool_used"], "direct_reasoning")
         self.assertIn("[web1]", result["text"])
         self.assertIn("[web2]", result["text"])
         self.assertEqual(len(calls), 3)
@@ -354,6 +355,7 @@ class EvidenceAgentTest(unittest.TestCase):
         self.assertEqual(result["agent_attempts"], 1)
         self.assertEqual(len(result["sources"]), 3)
         self.assertIn("Edge: verwendet Blink.", result["text"])
+        self.assertEqual(result["tool_used"], "direct_reasoning")
 
     def test_missing_entity_pages_are_researched_in_second_attempt(self):
         question = "Vergleiche Firefox mit Chrome: Engine."
