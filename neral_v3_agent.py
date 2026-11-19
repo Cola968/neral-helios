@@ -201,14 +201,14 @@ def try_source_anchored_unit_worker(runtime, question: str,
     if expected is None:
         return None
     code=(
-        "from decimal import Decimal, ROUND_HALF_UP\\n"
-        "mass=Decimal("+repr(str(grams))+")\\n"
-        "price_per_ounce=Decimal("+repr(str(rate))+")\\n"
-        "grams_per_ounce=Decimal("+repr(str(per_ounce))+")\\n"
-        "assert mass>0 and price_per_ounce>0 and grams_per_ounce>0\\n"
+        "from decimal import Decimal, ROUND_HALF_UP\n"
+        "mass=Decimal("+repr(str(grams))+")\n"
+        "price_per_ounce=Decimal("+repr(str(rate))+")\n"
+        "grams_per_ounce=Decimal("+repr(str(per_ounce))+")\n"
+        "assert mass>0 and price_per_ounce>0 and grams_per_ounce>0\n"
         "result=(mass*price_per_ounce/grams_per_ounce).quantize("
-        "Decimal('0.01'),rounding=ROUND_HALF_UP)\\n"
-        "print(result)\\n"
+        "Decimal('0.01'),rounding=ROUND_HALF_UP)\n"
+        "print(result)\n"
     )
     try:
         report=runtime.execute_python(code)
@@ -220,9 +220,9 @@ def try_source_anchored_unit_worker(runtime, question: str,
     numeric=f"{expected:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     return {
         "text":("Quellenbasierte Materialwertrechnung (Euro-Preis nicht "
-                "unabhängig als aktuell bestätigt):\\n"
+                "unabhängig als aktuell bestätigt):\n"
                 +numeric+" € = "+str(grams)+" g × "+str(rate)
-                +" EUR/Feinunze ÷ "+str(per_ounce)+" g/Feinunze\\n"
+                +" EUR/Feinunze ÷ "+str(per_ounce)+" g/Feinunze\n"
                 +"Gelesene Quelle: "+url),
         "model_generated":False,"verified":False,
         "safe_to_promote":False,"verification_scope":"none",
