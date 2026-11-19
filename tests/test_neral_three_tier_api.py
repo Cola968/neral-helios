@@ -17,7 +17,8 @@ class FakeBackend:
         self.unloads = 0
         self.calls = []
 
-    def respond_chat(self, turns, *, max_new_tokens):
+    def respond_chat(self, turns, *, max_new_tokens, temperature=None,
+                     max_time_seconds=None):
         self.loaded = True
         self.calls.append({"turns": [dict(t) for t in turns], "max_tokens": max_new_tokens})
         return "Ergebnis des echten Backend-Interfaces"
@@ -139,7 +140,9 @@ class ThreeTierContracts(unittest.TestCase):
             "Helios")
         self.assertFalse(answer["verified"])
         self.assertIsNone(answer["proof_backend"])
-        self.assertEqual(len(high.calls), 1)
+        self.assertFalse(answer["sandbox_executed"])
+        self.assertEqual(len(high.calls), 3,
+            "Quantitative unknown source must try bounded Helios sandbox, not guess")
 
     def test_invalid_model_identity_and_tier_fail_closed(self):
         runtime, low, high, _ = make_runtime()

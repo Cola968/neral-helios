@@ -1,0 +1,113 @@
+name: NERAL V2.1 Windows read-only CPU and UI gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_v21_attachment_data.py'
+      - 'neral_preview_attachments.py'
+      - 'neral_preview_server.py'
+      - 'templates/neral_preview.html'
+      - 'static/neral-preview.js'
+      - 'scripts/neral_v21_live3.py'
+      - 'scripts/neral_v21_live_upgrade.ps1'
+      - 'scripts/neral_v21_browser_e2e.cjs'
+      - 'tests/test_neral_v21_*'
+      - '.github/workflows/neral-v21-windows-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  windows-readonly:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Read-only installer PowerShell parser diagnostics
+        run: |
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $env:GITHUB_WORKSPACE 'scripts/neral_v21_live_upgrade.ps1'),
+            [ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -gt 0){
+            foreach($issue in @($errors)){Write-Host ('NERAL_V21_PS_PARSE_LINE '+$issue.Extent.StartLineNumber+' '+$issue.Message)}
+            throw 'Installer PowerShell parser returned errors'
+          }
+          Write-Host 'NERAL_V21_INSTALLER_PS_PARSE_GREEN'
+      - name: Assert V2.1 source syntax and old/new CPU behavior only
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python absent'}
+          & $py -B -m py_compile neral_three_tier_runtime.py neral_tir_experimental.py neral_v21_attachment_data.py neral_preview_attachments.py neral_preview_server.py scripts/neral_v21_live3.py
+          if($LASTEXITCODE -ne 0){throw 'V2.1 source syntax invalid'}
+          & node --check static/neral-preview.js
+          if($LASTEXITCODE -ne 0){throw 'V2.1 browser source invalid'}
+          & node --check scripts/neral_v21_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.1 Chrome E2E source invalid'}
+          foreach($name in @('test_neral_v21_universal.py',
+              'test_neral_v21_attachment_sandbox.py',
+              'test_neral_three_tier_api.py',
+              'test_neral_code_loop_v2.py',
+              'test_neral_code_sandbox_image_v2.py')){
+            & $py -B -m unittest discover -s tests -p $name -q
+            if($LASTEXITCODE -ne 0){throw ('CPU test failure: '+$name)}
+          }
+          & node --test tests/test_neral_v21_ui.cjs tests/test_neral_code_loop_ui_v2.cjs tests/test_neral_three_tier_ui.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.1 UI tests failed'}
+          Write-Host 'NERAL_V21_WINDOWS_READONLY_CPU_PASS'
+      - name: Read only local Docker image and Desktop state after PC reboot
+        if: always()
+        run: |
+          $ErrorActionPreference='Continue'
+          $docker=Get-Command docker.exe -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_DOCKER_CLIENT_PRESENT '+[bool]($null -ne $docker))
+          $service=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_DOCKER_SERVICE_STATE '+$(if($service){[string]$service.Status}else{'missing'}))
+          $desktop='C:/Program Files/Docker/Docker/Docker Desktop.exe'
+          Write-Host ('NERAL_V21_DOCKER_DESKTOP_EXE_PRESENT '+[bool](Test-Path -LiteralPath $desktop -PathType Leaf))
+          $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue).Count
+          Write-Host ('NERAL_V21_DOCKER_DESKTOP_PROCESS_PRESENT '+[bool]($running -gt 0))
+          if($null -ne $docker){
+            $source=[string]$docker.Source
+            $clientKind=if($source -match '(?i)Docker'){ 'DockerPath' }elseif($source -match '(?i)Podman'){ 'PodmanPath' }else{ 'OtherPath' }
+            Write-Host ('NERAL_V21_DOCKER_CLIENT_KIND '+$clientKind)
+            Write-Host ('NERAL_V21_DOCKER_CLIENT_PATH '+[string]$docker.Source)
+            $parent=Split-Path -Parent ([string]$docker.Source)
+            $two=Split-Path -Parent (Split-Path -Parent $parent)
+            $extraExe=@(
+              (Join-Path $parent 'Docker Desktop.exe'),
+              (Join-Path (Split-Path -Parent $parent) 'Docker Desktop.exe'),
+              (Join-Path $two 'Docker Desktop.exe')
+            )
+            Write-Host ('NERAL_V21_DOCKER_CLIENT_ADJACENT_DESKTOP '+[bool](@($extraExe|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf}).Count -gt 0))
+            $desktopHelp=@(& $docker.Source --help 2>$null | Select-String -Pattern '(?m)^\\s+desktop\\s' -ErrorAction SilentlyContinue)
+            Write-Host ('NERAL_V21_DOCKER_CLI_DESKTOP_PLUGIN '+[bool]($desktopHelp.Count -gt 0))
+
+            $context=@(& $docker.Source context show 2>$null)
+            Write-Host ('NERAL_V21_DOCKER_CONTEXT '+$(if($context.Count -gt 0){($context -join '')}else{'unavailable'}))
+            & $docker.Source image inspect neral-python-tools:v2 *> $null
+            Write-Host ('NERAL_V21_DOCKER_PINNED_IMAGE_READY '+[bool]($LASTEXITCODE -eq 0))
+          }
+          $candidates=@(
+            (Join-Path $env:LOCALAPPDATA 'Programs/Docker Desktop/Docker Desktop.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Docker Desktop/Docker Desktop.exe'),
+            'C:/Program Files/Rancher Desktop/Rancher Desktop.exe',
+            'C:/Program Files/RedHat/Podman/Podman Desktop.exe'
+          )
+          foreach($i in 0..($candidates.Count-1)){
+            Write-Host ('NERAL_V21_DOCKER_DESKTOP_ALT_'+$i+' '+[bool](Test-Path -LiteralPath $candidates[$i] -PathType Leaf))
+          }
+          $wsl=Get-Command wsl.exe -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_WSL_CLIENT_PRESENT '+[bool]($null -ne $wsl))
+          if($null -ne $wsl){
+            $distros=@(& $wsl.Source --list --quiet 2>$null) -join ' '
+            Write-Host ('NERAL_V21_WSL_DOCKER_DISTRO_PRESENT '+[bool]($distros -match 'docker|rancher|podman'))
+          }
+

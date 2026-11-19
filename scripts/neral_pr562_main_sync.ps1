@@ -1,5 +1,5 @@
 # Owner-approved PR #562 main synchronization. Only the attested NERAL service
-# and eight fixed runtime files are touched; no trainer, model weights or user files.
+# and a fixed allowlist of runtime/UI files are touched; no trainer, model weights or user files.
 param()
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -18,10 +18,15 @@ $paths=@(
   'neral_three_tier_runtime.py',
   'neral_z3_json_compiler.py',
   'neral_tir_experimental.py',
+  'neral_v21_attachment_data.py',
+  'neral_preview_attachments.py',
+  'neral_preview_server.py',
   'neral_everyday_verified.py',
   'neral_web_search.py',
   'neral_web_api.py',
+  'templates/neral_preview.html',
   'static/neral-preview.js',
+  'static/neral-clean-ui.css',
   'static/neral-web-live.js'
 )
 function HashFor([string]$rel,[string]$from){
