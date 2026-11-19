@@ -158,7 +158,7 @@ async function main(){
         verification_status:firstNetwork.verification_status||null,
         badge:first.status,
         observed_numbers:[...new Set(
-          first.body.match(/\\b\\d{1,6}(?:[.,]\\d{1,2})?\\b/g)||[])].slice(0,18),
+          first.body.match(/\b\d{1,6}(?:[.,]\d{1,2})?\b/g)||[])].slice(0,18),
         has_nora_504:/504/.test(first.body),
         has_kim_336:/336/.test(first.body),
         has_pia_420:/420/.test(first.body),
