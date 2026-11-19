@@ -11,6 +11,7 @@ on:
       - 'templates/neral_preview.html'
       - 'static/neral-preview.js'
       - 'scripts/neral_v21_live3.py'
+      - 'scripts/neral_v21_live_upgrade.ps1'
       - 'scripts/neral_v21_browser_e2e.cjs'
       - 'tests/test_neral_v21_*'
       - '.github/workflows/neral-v21-windows-cpu.yml'
