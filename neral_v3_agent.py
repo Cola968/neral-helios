@@ -14,6 +14,14 @@ _PRICE_PER_OZ = re.compile(
     r"(?iu)(?<!\w)(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*"
     r"(?:€|EUR|Euro)\s*(?:/|pro|je)?\s*(?:Feinunze|Unze|oz)\b"
 )
+_PRICE_UNIT_FIRST = re.compile(
+    r"(?iu)\\b(?:Feinunze|Unze|oz)\\b.{0,35}?"
+    r"(?P<amount>\\d[\\d.,\\u00a0 ]{0,16}?)\\s*(?:€|EUR|Euro)\\b"
+)
+_PRICE_SYMBOL_FIRST = re.compile(
+    r"(?iu)\\b(?:Feinunze|Unze|oz)\\b.{0,35}?"
+    r"(?:€|EUR|Euro)\\s*(?P<amount>\\d[\\d.,\\u00a0 ]{0,16}?)\\b"
+)
 _CURRENCY = re.compile(
     r"(?iu)(?<!\w)(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR|Euro)\b"
 )
@@ -115,7 +123,10 @@ def anchored_numeric_facts(pages: list[dict]) -> list[dict]:
     seen = set()
     for page in validated:
         text = page["text"]
-        for pattern, unit in ((_PRICE_PER_OZ, "EUR/oz"), (_CURRENCY, "EUR")):
+        for pattern, unit in ((_PRICE_PER_OZ, "EUR/oz"),
+                              (_PRICE_UNIT_FIRST, "EUR/oz"),
+                              (_PRICE_SYMBOL_FIRST, "EUR/oz"),
+                              (_CURRENCY, "EUR")):
             for match in pattern.finditer(text):
                 value = _decimal(match.group("amount"))
                 if value is None or value <= 0 or value >= 10_000_000:
@@ -166,8 +177,9 @@ def guard_sandbox_stdout(stdout: object, *, expected: Decimal | None = None,
     parsed = [_decimal(n.lstrip("+")) for n in numbers]
     if expected is None:
         return any(v is not None and v != 0 for v in parsed)
-    return any(v is not None and abs(v - expected) <= Decimal("0.02")
-               for v in parsed)
+    final_value = next((v for v in reversed(parsed) if v is not None), None)
+    return (final_value is not None and
+            abs(final_value - expected) <= Decimal("0.02"))
 
 
 def missing_web_data_reply(question: str, pages: list[dict], missing: str) -> dict:
