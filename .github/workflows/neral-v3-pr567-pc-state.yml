@@ -1,0 +1,44 @@
+name: NERAL PR567 read-only local service and rollback state
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v3_pr567_upgrade.ps1'
+      - '.github/workflows/neral-v3-pr567-pc-state.yml'
+permissions:
+  contents: read
+jobs:
+  check-local-state-only:
+    if: github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'codex/neral-v3-evidence-agent'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-pr567-local-9690-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Verify owned port and service state without changing anything
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $installed=Test-Path -LiteralPath (Join-Path $root 'neral_evidence_agent.py') -PathType Leaf
+          $flag=$false
+          if(Test-Path -LiteralPath $service -PathType Leaf){
+            $flag=([IO.File]::ReadAllText($service).Contains('NERAL_V3_AGENT_ENABLED'))
+          }
+          $mode='unknown'
+          $http=0
+          try{
+            $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 8
+            $api=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 8
+            $http=[int]$home.StatusCode
+            $mode=if($api.evidence_agent_enabled -eq $true){'V3'}else{'V2.2'}
+          }catch{$mode='session_failed'}
+          $taskState=if($task){[string]$task.State}else{'missing'}
+          Write-Host ('NERAL_PR567_READONLY_PC_STATE task='+$taskState+' listeners='+$listeners.Count+' http='+$http+' mode='+$mode+' agent_file='+$installed+' service_v3_flag='+$flag)
