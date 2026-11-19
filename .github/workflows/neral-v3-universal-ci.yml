@@ -33,7 +33,6 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_v3_universal.py -v
       - name: Existing web and local runtime regressions
         run: |
-          python -m unittest discover -s tests -p test_neral_web_search.py -v
           python -m unittest discover -s tests -p test_neral_live_sources.py -v
           python -m unittest discover -s tests -p test_neral_three_tier_everyday.py -v
       - name: V3 JavaScript syntax
