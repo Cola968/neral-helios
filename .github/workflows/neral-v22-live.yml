@@ -1,0 +1,81 @@
+name: NERAL V2.2 guarded RTX4070 real Chrome hut/birthday/fallback acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_docker_runtime.py'
+      - 'static/neral-preview.js'
+      - 'scripts/neral_v22_browser_e2e.cjs'
+      - 'scripts/neral_v22_live_upgrade.ps1'
+      - 'tests/test_neral_v22_*'
+      - '.github/workflows/neral-v22-live.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  v22-live:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gate all PC mutations on explicit V2.2 owner-approved PR commit
+        id: permit
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($env:GITHUB_HEAD_REF -eq 'fix/neral-v22-sandbox-recovery-20261119' -and
+             $subject -eq 'ops(live): approve V2.2 on port 9690 with rollback'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V22_PC_MUTATION_APPROVED'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V22_PC_MUTATION_SAFE_SKIP'
+          }
+      - uses: actions/setup-node@v4
+        if: steps.permit.outputs.run == 'true'
+        with:
+          node-version: '22'
+      - name: Parse installer, CPU contracts, and browser before changing PC
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_v22_live_upgrade.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -gt 0){
+            foreach($errorItem in @($errors)){Write-Host ('NERAL_V22_PS_PARSE_ERROR_LINE '+$errorItem.Extent.StartLineNumber)}
+            throw 'V2.2 Windows deployment script invalid'
+          }
+          & node --check scripts/neral_v22_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.2 Chrome test syntax invalid'}
+          & node --check static/neral-preview.js
+          if($LASTEXITCODE -ne 0){throw 'V2.2 UI syntax invalid'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m py_compile neral_docker_runtime.py neral_tir_experimental.py neral_three_tier_runtime.py
+          if($LASTEXITCODE -ne 0){throw 'V2.2 Python syntax invalid'}
+          & $py -B -m unittest discover -s tests -p test_neral_v22_recovery.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2.2 fallback/daemon CPU tests failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_code_loop_v2.py -q
+          if($LASTEXITCODE -ne 0){throw 'V2.0/V2.1 code-loop regression failed'}
+          & $py -B -m unittest discover -s tests -p test_neral_code_sandbox_image_v2.py -q
+          if($LASTEXITCODE -ne 0){throw 'Docker isolation regression failed'}
+          & node --test tests/test_neral_v22_ui.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.2 browser tool-status regression failed'}
+          Write-Host 'NERAL_V22_PREINSTALL_CPU_GREEN'
+      - name: Deploy only owned NERAL runtime and prove real RTX4070 Chrome or rollback
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v22_live_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'V2.2 real Chrome acceptance not passed; merge blocked'}
+          Write-Host 'NERAL_V22_LIVE_TWO_PROMPTS_CHROME_HTTP200_PASS'
