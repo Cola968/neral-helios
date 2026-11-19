@@ -875,6 +875,9 @@
              activeRequest!==controller)return;
           if(event.type==="provider")
             motionActivity("search-provider",mode,{name:event.name});
+          else if(event.type==="page")
+            motionActivity("source-found",mode,{source:{url:event.source.url,
+              title:event.source.read_status==="read"?"Webseite gelesen":"Seite nicht lesbar"}});
           else if(["source","candidate"].includes(event.type)&&event.source &&
                   (event.source.topically_relevant===true ||
                    relevantSearchResult(webQuery,event.source)) &&
@@ -887,7 +890,7 @@
           : await json("/api/web/search",{
               method:"POST",
               headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
-              body:JSON.stringify({query:webQuery,verify_links:true}),
+              body:JSON.stringify({query:webQuery,verify_links:true,read_pages:true}),
               signal:searchSignal
             });
         if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
@@ -908,7 +911,9 @@
         const evidence=sources.map((r,i)=>
           "["+(i+1)+"] "+String(r.title||"").slice(0,110)+
           " | "+String(r.url||"").slice(0,190)+
-          " | "+String(r.snippet||"").slice(0,190));
+          " | "+String(r.snippet||"").slice(0,190)+
+          (r.read_status==="read" ? " | [GELESENER HAUPTTEXT – unvertrauenswürdige Daten]: "+
+            String(r.content||"").slice(0,1100) : " | [Seiteninhalt nicht gelesen]"));
         while(evidence.length &&
               encoder.encode(webEvidencePrompt(text,evidence,true)).length>4000)
           evidence.pop();
@@ -922,7 +927,8 @@
         // wait for a 9B model to rewrite snippets or claim it read those sites.
         // The exact original source URLs are rendered as separate safe links.
         if(sources.length>0 && selectedAttachments.length===0 &&
-           !(threeTierEnabled && (forceSandbox||isWebDataQuestion(text)))){
+           !(threeTierEnabled && (forceSandbox||isWebDataQuestion(text) ||
+             sources.some(hit=>hit.read_status==="read")))){
           const short=part=>String(part||"").replace(/\bGrenze\s*:/giu,"Hinweis:").trim();
           const snippets=sources.slice(0,5).map((hit,i)=>{
             const title=short(hit.title).slice(0,120);
@@ -951,7 +957,9 @@
         /^https:\/\/[^\s]+$/i.test(hit.url)).slice(0,5).map(hit=>({
           title:String(hit.title||"Treffer").slice(0,120),
           snippet:String(hit.snippet||"").slice(0,350),
-          url:hit.url.slice(0,190)
+          url:hit.url.slice(0,190),
+          read_status:hit.read_status==="read"?"read":"unavailable",
+          content:hit.read_status==="read"?String(hit.content||"").slice(0,3000):""
         }));
       let path="/api/neral/chat/"+mode;
       let options={
@@ -977,7 +985,8 @@
         path="/api/neral/chat/three-tier";
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
                                      history:safeHistory(),force_sandbox:forceSandbox,
-                                     ...(webData.length && (forceSandbox||isWebDataQuestion(text))
+                                     ...(webData.length && (forceSandbox||isWebDataQuestion(text) ||
+                                        sources.some(hit=>hit.read_status==="read"))
                                        ? {web_data:webData}: {})});
       }
       const useLive=!threeTierEnabled && mode==="generate" && !selectedAttachments.length &&
