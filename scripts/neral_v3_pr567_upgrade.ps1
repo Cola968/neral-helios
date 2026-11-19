@@ -305,8 +305,15 @@ try{
   }
   Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
   WaitForOwnApp
-  $s=Invoke-RestMethod -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 12
-  if($s.evidence_agent_enabled -ne $true){throw 'Port 9690 did not enable V3 evidence agent'}
+  # The session endpoint is cookie-protected. Establish a real same-origin
+  # browser-like session first; probing it without the homepage cookie is a
+  # false negative even when the upgraded service is healthy.
+  $proofSession=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+  $proofHome=Invoke-WebRequest -UseBasicParsing -WebSession $proofSession -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
+  $s=Invoke-RestMethod -WebSession $proofSession -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 12
+  if($proofHome.StatusCode -ne 200 -or $s.evidence_agent_enabled -ne $true){
+    throw 'Port 9690 did not serve a working V3 session'
+  }
   $after=ReadOwnedListener
   if($null -eq $after -or
      ([int]$before.child.ProcessId -eq [int]$after.child.ProcessId -and
@@ -349,7 +356,10 @@ try{
       WaitForOwnApp
       Write-Host 'NERAL_V3_PR567_ROLLBACK_HTTP_200'
     }catch{
-      Write-Host ('NERAL_V3_PR567_MAIN_SYNC_ROLLBACK_NEEDS_REVIEW '+$_.Exception.GetType().Name)
+      $failure=[string]$_.Exception.Message
+      # Only Windows process/service errors, never requests or user prompts.
+      $failure=($failure -replace '[\r\n\t]',' ').Substring(0,[Math]::Min(160,$failure.Length))
+      Write-Host ('NERAL_V3_PR567_MAIN_SYNC_ROLLBACK_NEEDS_REVIEW '+$_.Exception.GetType().Name+' '+$failure)
     }
   }
 }
