@@ -55,7 +55,10 @@ jobs:
           $ErrorActionPreference='Stop'
           $t=$null;$e=$null
           [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_v21_live_upgrade.ps1'),[ref]$t,[ref]$e)|Out-Null
-          if(@($e).Count -gt 0){throw 'V2.1 installer PowerShell syntax invalid'}
+          if(@($e).Count -gt 0){
+            foreach($issue in @($e)){Write-Host ('NERAL_V21_PS_PARSE_LINE '+$issue.Extent.StartLineNumber+' '+$issue.Message)}
+            throw 'V2.1 installer PowerShell syntax invalid'
+          }
           & node --check scripts/neral_v21_browser_e2e.cjs
           if($LASTEXITCODE -ne 0){throw 'V2.1 Chrome script syntax failed'}
           $py='D:/neral-qlora/venv/Scripts/python.exe'
