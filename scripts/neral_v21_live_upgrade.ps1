@@ -121,6 +121,174 @@ function WaitForOwnApp {
   }
   throw 'NERAL local homepage/API did not return HTTP 200 and expected modes'
 }
+function TestPinnedDockerImage([string]$docker) {
+  # Docker Desktop may be OFF after reboot. The expected CLI stderr
+  # is a failed readiness probe, not a fatal PowerShell exception.
+  $ErrorActionPreference='Continue'
+  $lines=@(& $docker image inspect --format '{{.Id}}' neral-python-tools:v2 2>$null)
+  return ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and
+          [string]$lines[0] -match '^sha256:[0-9a-fA-F]{64}
+  # The Docker client and Desktop binary must belong to the SAME existing
+  # user-scoped DockerDesktop install. No downloads, installs or system services.
+  $expectedCli=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/resources/bin/docker.exe'
+  $desktopExe=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/Docker Desktop.exe'
+  $command=Get-Command docker.exe -ErrorAction Stop
+  $docker=[string]$command.Source
+  if(([IO.Path]::GetFullPath($docker)) -ine
+     ([IO.Path]::GetFullPath($expectedCli)) -or
+     -not(Test-Path -LiteralPath $desktopExe -PathType Leaf)){
+    throw 'Unrecognized Docker Desktop installation; no local changes'
+  }
+  if(-not(TestPinnedDockerImage $docker)){
+    $existing=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)
+    if($existing.Count -eq 0){
+      Start-Process -FilePath $desktopExe -ErrorAction Stop
+      Write-Host 'NERAL_V21_EXISTING_DOCKER_DESKTOP_START_REQUESTED'
+    }
+    $ready=$false
+    for($i=0;$i -lt 75;$i++){
+      Start-Sleep -Seconds 2
+      if(TestPinnedDockerImage $docker){$ready=$true;break}
+    }
+    if(-not $ready){
+      throw 'Docker Desktop engine or existing solver image unavailable; V2.0 preserved'
+    }
+  }
+  if(-not(TestPinnedDockerProbe $docker)){
+    throw 'Existing offline Docker solver did not execute; no V2.1 installation'
+  }
+  Write-Host 'NERAL_V21_DOCKER_PINNED_READY'
+}
+
+if(-not(Test-Path -LiteralPath $service -PathType Leaf)){throw 'Managed NERAL service missing'}
+$task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
+  throw 'Unexpected scheduled task identity; refuse to restart'
+}
+$startText=[IO.File]::ReadAllText($service)
+if($startText -notmatch 'NERAL_CODE_SANDBOX_V2' -or
+   $startText -notmatch '(?i)-m\s+neral_preview_server' -or
+   $startText -notmatch '--experimental-three-tier-hf'){
+  throw 'Running service is not the approved V2 service'
+}
+Write-Host ('NERAL_V21_OWNED_TASK_INITIAL_STATE '+[string]$task.State)
+if([string]$task.State -ne 'Running'){
+  if([string]$task.State -ne 'Ready'){
+    throw 'NERAL task neither Running nor Ready; refuse unknown service state'
+  }
+  # After a user PC reboot the signed task may be Ready, with no listener.
+  # Start ONLY the exact previously registered NERAL service. Never touch
+  # another process or replace a task definition.
+  $otherListener=ReadOwnedListener
+  if($null -ne $otherListener){throw 'Ready task already has a port owner; preserve it'}
+  Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  WaitForOwnApp
+  $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  if([string]$task.State -ne 'Running'){
+    throw 'Owned NERAL task did not enter Running state after restart'
+  }
+  Write-Host 'NERAL_V21_RESTART_EXISTING_TASK_HTTP_200'
+}
+$before=ReadOwnedListener
+if($null -eq $before){throw 'Expected owned NERAL HTTP listener absent'}
+# Verify local offline Docker BEFORE copying/stopping any V2.1 runtime files.
+EnsurePinnedDockerReady
+$changes=@()
+foreach($rel in $paths){
+  $repoHash=(HashFor $rel $repo)
+  $expected=(& git rev-parse ('HEAD:'+$rel)).Trim()
+  if($null -eq $repoHash -or $repoHash -ne $expected){
+    throw "Checked-out main file failed integrity check: $rel"
+  }
+  $installedHash=(HashFor $rel $root)
+  if($installedHash -ne $expected){
+    $changes+=@{rel=$rel; existed=($null -ne $installedHash)}
+  }
+}
+Write-Host ('NERAL_V21_MAIN_SYNC_PREFLIGHT_PASS sha='+$head+' changed='+$changes.Count)
+$backupRoot=Join-Path $root ('local_state/rollback-v21-pr-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+foreach($item in $changes){
+  if($item.existed){
+    $destination=Join-Path $backupRoot $item.rel
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $root $item.rel) -Destination $destination -ErrorAction Stop
+  }
+}
+$success=$false
+$stopAttempted=$false
+try{
+  $stopAttempted=$true
+  StopOwnedTask $taskName $service
+  foreach($item in $changes){
+    $destination=Join-Path $root $item.rel
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repo $item.rel) -Destination $destination -Force -ErrorAction Stop
+  }
+  foreach($rel in $paths){
+    if((HashFor $rel $root) -ne (HashFor $rel $repo)){
+      throw "Installed main source mismatch: $rel"
+    }
+  }
+  Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  WaitForOwnApp
+  $after=ReadOwnedListener
+  if($null -eq $after -or
+     ([int]$before.child.ProcessId -eq [int]$after.child.ProcessId -and
+      [string]$before.child.CreationDate -eq [string]$after.child.CreationDate)){
+    throw 'A new NERAL service process was not proved'
+  }
+  # All three cases use real HF/Docker. No synthetic or unverified claim
+  # may satisfy the localhost acceptance gate.
+  $py='D:/neral-qlora/venv/Scripts/python.exe'
+  if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python absent'}
+  $savedPY=$env:PYTHONPATH
+  $env:PYTHONPATH=$repo
+  try{
+    & $py -B scripts/neral_v21_live3.py
+    if($LASTEXITCODE -ne 0){throw 'V2.1 house/CSV/web data gate did not pass'}
+  }finally{$env:PYTHONPATH=$savedPY}
+  Write-Host 'NERAL_V21_LIVE_THREE_DOCKER_PASS'
+  $browser=@('C:/Program Files/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    (Join-Path $env:LOCALAPPDATA 'Google/Chrome/Application/chrome.exe')) |
+      Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+  if(-not $browser){throw 'Chrome/Edge executable unavailable'}
+  $env:NERAL_CHROME_EXE=$browser
+  & node scripts/neral_v21_browser_e2e.cjs
+  if($LASTEXITCODE -ne 0){throw 'V2.1 Chrome force-sandbox gate not passed'}
+  Write-Host 'NERAL_V21_LIVE_BROWSER_FORCE_PASS'
+  $success=$true
+  Write-Host ('NERAL_V21_PR_LIVE_RESTART_HTTP_200 sha='+$head+' files='+$paths.Count)
+}finally{
+  if(-not $success -and $stopAttempted){
+    Write-Host 'NERAL_V21_MAIN_SYNC_ROLLBACK_BEGIN'
+    try {
+      StopOwnedTask $taskName $service
+      foreach($item in $changes){
+        $destination=Join-Path $root $item.rel
+        if($item.existed){
+          Copy-Item -LiteralPath (Join-Path $backupRoot $item.rel) -Destination $destination -Force -ErrorAction Stop
+        }elseif(Test-Path -LiteralPath $destination -PathType Leaf){
+          Remove-Item -LiteralPath $destination -Force -ErrorAction Stop
+        }
+      }
+      Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      WaitForOwnApp
+      Write-Host 'NERAL_V21_MAIN_SYNC_ROLLBACK_HTTP_200'
+    }catch{
+      Write-Host ('NERAL_V21_MAIN_SYNC_ROLLBACK_NEEDS_REVIEW '+$_.Exception.GetType().Name)
+    }
+  }
+}
+)
+}
+function TestPinnedDockerProbe([string]$docker) {
+  $ErrorActionPreference='Continue'
+  $lines=@(& $docker run --rm --pull never --network none --read-only --memory 256m --cpus 0.5 --pids-limit 32 neral-python-tools:v2 python -B -c 'import sympy,z3;print(7*8)' 2>$null)
+  return ($LASTEXITCODE -eq 0 -and ($lines -join '').Trim() -eq '56')
+}
 function EnsurePinnedDockerReady {
   # The Docker client and Desktop binary must belong to the SAME existing
   # user-scoped DockerDesktop install. No downloads, installs or system services.
