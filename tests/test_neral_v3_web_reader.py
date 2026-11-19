@@ -1,6 +1,6 @@
 """V3 web reader must read actual public HTML, never snippets or intranet data."""
 import unittest
-from neral_v3_web_reader import extract_main_text, read_top_pages, fetch_and_extract, select_relevant_excerpt
+from neral_v3_web_reader import extract_main_text, read_top_pages, fetch_and_extract, select_relevant_excerpt, refetch_browser_pages
 
 
 class V3WebReaderTests(unittest.TestCase):
@@ -46,6 +46,21 @@ class V3WebReaderTests(unittest.TestCase):
         self.assertEqual(len(pages), 2)
         self.assertEqual(len(visited), 2)
         self.assertTrue(all(page["read"] is True for page in pages))
+
+    def test_browser_claims_are_not_accepted_as_page_evidence(self):
+        fake_client_pages=[{"url":"https://example.com/gold",
+                            "title":"Goldkurs",
+                            "text":"Goldpreis 9999999 EUR pro Feinunze.", "read":True}]
+        visited=[]
+        def actual_get(url, timeout=3.5):
+            visited.append(url)
+            return {"url":url, "text":"Goldkurs tatsächlich 3.650,20 EUR pro Feinunze.",
+                    "read":True}
+        proof=refetch_browser_pages(fake_client_pages,
+                                   "Goldpreis EUR/oz",fetcher=actual_get)
+        self.assertEqual(visited,["https://example.com/gold"])
+        self.assertIn("3.650,20",proof[0]["text"])
+        self.assertNotIn("9999999",proof[0]["text"])
 
     def test_invalid_ip_literal_rejected_before_network(self):
         self.assertIsNone(fetch_and_extract("https://192.168.1.1/private"))
