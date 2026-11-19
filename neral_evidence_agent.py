@@ -75,6 +75,24 @@ def _string(maximum):
 PLAN_SCHEMA = _object(tool={"enum": sorted(TOOLS)}, parts=_array(_string(180), 6, 1))
 CHECK_SCHEMA = _object(ok={"type": "boolean"}, issue=_string(350))
 
+# A qualitative synthesis can combine facts from distinct cited pages. Only
+# direct contradictions should veto a comparison; no uniqueness proof is needed.
+WEB_CONTRADICTION_CHECKER = """Prüfe nur konkrete Widersprüche beim qualitativen
+Vergleich. Quotes wurden bereits wörtlich mit tatsächlich gelesenen Webseiten
+abgeglichen. Aussagen aus mehreren Quellen dürfen sinnvoll kombiniert werden.
+Melde contradiction=true NUR bei einem konkreten, lokalisierbaren Widerspruch:
+claim ist ein wörtlicher Ausschnitt aus answer, source_quote der wörtliche
+unvereinbare Ausschnitt aus quotes oder (bei Selbstwiderspruch) aus answer.
+Eine bloß fehlende gemeinsame Vergleichsaussage in der Quelle ist KEIN Widerspruch.
+Verlange keine Beweise der Eindeutigkeit. Wenn kein Widerspruch feststellbar:
+{"contradiction":false,"claim":"","source_quote":""}
+Andernfalls:
+{"contradiction":true,"claim":"Ausschnitt aus answer","source_quote":"Gegenbeleg"}
+"""
+CONTRADICTION_SCHEMA = _object(contradiction={"type": "boolean"},
+                              claim=_string(260), source_quote=_string(500))
+
+
 
 def _worker_schema(plan, evidence):
     tool = plan["tool"]
@@ -335,6 +353,94 @@ def _work(plan, packet, evidence, execute, external, numeric_evidence):
     return "\n\n".join([packet["answer"], *citations])
 
 
+
+# Formal math, prices and constraint problems remain on the strict checker.
+_COMPARISON_WORDS = re.compile(
+    r"(?i)\b(?:vergleiche|vergleich\w*|unterschied\w*|gegenüberstellung|"
+    r"versus|vs\.?|compare|comparison)\b")
+_FORMAL_INTENT = re.compile(
+    r"(?i)(?:\b(?:preis\w*|kostet|kosten|euro|usd|betrag\w*|berechn\w*|"
+    r"rechne|rechn\w*|summe|wie\s+viel\w*|prozent\w*|anteil\w*|"
+    r"statistik\w*|z3|constraint\w*|gleichung\w*|schichtplan\w*|"
+    r"zuordnung\w*|optimier\w*)\b|[€$%])")
+
+
+def _comparison_entities(question):
+    """Extract the two objects and their identifying name tokens."""
+    match = re.search(
+        r"(?i)\bvergleiche\s+(.{2,80}?)\s+(?:mit|und|gegen|vs\.?)\s+"
+        r"(.{2,80}?)(?=[:;?!]|\.\s|$)", question)
+    if not match:
+        match = re.search(
+            r"(?i)\b([\w.+-]+(?:\s+[\w.+-]+)?)\s+(?:vs\.?|versus)\s+"
+            r"([\w.+-]+(?:\s+[\w.+-]+)?)\b", question)
+    if not match:
+        return ()
+    words = [re.findall(r"[\w.+-]+", item) for item in match.groups()]
+    if any(not parts for parts in words):
+        return ()
+    return tuple(parts[-1] for parts in words)
+
+
+def _is_qualitative_web_comparison(question, plan, sources):
+    return (plan["tool"] == "direct_reasoning" and
+            any(s.get("page_read") is True for s in sources) and
+            bool(_COMPARISON_WORDS.search(question)) and
+            not _FORMAL_INTENT.search(question) and
+            len(_comparison_entities(question)) == 2)
+
+
+def _qualitative_comparison_issue(question, answer, citations, evidence, sources):
+    """Check provenance, bilateral coverage and numeric integrity.
+
+    A separate model review checks for specific semantic contradictions.
+    """
+    read = {f"web{i}" for i, item in enumerate(sources, 1)
+            if item.get("page_read") is True and f"web{i}" in evidence}
+    if not read:
+        return "Keine echte Webseite mit zitierfähigem Text gelesen."
+    if not isinstance(answer, str) or not answer.strip():
+        return "Qualitativer Vergleich ohne Antwort."
+    if not isinstance(citations, list) or not citations:
+        return "Wörtliche Belege aus gelesenen Webseiten fehlen."
+    pair = _comparison_entities(question)
+    if len(pair) != 2 or pair[0].casefold() == pair[1].casefold():
+        return "Vergleichsobjekte konnten nicht eindeutig unterschieden werden."
+    quoted = []
+    cited = set()
+    for citation in citations:
+        if not isinstance(citation, dict):
+            return "Ungültiger Webseitenbeleg."
+        try:
+            source, quote = _quote(citation, evidence)
+        except AgentError:
+            return "Der Webseitenbeleg ist nicht wörtlich nachgewiesen."
+        if source not in read:
+            return "Zitat stammt nicht aus einer tatsächlich gelesenen Webseite."
+        cited.add(source)
+        quoted.append(quote)
+    supporting_pages = " ".join(evidence[source] for source in cited).casefold()
+    for name in pair:
+        pattern = r"(?<!\w)" + re.escape(name.casefold()) + r"(?!\w)"
+        if re.search(pattern, answer.casefold()) is None:
+            return f"Vergleichsobjekt {name} fehlt in der Antwort."
+        if re.search(pattern, supporting_pages) is None:
+            return f"Kein gelesener Quellenbeleg für {name}."
+    # Product names alone do not constitute a meaningful comparison.
+    prose = answer
+    for name in pair:
+        prose = re.sub(r"(?i)\b" + re.escape(name) + r"\b", "", prose)
+    if len(prose.strip(" \n\t,.:-")) < 18:
+        return "Beide Vergleichsobjekte müssen mit ihren Eigenschaften beschrieben werden."
+    # Only explicitly supplied or literally cited quantities may be repeated.
+    allowed = {re.sub(r"\s", "", number).lstrip("+")
+               for number in NUMBER.findall(question + "\n" + "\n".join(quoted))}
+    if any(re.sub(r"\s", "", number).lstrip("+") not in allowed
+           for number in NUMBER.findall(answer)):
+        return "Nicht belegte Zahl in qualitativer Antwort."
+    return None
+
+
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False):
     """Only the user-authorized search query can leave the machine."""
@@ -424,6 +530,34 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if plan["tool"] != "direct_reasoning":
                 executed = plan["tool"]
             steps.append("validation_checker")
+            if passages and _is_qualitative_web_comparison(question, plan, sources):
+                issue = _qualitative_comparison_issue(
+                    question, packet["answer"], packet["citations"], evidence, sources)
+                if issue is not None:
+                    plan = None
+                    continue
+                # The reviewer may veto only a locatable contradiction, not a
+                # comparison synthesized from different literal source quotes.
+                review = ask(WEB_CONTRADICTION_CHECKER,
+                             {"question": question, "answer": packet["answer"],
+                              "quotes": packet["citations"]},
+                             CONTRADICTION_SCHEMA, budget=256)
+                if (set(review) != {"contradiction", "claim", "source_quote"} or
+                        type(review["contradiction"]) is not bool or
+                        not isinstance(review["claim"], str) or
+                        not isinstance(review["source_quote"], str)):
+                    raise AgentError("Qualitativer Prüfer lieferte kein gültiges Urteil.")
+                if review["contradiction"]:
+                    claim, counter = review["claim"], review["source_quote"]
+                    literal_quotes = [c["quote"] for c in packet["citations"]]
+                    if (claim.strip() and counter.strip() and
+                            claim in packet["answer"] and
+                            (counter in packet["answer"] or
+                             any(counter in quote for quote in literal_quotes))):
+                        issue = "Konkreter Widerspruch: " + claim[:160]
+                        plan = None
+                        continue
+                return result(answer, checked=True, attempts=attempt+1)
             review_data = ({"question": question, "answer": packet["answer"], "quotes": packet["citations"]}
                            if passages else {"question": question, "plan": plan, "proposal": packet,
                                              "draft": answer})
