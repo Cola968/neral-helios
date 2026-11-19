@@ -806,13 +806,133 @@ def _source_german_euro_guidance(source: object) -> str:
             if conversions else "")
 
 
+_NAME = r"[A-ZÄÖÜ][a-zäöüß]{1,24}"
+_PERSON_NIGHTS_PRICE = re.compile(
+    r"(?iu)\b(?:für|kostet|Preis\s+von)\s+"
+    r"(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d{1,8}(?:,\d{1,2})?)"
+    r"\s*(?:€|\bEuro\b)"
+)
+_PERSON_NIGHTS_FULL = re.compile(
+    rf"(?u)\b(?P<name>{_NAME})\s+übernachtet\s+"
+    r"(?:\w+\s+){0,3}die\s+vollen\s+(?P<n>\d{1,2})\s+Nächte"
+)
+_PERSON_NIGHTS_EARLY = re.compile(
+    rf"(?u)\b(?P<name>{_NAME})\s+reist\s+nach\s+"
+    r"(?P<n>\d{1,2})\s+Nächten\s+(?:wieder\s+)?ab\b"
+)
+_PERSON_NIGHTS_HALF = re.compile(
+    rf"(?u)\b(?P<name>{_NAME})\s+kommt\s+erst\s+"
+    r"zur\s+Hälfte\s+der\s+Zeit\s+dazu\b"
+)
+_PERSON_NIGHTS_GUEST = re.compile(
+    r"(?iu)\bbringt\s+(?:aber\s+)?für\s+ihre\s+letzten\s+"
+    r"(?P<n>\d{1,2})\s+Nächte\s+noch\s+ihren\s+Bruder\s+mit\b"
+)
+
+
+def _source_person_nights_plan(source: object) -> dict | None:
+    """Narrow, source-anchored guest-night grammar; abstain on ambiguity.
+
+    This is a rejection/checking oracle, NOT a full language parser and not a
+    verified mathematics claim. All derived values depend on source matching.
+    """
+    if type(source) is not str or len(source) > 4096:
+        return None
+    price = _PERSON_NIGHTS_PRICE.search(source)
+    full = _PERSON_NIGHTS_FULL.search(source)
+    early = _PERSON_NIGHTS_EARLY.search(source)
+    late = _PERSON_NIGHTS_HALF.search(source)
+    guest = _PERSON_NIGHTS_GUEST.search(source)
+    if not all((price, full, early, late, guest)):
+        return None
+    names = (full["name"], early["name"], late["name"])
+    if len({name.casefold() for name in names}) != 3:
+        return None
+    if guest.start() < late.end() or guest.start()-late.end() > 110:
+        return None
+    if re.search(
+            rf"(?iu)\b{re.escape(names[2])}\s+inklusive\s+ihres\s+Bruders\b",
+            source) is None:
+        return None
+    full_n, early_n, guest_n = (int(full["n"]), int(early["n"]),
+                               int(guest["n"]))
+    if not (2 <= full_n <= 60 and full_n % 2 == 0 and
+            1 <= early_n <= full_n and
+            1 <= guest_n <= full_n // 2):
+        return None
+    late_n = full_n // 2
+    raw_cost = price[1].replace(".", "").replace(",", ".")
+    try:
+        amount = Fraction(str(Decimal(raw_cost)))
+    except (ValueError, ArithmeticError, ZeroDivisionError):
+        return None
+    if not 0 < amount <= 100_000_000:
+        return None
+    total_n = full_n + early_n + late_n + guest_n
+    if not 1 <= total_n <= 240:
+        return None
+    rate = amount / total_n
+    return {
+        "total": amount,
+        "total_nights": total_n,
+        "nights": {names[0]:full_n,names[1]:early_n,
+                   names[2]:late_n,"Bruder":guest_n},
+        "shares": {names[0]:rate*full_n,names[1]:rate*early_n,
+                   names[2]:rate*(late_n+guest_n)},
+    }
+
+
+def _source_person_nights_output_ok(source: object, stdout: object) -> bool | None:
+    """Reject a numerically inconsistent Helios-compiled Docker output."""
+    plan = _source_person_nights_plan(source)
+    if plan is None:
+        return None
+    if type(stdout) is not str or len(stdout) > 512:
+        return False
+    for name, exact in plan["shares"].items():
+        pattern = (rf"(?iu)\b{re.escape(name)}\b\s*"
+                   r"(?:=|:|zahlt\s+)\s*(?:€\s*)?"
+                   r"(?P<amount>\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?"
+                   r"|\d{1,10}(?:[.,]\d{1,2})?)\s*(?:€|\bEuro\b)?")
+        matched = re.search(pattern, stdout)
+        if matched is None:
+            return False
+        raw = matched["amount"]
+        grouped = bool(re.fullmatch(
+            r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?", raw))
+        normalized = (raw.replace(".", "").replace(",", ".")
+                      if grouped else raw.replace(",", "."))
+        try:
+            actual=Decimal(normalized)
+            expected=(Decimal(exact.numerator)/Decimal(exact.denominator)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (ValueError, ArithmeticError, ZeroDivisionError):
+            return False
+        if actual != expected:
+            return False
+    return True
+
+
 def _source_person_nights_hint(source: object) -> str:
     """Generic overnight accounting method, no task-specific answers."""
     if type(source) is not str or len(source) > 4096 or not re.search(
             r"(?iu)\b(?:übernacht\w*|personennächt\w*|nacht|nächte|"
             r"ferienhaus|berghütte|hütte)\b", source):
         return ""
+    plan = _source_person_nights_plan(source)
+    grounded = ""
+    if plan is not None:
+        grounded = (
+            "\nAUS ORIGINALTEXT EINDUTIG ABGELEITETE NÄCHTE (KEINE "
+            "MUSTERLÖSUNG): " +
+            ", ".join(f"{person}={n}" for person,n in plan["nights"].items()) +
+            f"; zusammen={plan['total_nights']} Personennächte, " +
+            f"Gesamtpreis={plan['total']} Euro. "
+            "Berechne die tatsächlichen Einzelkosten im ausgeführten Python "
+            "neu, drucke sie als Name=Wert für jeden Zahler aus. "
+        )
     return (
+        grounded +
         "\nPERSONENNÄCHTE-METHODE: Erstelle aus dem Originaltext zuerst "
         "eine eindeutige Tabelle Gast, übernachtete Nächte, Zahler. "
         "Volle Zeit, frühere Abreise, spätere Ankunft und Zusatzgäste "
@@ -1071,6 +1191,30 @@ class ThreeTierRuntime:
                 report = {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
             output = _sandbox_output(report)
             if output is not None and not constraint_mode and not sandbox_files:
+                person_ok = _source_person_nights_output_ok(source, output)
+                if person_ok is False:
+                    last_error = "Ausgegebene Zahlerbeträge widersprechen Personennächten"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "PersonNightMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Dein Python-Code lief, aber die gedruckten "
+                            "Beträge erfüllen die Personennächte aus dem "
+                            "Originaltext NICHT. Übernimm die abgeleiteten "
+                            "Aufenthaltsdauern aus der Systemanweisung; "
+                            "Gesamtpreis geteilt durch die Summe ALLER "
+                            "Personennächte ergibt den Preis pro Nacht. "
+                            "Zähle den Zusatzgast ausdrücklich mit und ordne "
+                            "ihn dem Hauptgast zu. Prüfe jede Personensumme "
+                            "mit Fraction und assert. Gib das Ergebnis als "
+                            "Name=Wert für jeden Zahler aus. "
+                            "Nur einen vollständigen neuen Python-Codeblock.")}
+                    ]
+                    continue
                 source_ok = _source_fraction_equation_ok(source, output)
                 if source_ok is False:
                     # Docker ran, but its numeric output conflicts with the
