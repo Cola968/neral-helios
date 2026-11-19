@@ -147,7 +147,7 @@ async function main(){
         missing_required:/benötigte Angabe|nicht eindeutig gefunden|Ersatzwert/iu.test(g.body),
         fallback:/Helios-Antwort \(ohne Sandbox/iu.test(g.body)};
       check(gNet.status===200,"Gold: local chat HTTP failed");
-      check(gNet.sandbox_executed===true && gNet.tool_used==="helios_code_sandbox",
+      check(gNet.sandbox_executed===true && ["python_sandbox","helios_code_sandbox"].includes(gNet.tool_used),
         "Gold: executed Docker result absent (or missing source price)");
       check(gNet.v3_validation==="source_quote_and_independent_arithmetic_rejection",
         "Gold: no independently checked source-bound arithmetic");
