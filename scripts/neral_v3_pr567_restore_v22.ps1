@@ -15,18 +15,54 @@ $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
 $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
 $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
 if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){throw 'Unexpected NERAL task owner'}
+function GetV22Receipt {
+  # PowerShell 5.1 WebRequestSession can fail to roundtrip the local Flask cookie.
+  # Use curl.exe with a fresh cookie jar, and never log response bodies or tokens.
+  $curl=(Get-Command curl.exe -ErrorAction Stop).Source
+  $prefix=Join-Path $env:TEMP ('neral-pr567-v22-'+[guid]::NewGuid().ToString('N'))
+  $jar=$prefix+'.cookie';$body=$prefix+'.json'
+  $home='000';$api='000';$homeExit=-1;$apiExit=-1
+  try{
+    $ErrorActionPreference='Continue'
+    $home=(@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 8 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join '').Trim()
+    $homeExit=$LASTEXITCODE
+    $api=(@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 8 --cookie-jar $jar --cookie $jar --output $body --write-out '%{http_code}' 'http://127.0.0.1:9690/api/neral/preview/session' 2>$null) -join '').Trim()
+    $apiExit=$LASTEXITCODE
+    $ErrorActionPreference='Stop'
+    $ok=$false
+    if($homeExit -eq 0 -and $apiExit -eq 0 -and $home -eq '200' -and $api -eq '200' -and
+       (Test-Path -LiteralPath $body -PathType Leaf)){
+      $data=Get-Content -LiteralPath $body -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+      $ok=($data.three_tier_enabled -eq $true -and $data.evidence_agent_enabled -eq $false)
+    }
+    return @{ok=$ok;home=$home;api=$api}
+  }finally{
+    $ErrorActionPreference='Stop'
+    foreach($item in @($jar,$body)){
+      if(Test-Path -LiteralPath $item -PathType Leaf){
+        Remove-Item -LiteralPath $item -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
 $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
 if($listeners.Count -gt 0){
-  $cookies=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-  try{
-    $home=Invoke-WebRequest -UseBasicParsing -WebSession $cookies -Uri 'http://127.0.0.1:9690/' -TimeoutSec 7
-    $api=Invoke-RestMethod -WebSession $cookies -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 7
-    if($home.StatusCode -eq 200 -and $api.evidence_agent_enabled -eq $false){
-      Write-Host 'NERAL_PR567_V22_ALREADY_HEALTHY_HTTP200'
-      exit 0
-    }
-  }catch{}
-  throw 'Another listener currently owns port 9690; no service mutation'
+  # An existing owned listener must be identified before claiming recovery.
+  if($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne '127.0.0.1'){
+    throw 'Unexpected port 9690 listener; no service mutation'
+  }
+  $owner=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$listeners[0].OwningProcess) -ErrorAction Stop
+  if(-not $owner -or [string]$owner.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+     [string]$owner.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+    throw 'Port 9690 is not the registered NERAL Python service'
+  }
+  $receipt=GetV22Receipt
+  Write-Host ('NERAL_PR567_V22_PREEXISTING_RECEIPT home='+$receipt.home+' session='+$receipt.api+' v22='+$receipt.ok)
+  if($receipt.ok -eq $true){
+    Write-Host 'NERAL_PR567_V22_ALREADY_HEALTHY_HTTP200'
+    exit 0
+  }
+  throw 'NERAL listener present but authenticated V2.2 session not proven; no mutation'
 }
 if([string]$task.State -ne 'Ready'){
   throw 'Managed task not Ready: preserve unknown running state'
@@ -105,16 +141,11 @@ Write-Host ('NERAL_PR567_RESTORE_AFTER_5S task='+[string]$fiveSecTask.State+
 $healthy=$false
 for($i=0;$i -lt 120;$i++){
   Start-Sleep -Seconds 1
-  try{
-    $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 6
-    $api=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 6
-    if($home.StatusCode -eq 200 -and $api.three_tier_enabled -eq $true -and
-       $api.evidence_agent_enabled -eq $false){
-      $healthy=$true
-      break
-    }
-  }catch{}
+  $receipt=GetV22Receipt
+  if($receipt.ok -eq $true){
+    $healthy=$true
+    break
+  }
 }
 if(-not $healthy){
   $failedTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
