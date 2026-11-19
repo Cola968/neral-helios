@@ -1,3 +1,4 @@
+# Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
 # Owner-authorized rerun for safe HTTP-only diagnosis of genuine hut sandbox failure; all live changes rollback unless both Chrome cases pass.
 # Approval renewed for isolated V2.2 browser-gate concurrency; user PC stays protected by exact process checks and rollback.
