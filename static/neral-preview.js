@@ -1093,7 +1093,7 @@
           result.sandbox_executed===false &&
           typeof result.sandbox_failure_code==="string" &&
           ["docker_unavailable","image_unavailable","invalid_python_code",
-           "runtime_error","empty_stdout","timeout"].includes(result.sandbox_failure_code)
+           "runtime_error","empty_stdout","timeout","source_mismatch"].includes(result.sandbox_failure_code)
         ? "Werkzeug: Python-Sandbox fehlgeschlagen ("+
           ({
             docker_unavailable:"Docker nicht aktiv",
@@ -1106,7 +1106,8 @@
                  result.sandbox_failure_exception)
               ? ": "+result.sandbox_failure_exception : ""),
             empty_stdout:"Keine Ausgabe",
-            timeout:"Zeitlimit erreicht"
+            timeout:"Zeitlimit erreicht",
+            source_mismatch:"Berechnetes Ergebnis widerspricht den Angaben"
           }[result.sandbox_failure_code])+
           ") · Modus: Helios (Modellantwort ungeprüft)"
         : sources.length
