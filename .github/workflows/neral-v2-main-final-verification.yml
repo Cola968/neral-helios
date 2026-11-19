@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'neral_three_tier_runtime.py'
+      - 'neral_v3_web_reader.py'
+      - 'neral_v3_agent.py'
       - 'neral_tir_experimental.py'
       - 'neral_docker_runtime.py'
       - 'static/neral-preview.js'
@@ -107,6 +109,7 @@ jobs:
           $paths=@('neral_three_tier_runtime.py','neral_z3_json_compiler.py','neral_tir_experimental.py',
             'neral_docker_runtime.py',
             'neral_v21_attachment_data.py','neral_preview_attachments.py','neral_preview_server.py',
+            'neral_v3_web_reader.py','neral_v3_agent.py',
             'neral_everyday_verified.py','neral_web_search.py','neral_web_api.py',
             'templates/neral_preview.html','static/neral-preview.js',
             'static/neral-clean-ui.css','static/neral-web-live.js')
