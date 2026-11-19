@@ -50,3 +50,20 @@ jobs:
           & node --test tests/test_neral_v21_ui.cjs tests/test_neral_code_loop_ui_v2.cjs tests/test_neral_three_tier_ui.cjs
           if($LASTEXITCODE -ne 0){throw 'V2.1 UI tests failed'}
           Write-Host 'NERAL_V21_WINDOWS_READONLY_CPU_PASS'
+      - name: Read only local Docker image and Desktop state after PC reboot
+        if: always()
+        run: |
+          $ErrorActionPreference='Continue'
+          $docker=Get-Command docker.exe -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_DOCKER_CLIENT_PRESENT '+[bool]($null -ne $docker))
+          $service=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_DOCKER_SERVICE_STATE '+$(if($service){[string]$service.Status}else{'missing'}))
+          $desktop='C:/Program Files/Docker/Docker/Docker Desktop.exe'
+          Write-Host ('NERAL_V21_DOCKER_DESKTOP_EXE_PRESENT '+[bool](Test-Path -LiteralPath $desktop -PathType Leaf))
+          $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue).Count
+          Write-Host ('NERAL_V21_DOCKER_DESKTOP_PROCESS_PRESENT '+[bool]($running -gt 0))
+          if($null -ne $docker){
+            & $docker.Source image inspect neral-python-tools:v2 *> $null
+            Write-Host ('NERAL_V21_DOCKER_PINNED_IMAGE_READY '+[bool]($LASTEXITCODE -eq 0))
+          }
+
