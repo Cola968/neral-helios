@@ -225,16 +225,26 @@ $deps=Join-Path $root 'local_state/neral-v3-json-deps'
 $existing=Join-Path $root 'local_state/three-tier-web-deps'
 $previousPythonPath=$env:PYTHONPATH
 $env:PYTHONPATH=$deps+[IO.Path]::PathSeparator+$existing+[IO.Path]::PathSeparator+$root
+# Windows PowerShell 5.1 turns native stderr into a terminating error if
+# ErrorActionPreference=Stop, even for an intentional missing-import probe.
+$ErrorActionPreference='Continue'
 & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")' 2>$null
 $hasEnforcer=($LASTEXITCODE -eq 0)
+$ErrorActionPreference='Stop'
 if(-not $hasEnforcer){
   New-Item -ItemType Directory -Force -Path $deps | Out-Null
   # Binary wheels only, no transitive dependency installation or model
   # downloads. Existing pinned venv must already have Pydantic/YAML.
+  $ErrorActionPreference='Continue'
   & $python -m pip install --disable-pip-version-check --no-input --only-binary=:all: --no-deps --target $deps 'lm-format-enforcer==0.11.3' 'interegular==0.3.3'
-  if($LASTEXITCODE -ne 0){throw 'V3 isolated JSON enforcer wheel installation failed; service unchanged'}
-  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")'
-  if($LASTEXITCODE -ne 0){throw 'V3 isolated dependency import failed; service unchanged'}
+  $pipExit=$LASTEXITCODE
+  $ErrorActionPreference='Stop'
+  if($pipExit -ne 0){throw 'V3 isolated JSON enforcer wheel installation failed; service unchanged'}
+  $ErrorActionPreference='Continue'
+  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")' 2>$null
+  $probeExit=$LASTEXITCODE
+  $ErrorActionPreference='Stop'
+  if($probeExit -ne 0){throw 'V3 isolated dependency import failed; service unchanged'}
 }
 $env:PYTHONPATH=$previousPythonPath
 # Verify local offline Docker BEFORE copying/stopping any V2.2 runtime files.
