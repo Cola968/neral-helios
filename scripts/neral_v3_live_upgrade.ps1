@@ -1,4 +1,4 @@
-# V3 owner-approved four-task Chrome retest with postfixed-EUR parsing repaired; exact rollback remains mandatory and main unchanged on failure. Four real browser tasks must PASS; otherwise restore exact prior V2.2 files.
+# V3 owner-approved four-task real Chrome acceptance after audited source-anchored unit Docker worker fix. Main unchanged unless all four tasks pass; exact rollback otherwise. Four real browser tasks must PASS; otherwise restore exact prior V2.2 files.
 # Owner-approved RTX4070 V2.2 final acceptance following green full CPU regressions; strict rollback of 4 files on any failed Chrome case.
 # Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
