@@ -154,7 +154,7 @@ class HeliosFallback(unittest.TestCase):
         def wrong_program(_):
             seen.append(1)
             return {"status":"PASSED","output":"Nora=420; Kim=420; Pia=420"}
-        rt,h=self.runtime(["\x60\x60\x60python\\nprint('bad')\\n\x60\x60\x60"]*3+
+        rt,h=self.runtime(["\x60\x60\x60python\nprint('bad')\n\x60\x60\x60"]*3+
                           ["Ich kann das ohne belastbare Rechnung nur ungeprüft beantworten."],
                           wrong_program)
         out=rt.answer(question(source),"Luna",force_sandbox=True)
