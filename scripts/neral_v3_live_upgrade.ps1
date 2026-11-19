@@ -1,4 +1,4 @@
-# V3 staged upgrade approved for PR #566 only. Four real browser tasks must PASS; otherwise restore exact prior V2.2 files.
+# V3 owner-approved guarded real RTX4070 browser abnahme for PR #566 only. Four real browser tasks must PASS; otherwise restore exact prior V2.2 files.
 # Owner-approved RTX4070 V2.2 final acceptance following green full CPU regressions; strict rollback of 4 files on any failed Chrome case.
 # Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
