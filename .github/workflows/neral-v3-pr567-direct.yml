@@ -1,4 +1,4 @@
-# Owner-authorized live RTX4070 4of4 after per-entity search and evidence-retry fix.
+# Owner-authorized RTX4070 4of4 retest with direct_reasoning status reporting.
 name: NERAL PR567 direct RTX4070 four-task Chrome acceptance
 on:
   pull_request:
