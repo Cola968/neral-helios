@@ -308,6 +308,53 @@ class EvidenceAgentTest(unittest.TestCase):
             with self.subTest(question=question):
                 self.assertEqual(_comparison_entities(question), expected)
 
+    def test_entity_queries_focus_on_subject_and_user_topic(self):
+        from neral_evidence_agent import _entity_search_query
+        user_query = ("Suche aktuelle Webseiten und vergleiche Mozilla Firefox "
+                      "mit Google Chrome: Welche Browser-Engine verwenden sie und "
+                      "welcher Datenschutz und Tracking-Schutz wird beschrieben?")
+        firefox = _entity_search_query(user_query, "Firefox", ("Firefox", "Chrome"), 0)
+        chrome = _entity_search_query(user_query, "Chrome", ("Firefox", "Chrome"), 0)
+        self.assertIn("Firefox", firefox)
+        self.assertIn("Chrome", chrome)
+        self.assertNotIn("Chrome", firefox)
+        self.assertNotIn("Firefox", chrome)
+        self.assertIn("Tracking", firefox)
+        self.assertLessEqual(len(firefox), 150)
+
+    def test_three_way_comparison_has_grounded_sources_for_every_subject(self):
+        question = "Vergleich Firefox, Chrome und Edge: Browser-Engine"
+        facts = {
+            "Firefox": "Mozilla Firefox verwendet die Gecko Browser Engine.",
+            "Chrome": "Google Chrome verwendet die Blink Browser Engine.",
+            "Edge": "Microsoft Edge verwendet die Blink Browser Engine.",
+        }
+        class Search:
+            def search(self, query):
+                subject = next(name for name in facts if name in query)
+                return {"results": [{"url": f"https://{subject.lower()}.example.org/"}]}
+        def reader(hits, query):
+            url = hits[0]["url"]
+            subject = next(name for name in facts if name.lower() in url)
+            return [{"url": url, "page_read": True, "page_text": facts[subject]}]
+        replies = [
+            {"tool": "direct_reasoning", "parts": ["Drei Browser Engines"]},
+            {"sides": [{"entity": "Firefox", "details": "verwendet Gecko."},
+                       {"entity": "Chrome", "details": "verwendet Blink."},
+                       {"entity": "Edge", "details": "verwendet Blink."}],
+             "synthesis": "Firefox unterscheidet sich bei der Engine.",
+             "citations": ["p1", "p2", "p3"]},
+            {"contradiction": False, "claim": "", "source_quote": ""},
+        ]
+        result = run_evidence_agent(question,
+                                    lambda sys, raw, budget, schema: json.dumps(replies.pop(0)),
+                                    Mock(), web_query="Firefox Chrome Edge Browser Engine",
+                                    search=Search(), page_reader=reader)
+        self.assertTrue(result["agent_checked"])
+        self.assertEqual(result["agent_attempts"], 1)
+        self.assertEqual(len(result["sources"]), 3)
+        self.assertIn("Edge: verwendet Blink.", result["text"])
+
     def test_missing_entity_pages_are_researched_in_second_attempt(self):
         question = "Vergleiche Firefox mit Chrome: Engine."
         sites = {
