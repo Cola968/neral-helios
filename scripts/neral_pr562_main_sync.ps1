@@ -25,6 +25,8 @@ $paths=@(
   'neral_everyday_verified.py',
   'neral_web_search.py',
   'neral_web_api.py',
+  'neral_v3_web_reader.py',
+  'neral_v3_agent.py',
   'templates/neral_preview.html',
   'static/neral-preview.js',
   'static/neral-clean-ui.css',
