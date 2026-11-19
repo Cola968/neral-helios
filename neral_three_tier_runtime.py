@@ -706,6 +706,38 @@ def _source_sequential_percent_ok(source: object, stdout: object) -> bool | None
         return False
 
 
+_SANDBOX_SAFE_CODES = frozenset((
+    "docker_unavailable", "image_unavailable", "invalid_python_code",
+    "runtime_error", "empty_stdout", "timeout",
+))
+
+
+def _safe_sandbox_failure_code(report: object) -> str:
+    """Only stable codes, never raw model/Docker stderr in the UI."""
+    if type(report) is not dict:
+        return "runtime_error"
+    code = report.get("error_code")
+    if type(code) is str and code in _SANDBOX_SAFE_CODES:
+        return code
+    if report.get("status") == "UNAVAILABLE":
+        return "docker_unavailable"
+    if report.get("error_type") in ("SyntaxError", "CodeComplexityLimit"):
+        return "invalid_python_code"
+    if report.get("status") == "FAILED":
+        return "runtime_error"
+    return "runtime_error"
+
+
+_SANDBOX_UI_REASONS = {
+    "docker_unavailable": "Docker nicht aktiv",
+    "image_unavailable": "Solver-Image fehlt",
+    "invalid_python_code": "Python-Code ungültig",
+    "runtime_error": "Laufzeitfehler",
+    "empty_stdout": "Keine Ausgabe",
+    "timeout": "Zeitlimit erreicht",
+}
+
+
 def _sandbox_error(report: object) -> str:
     if type(report) is not dict:
         return "Sandbox-Rückgabe ungültig"
@@ -847,6 +879,7 @@ class ThreeTierRuntime:
         prompt_turns = base
         last_error = "Keine ausführbare Codeantwort"
         failure_trace = []
+        failure_code = "invalid_python_code"
         from neral_everyday_verified import tidy_unverified_model_text
 
         for attempt in range(3):
@@ -1035,10 +1068,12 @@ class ThreeTierRuntime:
                 succeeded = 1
                 break
             last_error = _sandbox_error(report)
+            failure_code = _safe_sandbox_failure_code(report)
             failure_trace.append({
                 "stage": "docker",
                 "status": report.get("status", "INVALID") if type(report) is dict else "INVALID",
                 "error_type": report.get("error_type") if type(report) is dict else "InvalidReport",
+                "error_code": failure_code,
                 "detail": last_error[-190:],
             })
             if (type(report) is not dict or report.get("status") == "UNAVAILABLE"):
@@ -1091,9 +1126,38 @@ class ThreeTierRuntime:
 
         if self.helios.loaded is not True:
             raise RuntimeError("Helios adapter was not loaded")
+        model_fallback_generated = False
         if output is None:
-            final = ("Der Python-Sandbox-Lauf wurde nicht erfolgreich abgeschlossen. "
-                     "Es liegt kein ausgeführtes Ergebnis vor.")
+            # A failed tool is never proof, but it must not silence the model.
+            # The fallback receives the ORIGINAL task, not untrusted tool output.
+            # Attachment manifests do not authorize inventing file statistics.
+            fallback_turns = [
+                {"role": "system", "content": (
+                    turns[0]["content"] +
+                    "\nDie isolierte Python-/Z3-Sandbox ist fehlgeschlagen. "
+                    "Beantworte die Nutzerfrage jetzt DIREKT auf Deutsch, "
+                    "ohne Codeblock und ohne eine ausgeführte oder verifizierte "
+                    "Rechnung zu behaupten. Nutze ausschließlich gegebene "
+                    "Informationen, kennzeichne Unsicherheit und erfinde keine "
+                    "Datei- oder Webdaten-Ergebnisse. Gib eine hilfreiche "
+                    "inhaltliche Antwort, wenn dies ohne Werkzeug möglich ist.")},
+                {"role": "user", "content": source},
+            ]
+            try:
+                fallback = tidy_unverified_model_text(
+                    self.helios.respond_chat(fallback_turns,
+                                             max_new_tokens=TIERS["Helios"],
+                                             temperature=0.0))
+            except Exception:
+                fallback = ""
+            model_fallback_generated = (
+                type(fallback) is str and bool(fallback.strip()) and
+                not fallback.strip().startswith("```"))
+            if model_fallback_generated:
+                final = "Helios-Antwort (ohne Sandbox, ungeprüft):\n" + fallback[:2000]
+            else:
+                final = ("Helios konnte auch ohne Sandbox keine vollständige "
+                         "Antwort erzeugen. Bitte erneut versuchen.")
         else:
             # A final model response may explain the actual stdout, but never
             # replaces it: users always see the exact execution evidence.
@@ -1135,7 +1199,10 @@ class ThreeTierRuntime:
             "tool_used": "helios_code_sandbox" if succeeded else None,
             "tool_calls_succeeded": succeeded,
             "sandbox_attempts": attempted,
-            **({"sandbox_failure_trace": failure_trace} if not succeeded else {}),
+            **({"sandbox_failure_code": failure_code,
+                "sandbox_failure_reason": _SANDBOX_UI_REASONS[failure_code],
+                "model_fallback_generated": model_fallback_generated,
+                "sandbox_failure_trace": failure_trace} if not succeeded else {}),
             "verification_status": "generated_code_executed_unverified" if succeeded
                                    else "generated_code_execution_failed",
         }
