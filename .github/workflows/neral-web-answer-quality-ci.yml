@@ -1,0 +1,24 @@
+name: NERAL Web answer quality CPU gate
+on:
+  push:
+    branches: [fix/neral-web-answer-contract-20261117]
+    paths:
+      - 'static/neral-preview.js'
+      - 'scripts/neral_three_tier_browser_e2e.cjs'
+      - 'tests/test_neral_web_answer_quality.cjs'
+      - '.github/workflows/neral-web-answer-quality-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web-answer-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/test_neral_web_answer_quality.cjs tests/test_neral_web_query_specificity.cjs tests/test_neral_source_only_web_fallback.cjs tests/test_neral_web_search_state.cjs tests/test_neral_three_tier_ui.cjs
+      - run: node --check static/neral-preview.js && node --check scripts/neral_three_tier_browser_e2e.cjs
