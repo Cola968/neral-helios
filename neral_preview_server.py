@@ -10,6 +10,7 @@ import argparse
 import ast
 import hmac
 import json
+import os
 import re
 import secrets
 import sys
@@ -289,6 +290,10 @@ def main(argv=None):
     parser.add_argument("--experimental-dual-routing",action="store_true",
                         help="Opt-in pinned QLoRA for TIR and base-Qwen for raw fallback; default off.")
     args=parser.parse_args(argv)
+    # Explicit process-scoped opt-in for the existing Windows Scheduled Task.
+    # The default remains disabled; no cloud or model setting changes.
+    if os.environ.get("NERAL_V3_AGENT_ENABLED") == "1":
+        args.evidence_agent = True
     if args.evidence_agent and not args.experimental_three_tier_hf:
         parser.error("--evidence-agent requires --experimental-three-tier-hf")
     if args.evidence_agent:
