@@ -309,7 +309,6 @@ def main(argv=None):
             raise ValueError("Dual-Routing requires explicit HIGH plus two installed pinned models.")
         from scripts.neral_generalization_100_run import require_exact_models
         require_exact_models()  # fail before listening if either digest differs
-        import os
         os.environ["NERAL_EXPERIMENTAL_DUAL_ROUTE"]="1"
     if args.experimental_three_tier_hf and (args.experimental_high_qwen35 or args.experimental_dual_routing):
         raise ValueError("Three-tier HF cannot share experimental Ollama HIGH/dual routing")
