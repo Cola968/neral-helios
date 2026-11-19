@@ -176,7 +176,8 @@ class GenericCodeLoop(unittest.TestCase):
         def sandbox(code):
             ast.parse(code)
             observed.append(code)
-            self.assertIn("while solver.check() == z3.sat:",code)
+            self.assertIn("while (status:=solver.check()) == z3.sat:",code)
+            self.assertIn("if status != z3.unsat: raise RuntimeError",code)
             self.assertEqual(code.count("assert z3.is_true("),1)
             self.assertIn("for rid,rule in zip(rule_ids,rules):",code)
             self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))",code)
