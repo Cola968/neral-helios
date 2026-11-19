@@ -35,6 +35,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'V2 code loop regression failed'}
           & $py -B -m unittest discover -s tests -p test_neral_code_sandbox_image_v2.py -q
           if($LASTEXITCODE -ne 0){throw 'Docker execution boundary changed'}
+          & node --check scripts/neral_v22_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.2 Chrome E2E JavaScript syntax failed'}
           & node --test tests/test_neral_v22_ui.cjs tests/test_neral_v21_ui.cjs
           if($LASTEXITCODE -ne 0){throw 'V2.2 status UI contract failed'}
           Write-Host 'NERAL_V22_CPU_CONTRACTS_GREEN'
