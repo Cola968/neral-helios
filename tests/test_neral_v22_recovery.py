@@ -144,6 +144,26 @@ class HeliosFallback(unittest.TestCase):
         self.assertEqual(out["sandbox_failure_code"],"runtime_error")
         self.assertEqual(len(h.calls),2)
 
+    def test_successful_docker_with_inconsistent_person_nights_is_not_claimed_as_success(self):
+        source=("Drei Freundinnen mieten gemeinsam eine Berghütte für 1.260 €. "
+            "Nora übernachtet dort die vollen 6 Nächte, Kim reist nach 4 Nächten "
+            "wieder ab, und Pia kommt erst zur Hälfte der Zeit dazu, bringt aber "
+            "für ihre letzten 2 Nächte noch ihren Bruder mit. "
+            "Pia inklusive ihres Bruders.")
+        seen=[]
+        def wrong_program(_):
+            seen.append(1)
+            return {"status":"PASSED","output":"Nora=420; Kim=420; Pia=420"}
+        rt,h=self.runtime(["\x60\x60\x60python\\nprint('bad')\\n\x60\x60\x60"]*3+
+                          ["Ich kann das ohne belastbare Rechnung nur ungeprüft beantworten."],
+                          wrong_program)
+        out=rt.answer(question(source),"Luna",force_sandbox=True)
+        self.assertEqual(len(seen),3)
+        self.assertFalse(out["sandbox_executed"])
+        self.assertEqual(out["sandbox_failure_code"],"source_mismatch")
+        self.assertFalse(out["verified"])
+        self.assertIn("ungeprüft",out["text"])
+
     def test_three_invalid_programs_trigger_real_model_fallback(self):
         rt,h=self.runtime(["```python\nraise ValueError(1)\n```"]*3+["Die Aufgabe ist noch nicht sicher gelöst."],
             lambda _:{"status":"FAILED","error_code":"runtime_error","error_type":"RuntimeError","traceback":"ValueError: 1"})
