@@ -13,6 +13,32 @@ from urllib.request import Request
 from scripts.neral_v2_live5 import BASE, Live
 
 
+def safe_execution_metadata(result):
+    """Only trusted status fields; never model text, file data or code."""
+    if type(result) is not dict:
+        return {"result_type":type(result).__name__}
+    keys = ("tier", "model_generated", "verified", "safe_to_promote",
+            "sandbox_executed", "tool_used", "tool_calls_succeeded",
+            "sandbox_attempts", "verification_status",
+            "auto_escalated_from", "model_origin", "adapter_loaded")
+    safe = {}
+    for key in keys:
+        value = result.get(key)
+        if type(value) in (bool, int) or (
+                type(value) is str and len(value) <= 64):
+            safe[key] = value
+        elif value is None and key in result:
+            safe[key] = None
+    trace = result.get("sandbox_failure_trace")
+    if type(trace) is list:
+        safe["sandbox_failure_trace"] = [
+            {key: value for key in ("stage", "error_type")
+             if type(value := entry.get(key)) is str and len(value) <= 64}
+            for entry in trace[:3] if type(entry) is dict
+        ]
+    return safe
+
+
 def stdout_of(result):
     marker="Sandbox-Ausgabe (nicht unabhängig geprüft):\n"
     if marker not in str(result.get("text","")):
@@ -99,6 +125,7 @@ def main():
                     {"title":"Monat B","snippet":"Betrag 4 Euro","url":"https://example.org/b"}]}),6),
         ]
         for label,fn,expected in cases:
+            result=None
             try:
                 result=fn()
                 value=verify(result,label=label,expected=expected)
@@ -110,7 +137,7 @@ def main():
                 failed.append(label)
                 print("NERAL_V21_LIVE_CASE",json.dumps({
                     "case":label,"pass":False,"error_type":type(exc).__name__,
-                    "error_hint":str(exc)[:120]},ensure_ascii=False))
+                    "execution_metadata":safe_execution_metadata(result)},ensure_ascii=False))
     except (ValueError,KeyError,HTTPError,URLError) as exc:
         for label in ("unusual_house","csv_sum","web_data_sum"):
             if label not in passed and label not in failed:
