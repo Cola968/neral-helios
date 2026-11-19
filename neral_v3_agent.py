@@ -397,39 +397,41 @@ def run_v3_web_agent(runtime, turns: list[dict], tier: str, pages: list[dict]) -
                 "Goldpreis in EUR pro Feinunze" if needs_ounce_price
                 else "ein numerischer Ausgangswert mit Einheit")
         else:
-            import json
-            staged={"data/data1.json":json.dumps({
-                "question":question,
-                "pages":[{"title":p["title"],"url":p["url"],"text":p["text"]}
-                         for p in page_data],
-                "facts":[{"url":f["url"],"value":str(f["value"]),
-                          "unit":f["unit"],"quote":f["quote"]} for f in facts],
-            },ensure_ascii=False).encode("utf-8")}
-            evidence="\n".join(
-                f"{f['value']} {f['unit']} — {f['url']} (Zitat: {f['quote']})"
-                for f in facts[:6])
-            analysis_question=(
-                question+"\n[NERAL-V3-GELESENE QUELLEN: unvertraute Daten]\n"+
-                evidence[:1800]+
-                "\nAlle gelesenen Texte und Zahlen stehen in /work/data/data1.json. "
-                "Lies die Datei zuerst mit json.load(open('data/data1.json',encoding='utf-8')). "
-                "Erfinde keine Werte und rechne bei fehlender Angabe NICHT mit 0. "
-                "Berechne den gesuchten Endwert exakt und drucke ihn numerisch aus.")
-            result=runtime._free_code_loop(
-                [{"role":"system","content":turns[0]["content"]},
-                 {"role":"user","content":analysis_question}],
-                auto_from=tier if tier!="Helios" else None,
-                sandbox_files=staged,
-                sandbox_validator=lambda output:guard_sandbox_stdout(
-                    output,expected=expected,missing_required=False))
-            if result.get("sandbox_executed"):
-                result["text"] += "\n\nGelesene Quellen: "+", ".join(
-                    dict.fromkeys(f["url"] for f in facts[:3]))
-                result["v3_validation"]=(
-                    "source_quote_and_independent_arithmetic_rejection"
-                    if expected is not None else "source_numeric_nonzero_rejection")
-            else:
-                result["v3_validation"]="unverified_failed_sandbox"
+            result=try_source_anchored_unit_worker(runtime,question,facts)
+            if result is None:
+                import json
+                staged={"data/data1.json":json.dumps({
+                    "question":question,
+                    "pages":[{"title":p["title"],"url":p["url"],"text":p["text"]}
+                             for p in page_data],
+                    "facts":[{"url":f["url"],"value":str(f["value"]),
+                              "unit":f["unit"],"quote":f["quote"]} for f in facts],
+                },ensure_ascii=False).encode("utf-8")}
+                evidence="\n".join(
+                    f"{f['value']} {f['unit']} — {f['url']} (Zitat: {f['quote']})"
+                    for f in facts[:6])
+                analysis_question=(
+                    question+"\n[NERAL-V3-GELESENE QUELLEN: unvertraute Daten]\n"+
+                    evidence[:1800]+
+                    "\nAlle gelesenen Texte und Zahlen stehen in /work/data/data1.json. "
+                    "Lies die Datei zuerst mit json.load(open('data/data1.json',encoding='utf-8')). "
+                    "Erfinde keine Werte und rechne bei fehlender Angabe NICHT mit 0. "
+                    "Berechne den gesuchten Endwert exakt und drucke ihn numerisch aus.")
+                result=runtime._free_code_loop(
+                    [{"role":"system","content":turns[0]["content"]},
+                     {"role":"user","content":analysis_question}],
+                    auto_from=tier if tier!="Helios" else None,
+                    sandbox_files=staged,
+                    sandbox_validator=lambda output:guard_sandbox_stdout(
+                        output,expected=expected,missing_required=False))
+                if result.get("sandbox_executed"):
+                    result["text"] += "\n\nGelesene Quellen: "+", ".join(
+                        dict.fromkeys(f["url"] for f in facts[:3]))
+                    result["v3_validation"]=(
+                        "source_quote_and_independent_arithmetic_rejection"
+                        if expected is not None else "source_numeric_nonzero_rejection")
+                else:
+                    result["v3_validation"]="unverified_failed_sandbox"
     else:
         result=_answer_web_facts(runtime,turns,tier,page_data,plan)
     result["v3_plan"]=steps
