@@ -53,7 +53,9 @@ def verify_main_integrity():
                 'd9a34976abe4824b2ef7c7ae65613b7f38ba5d40',
                 '08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c',
             ),
-            'neral_web_api.py': 'a4d621b318666d8521a758e7699ee19f408756ee',
+            'neral_web_api.py': ('a4d621b318666d8521a758e7699ee19f408756ee',
+                # V3 guarded page reader integration (PR #566).
+                '8d4958e2528c11f304d4dbfc5004d56c24e6dd86'),
             'static/neral-web-live.js': 'a0e30ebf2dbca66a25556a07740b5ac93bb4c472',
             'static/neral-preview.js': (
                 '666a9e4b2d2467f6397a16b107a709dcf34746c2',
@@ -64,6 +66,8 @@ def verify_main_integrity():
                 '224a691c4ff9869d9513ec18ed7d554cfa3ed079',
                 # V2.2 status UI passed real guarded Chrome on 2026-11-19.
                 '18ce89cc02977b878659ddfe6d7635f1a5212c12',
+                # V3 page-reader client transport reviewed with PR #566.
+                '2856603377293db9c1ac838d8353f2d93ef72a40',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
             # Already present in current main (f960b3e7); legacy CURRENT_MAIN is older.

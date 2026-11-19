@@ -1146,11 +1146,12 @@ class ThreeTierRuntime:
 
 
     def _free_code_loop(self, turns: list[dict], *, auto_from: str | None,
-                        sandbox_files: dict[str, bytes] | None = None) -> dict:
+                        sandbox_files: dict[str, bytes] | None = None,
+                        sandbox_validator=None, tool_hint: str | None = None) -> dict:
         """At most three scripts, two repairs; success is EXECUTED, never VERIFIED."""
         self._switch(self.helios)
         source = turns[-1]["content"]
-        constraint_mode = not sandbox_files and _is_constraint_task(source)
+        constraint_mode = not sandbox_files and (tool_hint == "z3_solver" or _is_constraint_task(source))
         count_mode = constraint_mode and _is_constraint_count(source)
         base = [{"role": "system", "content": (
             turns[0]["content"] +
@@ -1422,6 +1423,33 @@ class ThreeTierRuntime:
                                 "Antworte nur mit neuem Python-Codeblock.")}
                         ]
                         continue
+            if output is not None and sandbox_validator is not None:
+                # V3 pages can inform the model but never establish arithmetic
+                # correctness. A deterministic, source-anchored rejection check
+                # runs BEFORE any executed output can reach the user.
+                if not sandbox_validator(output):
+                    last_error = "Sandbox-Ausgabe stimmt nicht mit den belegten Quelldaten überein"
+                    failure_code = "source_mismatch"
+                    failure_trace.append({
+                        "stage":"v3_source_validation",
+                        "error_type":"GroundedNumericMismatch",
+                        "error_code":"source_mismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role":"assistant","content":prior},
+                        {"role":"user","content":(
+                            "Dein zuletzt ausgeführtes Programm hat die "
+                            "unabhängige Zahlenprüfung nicht bestanden. "
+                            "Das Ergebnis wurde verworfen. Lies die "
+                            "tatsächlich bereitgestellten Quellen erneut "
+                            "aus data/data1.json; übernimm nur Zahlen, "
+                            "die dort wörtlich belegt sind. Berechne "
+                            "mit Decimal, prüfe die Quelleneinheit und "
+                            "verwende niemals 0 für fehlende Daten. "
+                            "Antworte nur als ein korrigierter Python-Codeblock.")},
+                    ]
+                    continue
             if output is not None:
                 succeeded = 1
                 break
@@ -1585,7 +1613,11 @@ class ThreeTierRuntime:
 
     def answer(self, turns: list[dict], tier: str, *,
                force_sandbox: bool = False,
-               sandbox_files: dict[str, bytes] | None = None) -> dict:
+               sandbox_files: dict[str, bytes] | None = None,
+               web_pages: list[dict] | None = None,
+               v3_agent: bool = False) -> dict:
+        if type(v3_agent) is not bool:
+            raise ValueError("v3_agent must be a JSON boolean")
         if type(force_sandbox) is not bool:
             raise ValueError("force_sandbox must be a JSON boolean")
         if sandbox_files is not None and (type(sandbox_files) is not dict or
@@ -1596,6 +1628,11 @@ class ThreeTierRuntime:
         if (type(turns) is not list or len(turns) < 2 or
                 turns[-1].get("role") != "user"):
             raise ValueError("Invalid local chat turns")
+        if web_pages is not None:
+            if sandbox_files is not None:
+                raise ValueError("Web pages cannot be mixed with uploaded datasets")
+            from neral_v3_agent import run_v3_web_agent
+            return run_v3_web_agent(self, turns, tier, web_pages)
         # Explicit user control bypasses source-only shortcuts. Never
         # fabricate an execution: even greetings must attempt Docker.
         if force_sandbox or sandbox_files:
@@ -1633,6 +1670,11 @@ class ThreeTierRuntime:
                     "model_origin": "local_source_verified_tools_only",
                     "quality_improvement_proven": False,
                 }
+        if v3_agent and not sandbox_files and not force_sandbox:
+            from neral_v3_agent import run_v3_local_agent
+            v3 = run_v3_local_agent(self, turns, tier)
+            if v3 is not None:
+                return v3
         if _is_free_compute_task(turns[-1]["content"]):
             return self._free_code_loop(
                 turns, auto_from=tier if tier != "Helios" else None)
@@ -1710,20 +1752,37 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
         if not request.is_json:
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
-        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data"}
+        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_pages", "v3_agent"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
                 type(payload.get("force_sandbox", False)) is not bool or
+                type(payload.get("v3_agent", False)) is not bool or
                 payload.get("tier") not in TIERS):
             return jsonify(error="Ungültiger Luna/Terra/Helios-Modus."), 400
         try:
             web_stage = None
+            web_pages = None
+            if "web_pages" in payload:
+                if "web_data" in payload:
+                    raise ValueError("Only one web evidence format allowed")
+                from neral_v3_agent import validate_web_pages
+                web_pages = validate_web_pages(payload["web_pages"])
             if "web_data" in payload:
                 from neral_v21_attachment_data import prepare_web_dataset
                 web_stage = prepare_web_dataset(payload["web_data"])
             turns = _messages({"prompt": payload["prompt"],
                                "history": payload.get("history", [])})
+            if web_pages is not None:
+                # A browser-supplied read=True flag and text are not proof.
+                # Only server-fetched TLS content enters the model or sandbox.
+                from neral_v3_web_reader import refetch_browser_pages
+                web_pages = refetch_browser_pages(
+                    web_pages, turns[-1]["content"])
+                if not web_pages:
+                    return jsonify(
+                        error="Webseiten konnten serverseitig nicht gelesen werden. Keine Rechnung mit Ersatzwerten.",
+                        error_code="v3_source_unavailable"), 422
             if web_stage:
                 expanded = turns[-1]["content"] + web_stage["manifest"]
                 if len(expanded.encode("utf-8")) > 6500:
@@ -1741,7 +1800,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             result = runtime.answer(
                 turns, payload["tier"],
                 force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
-                sandbox_files=web_stage["staged_files"] if web_stage else None)
+                sandbox_files=web_stage["staged_files"] if web_stage else None,
+                web_pages=web_pages,
+                v3_agent=payload.get("v3_agent", False))
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
         except Exception as exc:
