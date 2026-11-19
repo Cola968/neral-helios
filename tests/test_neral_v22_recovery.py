@@ -18,7 +18,10 @@ class Model:
     def respond_chat(self, turns, *, max_new_tokens, temperature=None, max_time_seconds=None):
         self.loaded=True
         self.calls.append((turns,max_new_tokens))
-        return self.replies.pop(0)
+        answer=self.replies.pop(0)
+        if isinstance(answer,Exception):
+            raise answer
+        return answer
     def unload(self):
         self.loaded=False
 
@@ -58,6 +61,17 @@ class HeliosFallback(unittest.TestCase):
         self.assertFalse(out["verified"])
         self.assertFalse(out["safe_to_promote"])
         self.assertIsNone(out["tool_used"])
+        self.assertEqual(len(h.calls),2)
+
+    def test_code_generation_error_does_not_abort_before_helios_fallback(self):
+        rt,h=self.runtime([RuntimeError("HF token budget exhausted"),
+                           "Direkte ungeprüfte Erklärung der Aufgabe."],
+                          lambda _:self.fail("Never execute model Python on failed generation"))
+        out=rt.answer(question(),"Luna")
+        self.assertIn("Direkte ungeprüfte Erklärung",out["text"])
+        self.assertFalse(out["sandbox_executed"])
+        self.assertFalse(out["verified"])
+        self.assertEqual(out["sandbox_failure_code"],"runtime_error")
         self.assertEqual(len(h.calls),2)
 
     def test_three_invalid_programs_trigger_real_model_fallback(self):
