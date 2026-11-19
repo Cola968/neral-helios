@@ -201,7 +201,8 @@ def _web_integrity(case, result):
     # literal quotes or user-provided quantities.
     approved = set(_NUMERIC.findall(case["question"] + "\n" +
                                      " ".join(q for _, q in matched)))
-    if any(number not in approved for number in _NUMERIC.findall(body)):
+    outside_quotes = _QUOTE.sub("", answer)
+    if any(number not in approved for number in _NUMERIC.findall(outside_quotes)):
         return False
     return True
 
