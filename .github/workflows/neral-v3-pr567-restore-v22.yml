@@ -12,7 +12,7 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'codex/neral-v3-evidence-agent'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     concurrency:
-      group: neral-pr567-local-9690-exclusive
+      group: neral-pr567-recovery-task-exclusive
       cancel-in-progress: false
     timeout-minutes: 10
     defaults:
