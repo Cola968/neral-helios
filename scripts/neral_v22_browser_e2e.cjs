@@ -186,6 +186,38 @@ async function main(){
       check(/50[.,]73\s*%/.test(second.body),
             "Birthday: expected 50.73% not visible in actual browser reply");
       out.v22.birthday={sandbox_executed:true,percent:"50.73",force_sandbox:true};
+      // UI-only fault injection: the actual two mathematical tasks above
+      // MUST use real local Helios/Docker; this synthetic response tests that
+      // a failed tool is visibly labeled and its fallback text is rendered.
+      const fallbackFixture={
+        text:"Helios-Antwort (ohne Sandbox, ungeprüft):\n2 plus 3 ergibt 5.",
+        tier:"Helios",mode:"HELIOS",model:"qwen3.5:9b+neral-v2-full",
+        auto_escalated_from:"Luna",model_generated:true,verified:false,
+        safe_to_promote:false,verification_scope:"none",proof_backend:null,
+        model_origin:"local_neral_lora_experimental",adapter_loaded:true,
+        adapter_sha256:"a".repeat(64),runtime_tier_verified:true,
+        sandbox_executed:false,sandbox_failure_code:"docker_unavailable",
+        sandbox_failure_reason:"Docker nicht aktiv",sandbox_attempts:1,
+        tool_used:null,model_fallback_generated:true
+      };
+      const syntheticPayload=JSON.stringify(JSON.stringify(fallbackFixture));
+      await evaluate("(()=>{const prior=window.fetch;let injected=false;"+
+        "window.fetch=async(...args)=>{const url=String(args[0]||'');"+
+        "if(!injected&&url.includes('/api/neral/chat/three-tier')){"+
+          "injected=true;window.fetch=prior;return new Response("+syntheticPayload+
+          ",{status:200,headers:{'Content-Type':'application/json'}});}"+
+        "return prior(...args)};return true;})()");
+      const failed=await send("Was ergibt zwei plus drei?",{
+        web:false,kind:"simulated-docker-unavailable-ui",force:true});
+      check(failed.status.includes("Werkzeug: Python-Sandbox fehlgeschlagen") &&
+            failed.status.includes("Docker nicht aktiv") &&
+            failed.status.includes("Modellantwort ungeprüft"),
+            "Synthetic browser failure status did not display precise Docker reason");
+      check(failed.body.includes("Helios-Antwort (ohne Sandbox, ungeprüft)") &&
+            failed.body.includes("2 plus 3 ergibt 5.") &&
+            !failed.body.includes("Es liegt kein ausgeführtes Ergebnis vor"),
+            "Synthetic browser failure did not render an honest fallback answer");
+      out.v22.simulated_browser_fallback=true;
       out.status="V22_BROWSER_E2E_PASS";
     }finally{
       out.last_stage=stage;stage="synthetic-account-cleanup";
