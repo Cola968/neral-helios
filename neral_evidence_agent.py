@@ -5,7 +5,8 @@ import json
 import re
 from decimal import Decimal, InvalidOperation
 
-from neral_page_reader import read_top_pages
+from neral_page_reader import (read_top_pages, read_entity_pages,
+                               entity_evidence_excerpt)
 from neral_quantity_plans import quantity_plan
 from neral_web_search import WebSearchError
 from neral_z3_json_compiler import compile_z3_json
@@ -366,28 +367,59 @@ _FORMAL_INTENT = re.compile(
 
 
 def _comparison_entities(question):
-    """Extract the two objects and their identifying name tokens."""
-    match = re.search(
-        r"(?i)\bvergleiche\s+(.{2,80}?)\s+(?:mit|und|gegen|vs\.?)\s+"
-        r"(.{2,80}?)(?=[:;?!]|\.\s|$)", question)
-    if not match:
-        match = re.search(
-            r"(?i)\b([\w.+-]+(?:\s+[\w.+-]+)?)\s+(?:vs\.?|versus)\s+"
-            r"([\w.+-]+(?:\s+[\w.+-]+)?)\b", question)
-    if not match:
+    """Recognize explicit two-to-four-way comparisons, not arbitrary 'und'."""
+    if not isinstance(question, str) or not _COMPARISON_WORDS.search(question):
         return ()
-    words = [re.findall(r"[\w.+-]+", item) for item in match.groups()]
-    if any(not parts for parts in words):
+    normalized = " ".join(question.split())
+    patterns = (
+        r"(?i)\bvergleiche\s+(.+)",
+        r"(?i)\b(?:vergleich|gegenüberstellung)(?:\s+(?:von|zwischen))?\s+(.+)",
+        r"(?i)\bunterschied\w*\s+zwischen\s+(.+)",
+        r"(?i)([^\n:?!]{1,140}\s+(?:vs\.?|versus)\s+[^\n:?!]{1,140})",
+    )
+    fragment = next((match.group(1) for pattern in patterns
+                     if (match := re.search(pattern, normalized))), None)
+    if fragment is None:
         return ()
-    return tuple(parts[-1] for parts in words)
+    fragment = re.split(r"[:?!]|\.\s|\s+(?:hinsichtlich|bezüglich|anhand|in Bezug auf)\s+",
+                        fragment, maxsplit=1, flags=re.I)[0].strip(" .,")
+    parts = re.split(r"\s*(?:,|;|\b(?:und|mit|gegen|vs\.?|versus)\b)\s*",
+                     fragment, flags=re.I)
+    names = []
+    for part in parts:
+        words = re.findall(r"[\w.+-]+", part.strip())
+        if not words or len(words) > 6:
+            return ()
+        name = (words[-1] if len(words) > 1 and
+                len(words[-1]) >= 3 and
+                any(char.isalpha() for char in words[-1]) else " ".join(words))
+        if not 1 <= len(name) <= 60:
+            return ()
+        names.append(name)
+    if not 2 <= len(names) <= 4 or len({n.casefold() for n in names}) != len(names):
+        return ()
+    return tuple(names)
 
 
 def _is_qualitative_web_comparison(question, plan, sources):
     return (plan["tool"] == "direct_reasoning" and
             any(s.get("page_read") is True for s in sources) and
-            bool(_COMPARISON_WORDS.search(question)) and
-            not _FORMAL_INTENT.search(question) and
-            len(_comparison_entities(question)) == 2)
+            bool(_comparison_entities(question)) and
+            not _FORMAL_INTENT.search(question))
+
+
+def _entity_search_query(web_query, name, entities, search_index):
+    """Only search for explicit subjects and user-supplied task vocabulary."""
+    rest = web_query
+    for other in entities:
+        rest = re.sub(r"(?<!\w)" + re.escape(other) + r"(?!\w)", " ", rest, flags=re.I)
+    rest = re.sub(r"(?i)\b(?:vs|versus|vergleich\w*|vergleiche|unterschied\w*|und|mit|zwischen)\b",
+                  " ", rest)
+    context = " ".join(re.findall(r"[\w-]+", rest))[:80].strip()
+    if not context:
+        context = "Eigenschaften"
+    suffix = ("", "offizielle Funktionen", "Fakten Hintergrund")[min(search_index, 2)]
+    return " ".join(piece for piece in (name, context, suffix) if piece)[:150]
 
 
 def _qualitative_comparison_issue(question, answer, citations, evidence, sources):
@@ -404,7 +436,7 @@ def _qualitative_comparison_issue(question, answer, citations, evidence, sources
     if not isinstance(citations, list) or not citations:
         return "Wörtliche Belege aus gelesenen Webseiten fehlen."
     pair = _comparison_entities(question)
-    if len(pair) != 2 or pair[0].casefold() == pair[1].casefold():
+    if len(pair) < 2 or len({name.casefold() for name in pair}) != len(pair):
         return "Vergleichsobjekte konnten nicht eindeutig unterschieden werden."
     quoted = []
     cited = set()
@@ -456,30 +488,22 @@ def _include_literal_comparison_sources(question, packet, evidence, sources):
                re.search(pattern, citation.get("quote", ""), re.I)
                for citation in selected):
             continue
-        added = False
         for i, source in enumerate(sources, 1):
             if source.get("page_read") is not True:
                 continue
             source_id = f"web{i}"
-            for line in evidence.get(source_id, "").splitlines():
-                match = re.search(pattern, line, re.I)
-                if not match:
-                    continue
-                quote = line[max(0, match.start()-110):match.end()+270].strip()
-                if not 15 <= len(quote) <= 650:
-                    continue
-                citation = {"source": source_id, "quote": quote}
-                # This uses the same literal provenance check as _work.
-                _quote(citation, evidence)
-                if citation not in selected:
-                    if len(selected) >= 8:
-                        return packet
-                    selected.append(citation)
-                added = True
-                break
-            if added:
-                break
+            quote = entity_evidence_excerpt(evidence.get(source_id, ""), name)
+            if quote is None:
+                continue
+            citation = {"source": source_id, "quote": quote}
+            _quote(citation, evidence)
+            if citation not in selected:
+                if len(selected) >= 8:
+                    return packet
+                selected.append(citation)
+            break
     return packet
+
 
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False):
@@ -495,6 +519,62 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     plan = None
     issue = ""
     executed = None
+    searched = False
+    entity_searches = {}
+    max_comparison_pages = 8
+
+    def rebuild_web_evidence():
+        # All excerpts must be literal page text, never search previews.
+        for key in list(evidence):
+            if re.fullmatch(r"web\d+", key):
+                del evidence[key]
+        readable = sum(item.get("page_read") is True for item in sources)
+        limit = min(3000, 6000 // max(1, readable + len(files or {})))
+        if files:
+            for key, excerpt in files.items():
+                if len(excerpt) > limit:
+                    evidence[key] = excerpt[:limit] + "\n[Auszug gekürzt]"
+        for i, source in enumerate(sources, 1):
+            if source.get("page_read") is not True:
+                continue
+            text = source.get("page_text", "")
+            focus = source.get("entity_focus", "")
+            quote = entity_evidence_excerpt(text, focus) if focus else None
+            excerpt = text[:limit]
+            if quote and quote not in excerpt and len(quote) < limit:
+                excerpt = quote + "\n" + text[:limit-len(quote)-1]
+            evidence[f"web{i}"] = excerpt
+
+    def research_entity(name, names):
+        if len(sources) >= max_comparison_pages:
+            return
+        index = entity_searches.get(name, 0)
+        if index >= MAX_REPAIRS + 1:
+            return
+        query = _entity_search_query(web_query, name, names, index)
+        entity_searches[name] = index + 1
+        if index:
+            steps.append("web_evidence_retry")
+        found = search.search(query)
+        pages = read_entity_pages(found.get("results", []), query, name,
+                                  reader=page_reader, max_pages=2)
+        seen = {source.get("url") for source in sources}
+        for page in pages:
+            if len(sources) >= max_comparison_pages:
+                break
+            if page["url"] in seen:
+                continue
+            sources.append({**page, "entity_focus": name})
+            seen.add(page["url"])
+        rebuild_web_evidence()
+
+    def missing_entity(names):
+        for name in names:
+            if not any(source.get("page_read") is True and
+                       entity_evidence_excerpt(evidence.get(f"web{i}", ""), name)
+                       for i, source in enumerate(sources, 1)):
+                return name
+        return None
 
     def ask(system, data, schema, budget=768):
         return _json_object(respond(system, json.dumps(data, ensure_ascii=False), budget, schema))
@@ -517,19 +597,33 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 if force_sandbox and proposed["tool"] == "direct_reasoning":
                     raise AgentError("Für diese Frage konnte kein belegter Sandbox-Rechenplan erstellt werden.")
                 plan = proposed
-            if web_query and "web_search" not in steps:
+            compared = (_comparison_entities(question) if web_query and
+                        plan["tool"] == "direct_reasoning" and
+                        not _FORMAL_INTENT.search(question) else ())
+            if web_query and not searched:
+                searched = True
                 steps.append("web_search")
-                found = search.search(web_query)
                 steps.append("web_reader")
-                sources = page_reader(found.get("results", []), web_query)
-                readable = sum(s["page_read"] for s in sources)
-                excerpt_limit = min(3000, 6000 // max(1, readable + len(files or {})))
-                if files:
-                    for key, excerpt in files.items():
-                        if len(excerpt) > excerpt_limit:
-                            evidence[key] = excerpt[:excerpt_limit] + "\n[Auszug gekürzt]"
-                evidence.update({f"web{i}": s["page_text"][:excerpt_limit]
-                                 for i, s in enumerate(sources, 1) if s["page_read"]})
+                if compared:
+                    for entity in compared:
+                        research_entity(entity, compared)
+                else:
+                    found = search.search(web_query)
+                    sources = page_reader(found.get("results", []), web_query)
+                    rebuild_web_evidence()
+            elif compared and issue:
+                # Checker instructions cannot introduce arbitrary new searches.
+                # A missing subject is retried only if it belongs to this request.
+                target = next((entity for entity in compared
+                               if f"Quellenbeleg für {entity}" in issue), None)
+                if target is not None:
+                    research_entity(target, compared)
+            if compared:
+                missing = missing_entity(compared)
+                if missing:
+                    issue = f"Kein gelesener Quellenbeleg für {missing}."
+                    plan = None
+                    continue
             external = set(evidence) - {"user"}
             if web_query and not any(key.startswith("web") for key in external):
                 needed = web_query
