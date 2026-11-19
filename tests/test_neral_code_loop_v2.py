@@ -531,7 +531,7 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertEqual(seen,[])
         self.assertFalse(r["sandbox_executed"])
         self.assertFalse(r["verified"])
-        self.assertEqual(len(helios.calls),3)
+        self.assertEqual(len(helios.calls),4)  # an additional direct-model fallback attempt
         self.assertNotIn("42",r["text"])
         self.assertEqual([x["stage"] for x in r["sandbox_failure_trace"]],
                          ["model_format", "model_format", "model_format"])
