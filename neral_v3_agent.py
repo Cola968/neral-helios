@@ -364,3 +364,106 @@ def run_v3_web_agent(runtime, turns: list[dict], tier: str, pages: list[dict]) -
             and result["tier"]=="Helios"):
         result["auto_escalated_from"]=tier
     return result
+
+
+def run_v3_local_agent(runtime, turns: list[dict], tier: str) -> dict | None:
+    """Opt-in general planner for non-trivial local chat; no fabricated verification.
+
+    The planner cannot choose network access or filesystem reads. Actual
+    attachments are staged only by the existing explicit upload API.
+    """
+    question=turns[-1]["content"]
+    if type(question) is not str or len(question.strip()) < 100:
+        return None
+    runtime._switch(runtime.helios)
+    planner_system=(
+        turns[0]["content"]+
+        "\nNERAL V3 PLANER: nur JSON {\"steps\":[...],"
+        "\"needs_current_data\":false}. Erlaubte Schritte: "
+        "python_sandbox, z3_solver, direct_reasoning, validation_checker. "
+        "Schließe mit validation_checker ab. "
+        "Wenn der Nutzer aktuelle Webdaten verlangt, obwohl keine Websuche "
+        "freigegeben ist, sage das offen; erfinde keine Quellen. "
+        "Wähle Python für mehrstufige Rechnungen, Z3 für Nebenbedingungen, "
+        "direct_reasoning für begründete Textantworten. "
+        "Keine Tools außerhalb der Auswahlliste, keine Shell."
+    )
+    plan=None
+    for attempt in range(2):
+        try:
+            raw=runtime.helios.respond_chat([
+                {"role":"system","content":planner_system},
+                {"role":"user","content":question},
+            ],max_new_tokens=384,temperature=0.0,max_time_seconds=80.0)
+        except (RuntimeError,ValueError):
+            break
+        plan=plan_request(question,raw,has_web=False)
+        if plan:
+            break
+    if plan is None:
+        return None  # Legacy bounded route is safer than guessed tool calls.
+    steps=plan["steps"]
+    tool=("z3_solver" if "z3_solver" in steps else
+          "python_sandbox" if "python_sandbox" in steps else None)
+    if tool:
+        result=runtime._free_code_loop(
+            turns, auto_from=tier if tier!="Helios" else None,
+            tool_hint=tool)
+        result["v3_validation"]="executed_unverified_with_bounded_repairs"
+    else:
+        from neral_everyday_verified import tidy_unverified_model_text
+        raw_answer=""
+        checked=False
+        for attempt in range(3):
+            try:
+                answer=runtime.helios.respond_chat([
+                    {"role":"system","content":turns[0]["content"]+
+                     "\nBeantworte die gesamte Nutzerfrage; markiere offene "
+                     "Annahmen und erfinde keine Live-Fakten."},
+                    {"role":"user","content":question+
+                     ("\nBehebe die nicht beantworteten Teilfragen aus der "
+                      "vorherigen Kontrollrunde." if attempt else "")},
+                ],max_new_tokens=768,temperature=0.0,max_time_seconds=80.0)
+                raw_answer=tidy_unverified_model_text(answer)
+            except (RuntimeError,ValueError):
+                raw_answer=""
+            if not raw_answer:
+                continue
+            try:
+                review=runtime.helios.respond_chat([
+                    {"role":"system","content":(
+                        "Prüfe nur Vollständigkeit gegen die Nutzerfrage, nicht "
+                        "Wahrheit. Antworte NUR JSON {\"complete\":true,"
+                        "\"missing\":[]}. Keine Fakten hinzuerfinden.")},
+                    {"role":"user","content":"FRAGE:\n"+question+
+                     "\nUNGEPRÜFTER MODELLENTWURF:\n"+raw_answer[:1000]},
+                ],max_new_tokens=256,temperature=0.0,max_time_seconds=80.0)
+                data=json.loads(review)
+                checked=(type(data) is dict and
+                         data.get("complete") is True and
+                         data.get("missing")==[])
+            except (RuntimeError,ValueError,TypeError):
+                checked=False
+            if checked:
+                break
+        if not raw_answer:
+            return None
+        result={
+            "tier":"Helios","mode":"HELIOS","text":raw_answer,
+            "model":runtime.helios.model,"model_generated":True,
+            "verified":False,"safe_to_promote":False,
+            "verification_scope":"none","proof_backend":None,
+            "adapter_loaded":runtime.helios.loaded,
+            "adapter_sha256":runtime.helios.adapter_sha256,
+            "model_origin":"local_neral_lora_experimental",
+            "quality_improvement_proven":False,
+            "sandbox_executed":False,
+            "tool_used":None,"tool_calls_succeeded":0,
+            "verification_status":"model_checker_only_unverified",
+            "v3_validation":("coverage_checker_model_only" if checked
+                             else "coverage_checker_inconclusive"),
+        }
+        if tier!="Helios":
+            result["auto_escalated_from"]=tier
+    result["v3_plan"]=steps
+    return result
