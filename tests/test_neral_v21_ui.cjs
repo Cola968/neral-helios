@@ -34,7 +34,7 @@ test("quantitative public search results are explicitly handed to sandbox as bou
 });
 
 test("Ready NERAL-owned scheduled task is bootstrapped safely after PC reboot",()=>{
-  assert.match(installer,/\$task\.State -eq 'Ready'/);
+  assert.match(installer,/\$task\.State -ne 'Ready'/);
   assert.match(installer,/ReadOwnedListener/);
   assert.match(installer,/Start-ScheduledTask -TaskName \$taskName -ErrorAction Stop/);
   assert.match(installer,/NERAL_V21_RESTART_EXISTING_TASK_HTTP_200/);
