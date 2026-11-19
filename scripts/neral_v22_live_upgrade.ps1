@@ -1,3 +1,4 @@
+# V2.2 RTX4070 real browser acceptance: hut+probability; rollback on any failure; owner-approved.
 # Owner-authorized V2.2 RTX4070/Chrome local acceptance; changes only allowed NERAL files, rollback mandatory.
 # Owner-approved real V2.2/RTX4070/Chrome retest after safe Docker Desktop cold-start parser gate; rollback remains mandatory.
 # Corrected PowerShell 5.1 Docker Desktop cold-boot readiness; owner-approved V2.2 must still pass 3/3 + Chrome.
