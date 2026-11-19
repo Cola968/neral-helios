@@ -91,5 +91,76 @@ class V31ProspectiveCases(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_case_manifest(altered)
 
+
+class V31LocalRunnerSafety(unittest.TestCase):
+    def test_local_runner_completes_100_synthetic_calls_without_raw_output(self):
+        from unittest.mock import Mock, patch
+        from scripts.neral_v31_live_eval import run
+        sha="a"*40
+        data={row["question"]:row for row in build_cases()}
+        class FakeLocalAPI:
+            def __init__(self):
+                self.csrf=None
+                self.calls=[]
+                self.deleted=False
+            def call(self,path):
+                self.calls.append(path)
+                return 200,b"<html>real-local-home</html>"
+            def json(self,path,method="GET",payload=None,timeout=180):
+                self.calls.append((path,method))
+                if path.endswith("/session"):
+                    return 200,{"csrf":"s"*32,"evidence_agent_enabled":True,
+                                "three_tier_enabled":True}
+                if path.endswith("/status"):
+                    return 200,{"enabled":True}
+                if path.endswith("/register"):
+                    return 201,{"authenticated":True,"csrf":"a"*32}
+                if path.endswith("/three-tier"):
+                    case=data[payload["prompt"]]
+                    return 200,{"text":str(case.get("gold") or "n/a"),
+                                "tier":payload["tier"],"agent_checked":False}
+                if path=="/api/neral/account" and method=="DELETE":
+                    self.deleted=True
+                    return 200,{"deleted":True}
+                raise AssertionError("unexpected endpoint "+path)
+        fake=FakeLocalAPI()
+        with patch("scripts.neral_v31_live_eval.LiveLocalAPI",return_value=fake), \
+             patch("scripts.neral_v31_live_eval.require_gpu",return_value="RTX 4070"), \
+             patch("scripts.neral_v31_live_eval.subprocess.run",
+                   return_value=Mock(stdout=sha+"\n")):
+            result=run(sha,web_delay=0)
+        self.assertEqual(len(result["rows"]),100)
+        self.assertTrue(result["summary"]["account_deleted"])
+        self.assertTrue(fake.deleted)
+        self.assertNotIn("raw_response",result["rows"][0])
+        self.assertEqual(sum(route==("/api/neral/chat/three-tier","POST")
+                             for route in fake.calls),100)
+
+    def test_cleanup_failure_blocks_all_success_reports(self):
+        from unittest.mock import Mock, patch
+        from scripts.neral_v31_live_eval import run
+        sha="b"*40
+        class BrokenCleanup:
+            def __init__(self): self.csrf=None
+            def call(self,path): return 200,b"OK"
+            def json(self,path,method="GET",payload=None,timeout=180):
+                if path.endswith("/session"):
+                    return 200,{"csrf":"x"*32,"evidence_agent_enabled":True,
+                                "three_tier_enabled":True}
+                if path.endswith("/status"):return 200,{"enabled":True}
+                if path.endswith("/register"):
+                    return 201,{"authenticated":True,"csrf":"y"*32}
+                if path.endswith("/three-tier"):
+                    return 200,{"text":"0","tier":"Luna"}
+                if path=="/api/neral/account" and method=="DELETE":
+                    return 503,{"deleted":False}
+                raise AssertionError(path)
+        with patch("scripts.neral_v31_live_eval.LiveLocalAPI",return_value=BrokenCleanup()), \
+             patch("scripts.neral_v31_live_eval.require_gpu",return_value="RTX 4070"), \
+             patch("scripts.neral_v31_live_eval.subprocess.run",
+                   return_value=Mock(stdout=sha+"\n")):
+            with self.assertRaisesRegex(RuntimeError,"cleanup"):
+                run(sha,web_delay=0)
+
 if __name__=="__main__":
     unittest.main()
