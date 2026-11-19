@@ -52,6 +52,77 @@ class EvidenceAgentTest(unittest.TestCase):
         self.assertIn("externen Quelle", result["text"])
         self.execute.assert_not_called()
 
+    def test_new_standalone_request_ignores_prior_turns_in_every_agent_stage(self):
+        prior = [
+            {"role": "user", "content": "ALT_AUFGABE Goldkurs 3.500 Euro, Ben darf nie Dienstag"},
+            {"role": "assistant", "content": "ALT_ANTWORT Gold 28.000 Euro, Ben ausgeschlossen"},
+            {"role": "user", "content": "ALT_Z3 Nur Ada Montag, Cem niemals Mittwoch"},
+        ]
+        fresh = ("Ein neues Team besteht aus Ada, Ben und Cem. Verteile die "
+                 "drei Personen auf Montag, Dienstag und Mittwoch. "
+                 "Ada muss am Montag arbeiten und Ben darf nicht Dienstag.")
+        packets = [
+            {"tool": "z3_solver", "parts": ["Drei Personen auf drei Tage zuordnen"]},
+            {"schema": {"variables": [
+                {"name": "ada", "min": 1, "max": 3},
+                {"name": "ben", "min": 1, "max": 3},
+                {"name": "cem", "min": 1, "max": 3},
+            ], "constraints": [
+                {"rule_id": "R1", "description": "Alle arbeiten an verschiedenen Tagen",
+                 "expr": "And(ada != ben, ada != cem, ben != cem)"},
+                {"rule_id": "R2", "description": "Ada Montag", "expr": "ada == 1"},
+                {"rule_id": "R3", "description": "Ben nicht Dienstag", "expr": "ben != 2"},
+            ], "objective": "find_one"},
+             "legend": "Montag=1 Dienstag=2 Mittwoch=3"},
+            {"ok": True, "issue": ""},
+        ]
+        calls = []
+        def respond(system, raw, budget, schema):
+            calls.append((system, json.loads(raw)))
+            return json.dumps(packets.pop(0))
+        with patch("neral_evidence_agent.compile_z3_json",
+                   return_value="print('1 3 2')"):
+            result = run_evidence_agent(
+                fresh, respond,
+                Mock(return_value={"status": "PASSED", "output": "1 3 2"}),
+                history=prior)
+        self.assertTrue(result["agent_checked"])
+        self.assertIn("Z3:", result["text"])
+        self.assertEqual(len(calls), 3)
+        for system, payload in calls:
+            self.assertNotIn("history", payload)
+            self.assertNotIn("ALT_", json.dumps(payload, ensure_ascii=False))
+            self.assertEqual(payload["question"], fresh)
+
+    def test_independent_web_comparison_does_not_reuse_old_z3_rules(self):
+        prior = [{"role": "user", "content": "ALT_Z3: Ada Freitag und Ben nie Montag"},
+                 {"role": "assistant", "content": "ALT_ECHO: Zwei Schichtgruppen"}]
+        model_calls = []
+        packets = [
+            {"tool": "direct_reasoning", "parts": ["Firefox Merkmale vergleichen"]},
+            {"answer": "Firefox verwendet die Gecko-Engine.",
+             "citations": ["p1"]},
+            {"ok": True, "issue": ""},
+        ]
+        def respond(system, raw, budget, schema):
+            model_calls.append(json.loads(raw))
+            return json.dumps(packets.pop(0))
+        web = Mock(return_value=[{
+            "url": "https://www.mozilla.org/en-US/firefox/",
+            "page_read": True,
+            "page_text": "Firefox uses the Gecko rendering engine for pages."
+        }])
+        search = Mock()
+        search.search.return_value={"results": [{"url":"https://www.mozilla.org/en-US/firefox/"}]}
+        result = run_evidence_agent("Womit rendert Firefox Webseiten?",respond,
+                                    Mock(),history=prior,web_query="Firefox rendering engine",
+                                    search=search,page_reader=web)
+        self.assertTrue(result["agent_checked"])
+        self.assertEqual(len(model_calls),3)
+        for data in model_calls:
+            self.assertNotIn("history",data)
+            self.assertNotIn("ALT_",json.dumps(data,ensure_ascii=False))
+
     def test_checker_rejects_and_repairs(self):
         result = self.run_agent([self.plan, self.worker, {"ok": False, "issue": "Einheit erklären"},
                                  self.plan, self.worker, {"ok": True, "issue": ""}])
