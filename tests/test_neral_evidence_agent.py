@@ -263,6 +263,36 @@ class EvidenceAgentTest(unittest.TestCase):
         self.assertIn("Firefox: verwendet Gecko.", result["text"])
 
 
+    def test_comparison_adds_literal_quotes_for_both_products(self):
+        question = "Vergleiche Mozilla Firefox mit Google Chrome: Welche Engine?"
+        web = Mock(return_value=[
+            {"url": "https://mozilla.example.org/", "page_read": True,
+             "page_text": "Mozilla Firefox uses Gecko for rendering."},
+            {"url": "https://chrome.example.org/", "page_read": True,
+             "page_text": "Google Chrome uses Blink for rendering."},
+        ])
+        search = Mock()
+        search.search.return_value = {"results": [{"url": "https://mozilla.example.org/"},
+                                                   {"url": "https://chrome.example.org/"}]}
+        packets = [
+            {"tool": "direct_reasoning", "parts": ["Vergleich beider Engines"]},
+            {"left": "nutzt Gecko.", "right": "nutzt Blink.",
+             "synthesis": "Die Rendering-Engines unterscheiden sich.",
+             "citations": ["p2"]},
+            {"contradiction": False, "claim": "", "source_quote": ""},
+        ]
+        def respond(system, raw, budget, schema):
+            return json.dumps(packets.pop(0))
+        result = run_evidence_agent(question, respond, Mock(),
+                                    web_query="Firefox Chrome engines",
+                                    search=search, page_reader=web)
+        self.assertTrue(result["agent_checked"])
+        self.assertIn("Firefox: nutzt Gecko.", result["text"])
+        self.assertIn("[web1] „Mozilla Firefox uses Gecko for rendering.“", result["text"])
+        self.assertIn("[web2] „Google Chrome uses Blink for rendering.“", result["text"])
+        self.assertEqual(result["agent_attempts"], 1)
+
+
 class PageReaderTest(unittest.TestCase):
     def test_extracts_text_without_navigation_or_scripts(self):
         p = MainText()
