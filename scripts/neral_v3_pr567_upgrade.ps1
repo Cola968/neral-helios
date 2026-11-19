@@ -1,4 +1,4 @@
-# NERAL V3 PR #567: owner-approved four-case Chrome retry after isolated pinned grammar dependency fix; never modify model weights; rollback required.
+# NERAL V3 PR #567: owner-approved Chrome retry after PowerShell stderr preflight repair; isolated dependencies only and rollback required.
 # Owner-approved RTX4070 V2.2 final acceptance following green full CPU regressions; strict rollback of 4 files on any failed Chrome case.
 # Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
