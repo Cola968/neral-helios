@@ -1,4 +1,4 @@
-# PR567: owner-approved emergency repair of the exact NERAL V2.2 task.
+# PR567: owner explicitly approves restoration of exact V2.2 port 9690 task before final V3 Chrome test.
 # Only restore a verified public main blob or the saved owned service script.
 param()
 $ErrorActionPreference='Stop'
