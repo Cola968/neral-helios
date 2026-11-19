@@ -1261,7 +1261,7 @@ class ThreeTierRuntime:
                     continue
             # V3: a missing external page field must never silently become
             # a default price/rate of zero. Reject the code BEFORE Docker.
-            v3_file = (os.environ.get("NERAL_V3_AGENT") == "1"
+            v3_file = (os.environ.get("NERAL_V3_AGENT", "1") == "1"
                        and sandbox_files is not None)
             v3_web = (v3_file and "data/data1.json" in sandbox_files
                       and "Gelesene Webseiten" in source)
@@ -1751,6 +1751,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
     @app.get("/api/neral/chat/three-tier/status")
     def three_tier_status():
         return jsonify(enabled=True, tiers=list(TIERS),
+                       v3_agent_enabled=os.environ.get("NERAL_V3_AGENT", "1") == "1",
                        luna=runtime.luna.model, helios=runtime.helios.model,
                        adapter_loaded=runtime.helios.loaded,
                        adapter_sha256=(runtime.helios.adapter_sha256
@@ -1790,7 +1791,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            if (os.environ.get("NERAL_V3_AGENT") == "1" and (
+            if (os.environ.get("NERAL_V3_AGENT", "1") == "1" and (
                     web_stage is not None or payload.get("force_sandbox",False)
                     or _is_free_compute_task(
                         _original_web_question(payload["prompt"])))):
