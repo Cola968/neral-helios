@@ -80,6 +80,7 @@ class HeliosFallback(unittest.TestCase):
         out=rt.answer(question(),"Luna")
         self.assertIn("noch nicht sicher gelöst",out["text"])
         self.assertEqual(out["sandbox_failure_code"],"runtime_error")
+        self.assertEqual(out["sandbox_failure_exception"],"ValueError")
         self.assertEqual(len(h.calls),4)
         self.assertEqual(out["sandbox_attempts"],3)
         self.assertFalse(out["sandbox_executed"])
