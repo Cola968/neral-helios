@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from neral_web_search import safe_result_url
 
-MAX_PAGE_BYTES = 160_000
+MAX_PAGE_BYTES = 700_000
 MAX_PAGE_TEXT = 3_000
 MAX_PAGES = 3
 TIMEOUT = 3.5
@@ -31,6 +31,7 @@ class _MainText(HTMLParser):
         self.main = []
         self.title = []
         self.title_open = False
+        self.body_chars = 0
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -58,11 +59,12 @@ class _MainText(HTMLParser):
             return
         if not data.strip():
             return
-        if sum(len(s) for s in self.body) > MAX_PAGE_TEXT * 4:
+        if self.body_chars > MAX_PAGE_TEXT * 16:
             return
         cleaned = re.sub(r"\s+", " ", unescape(data)).strip()
         if cleaned:
             self.body.append(cleaned)
+            self.body_chars += len(cleaned)
             if "main" in self.stack or "article" in self.stack:
                 self.main.append(cleaned)
 
@@ -71,7 +73,7 @@ def extract_main_text(markup: str, limit: int = MAX_PAGE_TEXT) -> str:
     """Extract article/main first; reject non-document noise, bound model input."""
     if type(markup) is not str:
         raise ValueError("HTML expected")
-    if type(limit) is not int or not 1 <= limit <= MAX_PAGE_TEXT:
+    if type(limit) is not int or not 1 <= limit <= MAX_PAGE_TEXT * 16:
         raise ValueError("Invalid text limit")
     parser = _MainText()
     parser.feed(markup[:MAX_PAGE_BYTES])
@@ -80,6 +82,32 @@ def extract_main_text(markup: str, limit: int = MAX_PAGE_TEXT) -> str:
     body = re.sub(r"\s+", " ", " ".join(parser.body)).strip()
     return (main if len(main) >= 35 else body)[:limit]
 
+
+
+_SEARCH_STOP = frozenset(("bitte","suche","aktuell","was","welche","welchen",
+                         "welcher","und","der","die","das","zum","eine",
+                         "einen","sich","auf","nach","wird","hier","steht",
+                         "nenne","quellen","webseite","webseiten","text",
+                         "gelesenen","dokumentation","offiziellen"))
+
+
+def select_relevant_excerpt(text: str, query: str, limit: int = MAX_PAGE_TEXT) -> str:
+    """Prefer the passage answering the query, not blindly the first 3 kB."""
+    if not text or type(query) is not str or len(text) <= limit:
+        return text[:limit]
+    terms=set(re.findall(r"[a-zäöüß0-9]{4,}",query.casefold()))-_SEARCH_STOP
+    if not terms:
+        return text[:limit]
+    best_start,best_score=0,-1
+    # Small bounded overlapping windows avoid slicing away the relevant
+    # section of large documentation pages. The sources remain untrusted.
+    for start in range(0,max(1,len(text)-limit+1),max(300,limit//3)):
+        window=text[start:start+limit].casefold()
+        score=sum((3 if term in window else 0)+min(window.count(term),4)
+                  for term in terms)
+        if score>best_score:
+            best_start,best_score=start,score
+    return text[best_start:best_start+limit]
 
 def _public_addresses(host: str) -> list[str]:
     entries = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM,
@@ -90,7 +118,7 @@ def _public_addresses(host: str) -> list[str]:
     return sorted(addresses, key=lambda ip: (":" in ip, ip))
 
 
-def fetch_and_extract(url: str, timeout: float = TIMEOUT) -> dict | None:
+def fetch_and_extract(url: str, timeout: float = TIMEOUT, query: str = "") -> dict | None:
     """One pinned TLS GET of a public, DNS-validated HTTPS host, no redirects.
 
     Never use urllib's proxy settings or follow 3xx redirects. Even if DNS
@@ -139,7 +167,7 @@ def fetch_and_extract(url: str, timeout: float = TIMEOUT) -> dict | None:
         finally:
             conn.close()
         html = raw.decode("utf-8", errors="replace")
-        main_text = extract_main_text(html)
+        main_text = select_relevant_excerpt(extract_main_text(html, MAX_PAGE_TEXT * 16),query)
         if len(main_text) < 35:
             return None
         return {"url":safe, "title": "", "text":main_text, "read":True}
@@ -149,7 +177,7 @@ def fetch_and_extract(url: str, timeout: float = TIMEOUT) -> dict | None:
 
 
 def read_top_pages(hits: list[dict], *, max_pages: int = MAX_PAGES,
-                   fetcher=None) -> list[dict]:
+                   fetcher=None, query: str = "") -> list[dict]:
     """Read up to three distinct top provider hits in parallel, never inside Docker."""
     if type(hits) is not list or type(max_pages) is not int or not 1 <= max_pages <= 3:
         raise ValueError("Invalid search result collection")
@@ -170,8 +198,10 @@ def read_top_pages(hits: list[dict], *, max_pages: int = MAX_PAGES,
         return []
     records = {}
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(fetch, url, TIMEOUT): i
-                   for i, (url, _) in enumerate(selected)}
+        futures = {executor.submit(fetch, url, TIMEOUT, query): i
+                   for i, (url, _) in enumerate(selected)} if fetcher is None else {
+                       executor.submit(fetch, url, TIMEOUT): i
+                       for i,(url,_) in enumerate(selected)}
         for future in as_completed(futures):
             i = futures[future]
             try:
