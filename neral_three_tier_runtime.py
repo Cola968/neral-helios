@@ -1261,11 +1261,11 @@ class ThreeTierRuntime:
                     continue
             # V3: a missing external page field must never silently become
             # a default price/rate of zero. Reject the code BEFORE Docker.
-            v3_web = (os.environ.get("NERAL_V3_AGENT") == "1"
-                      and sandbox_files is not None
-                      and "data/data1.json" in sandbox_files
+            v3_file = (os.environ.get("NERAL_V3_AGENT") == "1"
+                       and sandbox_files is not None)
+            v3_web = (v3_file and "data/data1.json" in sandbox_files
                       and "Gelesene Webseiten" in source)
-            if v3_web and not constraint_mode:
+            if v3_file and not constraint_mode:
                 from neral_v3_agent import reject_dummy_code
                 if reject_dummy_code(code):
                     output = None
