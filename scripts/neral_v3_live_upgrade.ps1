@@ -1,4 +1,4 @@
-# V3 owner-approved guarded real RTX4070 browser acceptance PR #566; server-side source re-fetch and pinned Helios budgets verified in reviewed branch. Rollback on any failed live task. Four real browser tasks must PASS; otherwise restore exact prior V2.2 files.
+# V3 owner-approved real RTX4070 Chrome diagnosis, after failed gold-web gate; exact prior V2.2 rollback remains mandatory. No release without all four passes. Four real browser tasks must PASS; otherwise restore exact prior V2.2 files.
 # Owner-approved RTX4070 V2.2 final acceptance following green full CPU regressions; strict rollback of 4 files on any failed Chrome case.
 # Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
