@@ -1,0 +1,89 @@
+name: NERAL V3 guarded RTX4070 Chrome four-task real acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_v3_*.py'
+      - 'neral_web_api.py'
+      - 'neral_three_tier_runtime.py'
+      - 'static/neral-preview.js'
+      - 'scripts/neral_v3_browser_e2e.cjs'
+      - 'scripts/neral_v3_live_upgrade.ps1'
+      - '.github/workflows/neral-v3-live.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v3-staged-rtx4070-exclusive
+  cancel-in-progress: false
+jobs:
+  cpu-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install CPU prerequisites
+        run: python -m pip install 'z3-solver==4.16.0.0' 'Flask>=3,<4'
+      - name: V3 reader, source checks, model planner and legacy math
+        run: |
+          python -m unittest discover -s tests -p 'test_neral_v3_*.py' -v
+          python -m unittest discover -s tests -p test_neral_three_tier_everyday.py -v
+          python -m py_compile neral_v3_agent.py neral_v3_web_reader.py neral_web_api.py neral_three_tier_runtime.py
+          node --check scripts/neral_v3_browser_e2e.cjs
+          node --check static/neral-preview.js
+  rtx4070-chrome:
+    needs: [cpu-preflight]
+    if: github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'feat/neral-v3-universal-grounded-agent-20261119'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 70
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gate local PC mutation on exact owner-approved commit
+        id: permit
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($env:GITHUB_HEAD_REF -eq 'feat/neral-v3-universal-grounded-agent-20261119' -and
+             $subject -eq 'ops(v3): owner-approved four-task live Chrome and rollback'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V3_PC_MUTATION_APPROVED'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V3_PC_MUTATION_SAFE_SKIP'
+          }
+      - uses: actions/setup-node@v4
+        if: steps.permit.outputs.run == 'true'
+        with:
+          node-version: '22'
+      - name: Parse rollback script and run local source tests before mutation
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_v3_live_upgrade.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){throw 'V3 Windows staging script invalid'}
+          & node --check scripts/neral_v3_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V3 Chrome script syntax invalid'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m unittest discover -s tests -p 'test_neral_v3_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'V3 CPU regressions failed'}
+          Write-Host 'NERAL_V3_PREINSTALL_CPU_GREEN'
+      - name: Stage V3 on owned NERAL task, pass all four Chrome tasks or rollback
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v3_live_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'V3 Chrome tasks failed: exact rollback required'}
+          Write-Host 'NERAL_V3_LIVE_FOUR_PROMPTS_CHROME_HTTP200_PASS'
