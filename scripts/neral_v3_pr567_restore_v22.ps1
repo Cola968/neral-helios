@@ -21,21 +21,21 @@ function GetV22Receipt {
   $curl=(Get-Command curl.exe -ErrorAction Stop).Source
   $prefix=Join-Path $env:TEMP ('neral-pr567-v22-'+[guid]::NewGuid().ToString('N'))
   $jar=$prefix+'.cookie';$body=$prefix+'.json'
-  $home='000';$api='000';$homeExit=-1;$apiExit=-1
+  $homeStatus='000';$api='000';$homeExit=-1;$apiExit=-1
   try{
     $ErrorActionPreference='Continue'
-    $home=(@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 8 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join '').Trim()
+    $homeStatus=(@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 8 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join '').Trim()
     $homeExit=$LASTEXITCODE
     $api=(@(& $curl --noproxy '*' --silent --connect-timeout 3 --max-time 8 --cookie-jar $jar --cookie $jar --output $body --write-out '%{http_code}' 'http://127.0.0.1:9690/api/neral/preview/session' 2>$null) -join '').Trim()
     $apiExit=$LASTEXITCODE
     $ErrorActionPreference='Stop'
     $ok=$false
-    if($homeExit -eq 0 -and $apiExit -eq 0 -and $home -eq '200' -and $api -eq '200' -and
+    if($homeExit -eq 0 -and $apiExit -eq 0 -and $homeStatus -eq '200' -and $api -eq '200' -and
        (Test-Path -LiteralPath $body -PathType Leaf)){
       $data=Get-Content -LiteralPath $body -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
       $ok=($data.three_tier_enabled -eq $true -and $data.evidence_agent_enabled -eq $false)
     }
-    return @{ok=$ok;home=$home;api=$api}
+    return @{ok=$ok;home=$homeStatus;api=$api}
   }finally{
     $ErrorActionPreference='Stop'
     foreach($item in @($jar,$body)){
