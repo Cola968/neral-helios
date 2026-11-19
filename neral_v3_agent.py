@@ -314,8 +314,13 @@ def run_v3_web_agent(runtime, turns: list[dict], tier: str, pages: list[dict]) -
         plan={"steps":["web_reader","python_sandbox" if needs_math
                        else "direct_reasoning","validation_checker"],
               "needs_current_data":True}
-    steps=plan["steps"]
-    compute=any(s in steps for s in ("python_sandbox","z3_solver"))
+    steps=list(plan["steps"])
+    # A model plan may not silently downgrade an explicitly requested
+    # numerical answer to prose-only reasoning.
+    needs_math=bool(_NUMERIC_REQUEST.search(question))
+    compute=needs_math or any(s in steps for s in ("python_sandbox","z3_solver"))
+    if needs_math and not any(s in steps for s in ("python_sandbox","z3_solver")):
+        steps.insert(-1,"python_sandbox")
     facts=anchored_numeric_facts(page_data)
     if compute:
         needs_ounce_price=(bool(re.search(r"(?iu)\bFeinunze\b",question))
