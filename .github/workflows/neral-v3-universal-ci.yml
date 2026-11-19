@@ -4,6 +4,10 @@ on:
     paths:
       - 'neral_v3_web_reader.py'
       - 'neral_v3_agent.py'
+      - 'neral_v3_runtime.py'
+      - 'neral_preview_attachments.py'
+      - 'neral_v21_attachment_data.py'
+      - 'scripts/build_neral_1_0_preview.py'
       - 'neral_web_api.py'
       - 'neral_v21_attachment_data.py'
       - 'neral_three_tier_runtime.py'
