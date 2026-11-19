@@ -244,6 +244,14 @@ _CODE_ONLY_SYSTEM = (
     "mit assert. Gib den errechneten Endwert mit print(...) aus. "
     "Bei mehreren benannten Personen oder Variablen drucke die Werte mit "
     "eindeutigen Name=Wert-Bezeichnungen aus. "
+    "Bei gemeinsam bezahlten Übernachtungen rechne streng mit Personennächten: "
+    "für jeden Gast Zahl der tatsächlich übernachteten Nächte zählen, "
+    "Zusatzgäste getrennt zählen, ihren Anteil dem eingeladenen Hauptgast "
+    "zuordnen und mit assert prüfen, dass die Einzelkosten die Gesamtkosten "
+    "ergeben. Bei Wahrscheinlichkeitsfragen zur Kollision unabhängiger "
+    "gleichverteilter Ereignisse berechne zuerst die Gegenwahrscheinlichkeit "
+    "aller verschiedenen Ereignisse als Produkt und dann 1 minus dieses Produkt; "
+    "runde erst am Ende und gib das geforderte Prozentformat aus. "
     "Keine Dateien, kein Netzwerk, keine Shell, keine Installation, keine "
     "Eingaben und kein Zugriff auf andere Programme. "
     "Bei exakten Bruchgleichungen mit x verwende fractions.Fraction "
@@ -895,9 +903,19 @@ class ThreeTierRuntime:
 
         for attempt in range(3):
             # Helios proposes JSON data for Z3; only the trusted builder writes Python.
-            candidate = self.helios.respond_chat(prompt_turns,
-                max_new_tokens=TIERS["Helios"], temperature=0.0,
-                max_time_seconds=80.0)
+            try:
+                candidate = self.helios.respond_chat(prompt_turns,
+                    max_new_tokens=TIERS["Helios"], temperature=0.0,
+                    max_time_seconds=80.0)
+            except (RuntimeError, ValueError):
+                attempted = attempt + 1
+                failure_code = "runtime_error"
+                failure_trace.append({
+                    "stage": "model_generation",
+                    "error_type": "ModelCodeGenerationFailed",
+                    "error_code": "runtime_error",
+                })
+                break
             attempted = attempt + 1
             prior = candidate[:1600] if type(candidate) is str else ""
             if constraint_mode:
