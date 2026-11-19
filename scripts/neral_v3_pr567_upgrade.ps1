@@ -1,4 +1,4 @@
-# NERAL V3 PR #567: owner-approved diagnostic Chrome retry, missing isolated dependencies classified; no model weight mutation, rollback on failures.
+# NERAL V3 PR #567: owner-approved real Chrome retry with fixed native Python probe quoting; bounded staged deployment and rollback.
 # Owner-approved RTX4070 V2.2 final acceptance following green full CPU regressions; strict rollback of 4 files on any failed Chrome case.
 # Owner-approved numeric-only browser diagnosis for executed but incorrect hut amounts; rollback on any unproven case.
 # V2.2 owner-approved GPU reacceptance after locale/person-night repair; real hut, real birthday, simulated UI fallback and rollback gate.
