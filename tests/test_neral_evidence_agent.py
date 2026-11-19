@@ -293,6 +293,91 @@ class EvidenceAgentTest(unittest.TestCase):
         self.assertEqual(result["agent_attempts"], 1)
 
 
+    def test_detects_comparison_forms_and_three_entities(self):
+        from neral_evidence_agent import _comparison_entities
+        cases = (
+            ("Firefox vs Chrome", ("Firefox", "Chrome")),
+            ("Vergleich Firefox und Chrome", ("Firefox", "Chrome")),
+            ("Unterschied zwischen Firefox und Chrome?", ("Firefox", "Chrome")),
+            ("Vergleiche Mozilla Firefox mit Google Chrome: Datenschutz",
+             ("Firefox", "Chrome")),
+            ("Vergleich Firefox, Chrome und Edge: Browser-Engines",
+             ("Firefox", "Chrome", "Edge")),
+        )
+        for question, expected in cases:
+            with self.subTest(question=question):
+                self.assertEqual(_comparison_entities(question), expected)
+
+    def test_missing_entity_pages_are_researched_in_second_attempt(self):
+        question = "Vergleiche Firefox mit Chrome: Engine."
+        sites = {
+            "https://not-firefox.example.com/": "Ein Browser hat eine Rendering Engine namens Blink.",
+            "https://chrome.example.com/": "Google Chrome verwendet die Blink Rendering Engine.",
+            "https://mozilla.example.com/": "Mozilla Firefox verwendet die Gecko Rendering Engine.",
+        }
+        class Search:
+            def __init__(self):
+                self.queries = []
+            def search(self, query):
+                self.queries.append(query)
+                if "Firefox" in query:
+                    page = ("https://not-firefox.example.com/"
+                            if sum("Firefox" in q for q in self.queries) == 1
+                            else "https://mozilla.example.com/")
+                elif "Chrome" in query:
+                    page = "https://chrome.example.com/"
+                else:
+                    raise AssertionError("Search did not separate entities: " + query)
+                return {"results": [{"url": page}]}
+        search = Search()
+        def reader(hits, query):
+            return [{"url": h["url"], "page_read": True,
+                     "page_text": sites[h["url"]]} for h in hits]
+        replies = [
+            {"tool": "direct_reasoning", "parts": ["Engine vergleichen"]},
+            {"tool": "direct_reasoning", "parts": ["Engine vergleichen"]},
+            {"left": "verwendet Gecko.", "right": "verwendet Blink.",
+             "synthesis": "Unterschiedliche Rendering Engines.",
+             "citations": ["p1", "p2"]},
+            {"contradiction": False, "claim": "", "source_quote": ""},
+        ]
+        def respond(system, raw, budget, schema):
+            return json.dumps(replies.pop(0))
+        result = run_evidence_agent(question, respond, Mock(),
+                                    web_query="Firefox Chrome rendering engine",
+                                    search=search, page_reader=reader)
+        self.assertTrue(result["agent_checked"])
+        self.assertEqual(result["agent_attempts"], 2)
+        self.assertGreaterEqual(len(search.queries), 3)
+        self.assertTrue(any("Firefox" in q and "Chrome" not in q
+                            for q in search.queries))
+        self.assertTrue(any("Chrome" in q and "Firefox" not in q
+                            for q in search.queries))
+        self.assertIn("Firefox", result["text"])
+        self.assertIn("Chrome", result["text"])
+        self.assertTrue(any("mozilla.example.com" in s["url"]
+                            for s in result["sources"]))
+
+    def test_unavailable_entity_never_gets_fictitious_citation(self):
+        question = "Vergleich Firefox und Chrome: Engine."
+        search = Mock()
+        search.search.return_value = {"results":[{"url":"https://chrome.example.com/"}]}
+        reader = Mock(return_value=[
+            {"url":"https://chrome.example.com/", "page_read":True,
+             "page_text":"Chrome uses Blink browser rendering engine."}])
+        packets = [{"tool":"direct_reasoning","parts":["Vergleich"]}] * 3
+        def respond(system, raw, budget, schema):
+            return json.dumps(packets.pop(0))
+        result = run_evidence_agent(question, respond, Mock(),
+                                    web_query="Firefox Chrome rendering engine",
+                                    search=search, page_reader=reader)
+        self.assertFalse(result["agent_checked"])
+        self.assertIn("Firefox", result["text"])
+        self.assertEqual(result["agent_attempts"], 3)
+        self.assertFalse(any("Firefox" in s.get("page_text","")
+                             for s in result["sources"]))
+
+
 class PageReaderTest(unittest.TestCase):
     def test_extracts_text_without_navigation_or_scripts(self):
         p = MainText()
@@ -308,6 +393,32 @@ class PageReaderTest(unittest.TestCase):
         pages = read_top_pages([{"url": url} for url in urls], "topic", fetch=fetch)
         self.assertEqual([page["url"] for page in pages], urls[1:2] + urls[3:5])
         self.assertTrue(all(len(page["page_text"]) == 3000 for page in pages))
+
+    def test_entity_page_reader_skips_irrelevant_ranked_hits(self):
+        from neral_page_reader import read_entity_pages
+        hits = [{"url": f"https://source{i}.example.com/"} for i in range(1, 6)]
+        def fake_reader(batch, query):
+            output = []
+            for hit in batch:
+                url = hit["url"]
+                content = ("Mozilla Firefox verwendet Gecko als Rendering Engine."
+                           if "source4" in url else
+                           "Google Chrome verwendet Blink als Rendering Engine.")
+                output.append({"url": url, "page_read": True,
+                               "page_text": content})
+            return output
+        pages = read_entity_pages(hits, "Firefox engine", "Firefox",
+                                  reader=fake_reader)
+        self.assertEqual(len(pages), 1)
+        self.assertIn("source4", pages[0]["url"])
+
+    def test_entity_coverage_requires_read_page_with_facts_not_search_preview(self):
+        from neral_page_reader import entity_evidence_excerpt
+        self.assertIsNone(entity_evidence_excerpt("Firefox", "Firefox"))
+        self.assertIsNone(entity_evidence_excerpt(
+            "Chrome uses Blink browser engine.", "Firefox"))
+        self.assertIsNotNone(entity_evidence_excerpt(
+            "Firefox uses Gecko rendering engine for pages.", "Firefox"))
 
     def test_rejects_nonpublic_dns_answers(self):
         addresses = [(0, 0, 0, "", ("93.184.215.14", 443)), (0, 0, 0, "", ("127.0.0.1", 443))]
