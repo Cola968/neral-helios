@@ -39,3 +39,13 @@ test("Ready NERAL-owned scheduled task is bootstrapped safely after PC reboot",(
   assert.match(installer,/Start-ScheduledTask -TaskName \$taskName -ErrorAction Stop/);
   assert.match(installer,/NERAL_V21_RESTART_EXISTING_TASK_HTTP_200/);
 });
+
+test("V2.1 installer starts only the existing user-scoped Docker Desktop before changing runtime",()=>{
+  assert.match(installer,/function EnsurePinnedDockerReady/);
+  assert.match(installer,/DockerDesktop/);
+  assert.match(installer,/Start-Process -FilePath \$desktopExe -ErrorAction Stop/);
+  assert.match(installer,/neral-python-tools:v2/);
+  assert.match(installer,/--pull never/);
+  assert.ok(installer.indexOf("EnsurePinnedDockerReady")<
+            installer.indexOf("$backupRoot=Join-Path"));
+});
