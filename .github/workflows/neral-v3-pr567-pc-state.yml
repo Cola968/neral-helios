@@ -42,3 +42,30 @@ jobs:
           }catch{$mode='session_failed'}
           $taskState=if($task){[string]$task.State}else{'missing'}
           Write-Host ('NERAL_PR567_READONLY_PC_STATE task='+$taskState+' listeners='+$listeners.Count+' http='+$http+' mode='+$mode+' agent_file='+$installed+' service_v3_flag='+$flag)
+          # Read-only recovery diagnostics: no passwords, model outputs or chats.
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $last=if($taskInfo){[int]$taskInfo.LastTaskResult}else{-999}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $parts=@('neral_preview_server','waitress','flask','torch','transformers')
+          $env:PYTHONPATH=(Join-Path $root 'local_state/three-tier-web-deps')+[IO.Path]::PathSeparator+$root
+          $importResult=@()
+          if(Test-Path -LiteralPath $py -PathType Leaf){
+            Push-Location $root
+            try{
+              foreach($module in $parts){
+                $ErrorActionPreference='Continue'
+                & $py -B -c ('__import__('+([char]39)+$module+([char]39)+');print(567)') 2>$null | Out-Null
+                $ok=($LASTEXITCODE -eq 0)
+                $ErrorActionPreference='Stop'
+                $importResult+=($module+':'+$ok)
+              }
+            }finally{Pop-Location}
+          }
+          $hashes=@()
+          foreach($rel in @('neral_preview_server.py','neral_three_tier_runtime.py','neral_preview_attachments.py','static/neral-preview.js')){
+            $file=Join-Path $root $rel
+            $hashes+=($rel+':'+(Test-Path -LiteralPath $file -PathType Leaf))
+          }
+          Write-Host ('NERAL_PR567_SAFE_IMPORT_DIAG last_task_result='+$last+
+            ' python_modules='+($importResult -join ',')+' installed='+($hashes -join ','))
+
