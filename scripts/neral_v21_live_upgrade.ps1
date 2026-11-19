@@ -1,3 +1,4 @@
+# Explicit owner approval: rerun V2.1 real RTX4070 and Chrome after exact browser response diagnostics; retain 3/3 + Chrome/rollback gates.
 # Reapproved V2.1 real RTX4070 acceptance after web-currency source check and bounded repair; rollback on failure.
 # Explicit V2.1 owner approval: run real RTX4070 live3 and Chrome with automatic rollback; main untouched until pass.
 # Owner-approved V2.1 staged Windows upgrade. Only the attested NERAL service
