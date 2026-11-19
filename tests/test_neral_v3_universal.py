@@ -79,6 +79,37 @@ class V3AgentTests(unittest.TestCase):
             "0",code="count = 0\nprint(count)",web_pages=None)
         self.assertTrue(report["ok"])
 
+    def test_bounded_loop_repairs_missing_sources_once(self):
+        from neral_v3_agent import run_agent_loop
+        calls=[]
+        def worker(goal,feedback):
+            calls.append(feedback)
+            if not feedback:
+                return {"ok":True,"text":"250 Euro"}
+            return {"ok":True,"text":"250 Euro, Quelle: https://example.org/preise"}
+        result=run_agent_loop("Nenne Preis und Quelle",
+            planner=lambda _: '{"steps":[{"tool":"direct_reasoning","goal":"answer all"}]}',
+            workers={"direct_reasoning":worker},
+            checker=lambda _: '{"ok":true,"reason":"alle Felder beantwortet"}')
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["attempts"],2)
+        self.assertEqual(len(calls),2)
+        self.assertIn("https://example.org",result["answer"])
+
+    def test_bounded_loop_no_false_pass_from_invalid_model_review(self):
+        from neral_v3_agent import run_agent_loop
+        attempts=[]
+        def worker(goal,feedback):
+            attempts.append(1)
+            return {"ok":True,"text":"200 Euro, Quelle: https://example.org"}
+        result=run_agent_loop("Nenne Preis und Quelle",
+            planner=lambda _: '{"steps":[{"tool":"direct_reasoning","goal":"answer"}]}',
+            workers={"direct_reasoning":worker},
+            checker=lambda _: '{"ok":false,"reason":"inkonsistente Angaben"}')
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["attempts"],3)
+        self.assertEqual(len(attempts),3)
+
     def test_validator_catches_unanswered_subquestion(self):
         result=validate_worker_result("Nenne Preis und Quelle", "Der Preis ist 200 Euro.",
             code=None,web_pages=[{"url":"https://example.org","read_status":"read",
