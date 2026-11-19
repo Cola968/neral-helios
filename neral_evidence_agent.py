@@ -6,6 +6,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from neral_page_reader import read_top_pages
+from neral_quantity_plans import quantity_plan
 from neral_web_search import WebSearchError
 from neral_z3_json_compiler import compile_z3_json
 
@@ -167,7 +168,8 @@ def _number(token, locale):
 
 def _quote(data, evidence):
     source, quote = data.get("source"), data.get("quote")
-    if not _short(source, 12) or not _short(quote, 650) or quote not in evidence.get(source, ""):
+    if (not _short(source, 12) or not _short(quote, 650) or
+            " ".join(quote.split()) not in " ".join(evidence.get(source, "").split())):
         raise AgentError("Wörtlicher Quellenbeleg fehlt.")
     return source, quote
 
@@ -194,6 +196,22 @@ def _numeric_evidence(evidence):
         for i, (token, quote) in enumerate(unique[:maximum], 1):
             found[f"{prefix}{i}"] = {"source": source, "token": token, "quote": quote}
     return found
+
+
+def _passages(evidence, query):
+    terms = set(re.findall(r"[^\W\d_]{4,}", query.casefold()))
+    passages = {}
+    seen = set()
+    for source, text in evidence.items():
+        if source == "user":
+            continue
+        lines = sorted(text.splitlines(), key=lambda line: -sum(term in line.casefold() for term in terms))
+        for line in lines[:12]:
+            line = line.strip()[:400]
+            if len(line) >= 25 and line not in seen:
+                seen.add(line)
+                passages[f"p{len(passages)+1}"] = (source, line)
+    return passages
 
 
 def _expression(expr, values):
@@ -363,13 +381,32 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 needed = web_query
                 return result("Keine lesbare Webseite mit einem Beleg für: " + needed, attempts=attempt+1)
             steps.append("worker")
+            exact = quantity_plan(question, evidence)
+            if exact is not None and not files:
+                text = _calculate(*exact, execute, external)
+                executed = "python_sandbox"
+                steps.append("quantity_validation")
+                return result(text, checked=True, attempts=attempt+1)
             if plan["tool"] != "direct_reasoning" and any(
                     text.endswith("[Auszug gekürzt]") for key, text in evidence.items() if key.startswith("file")):
                 return result("Die Datei überschreitet den prüfbaren Auszug. Für eine vollständige Berechnung brauche ich einen kleineren Datenausschnitt.",
                               attempts=attempt+1)
             numeric_evidence = _numeric_evidence(evidence) if plan["tool"] == "python_sandbox" else {}
             worker_data = {"numbers": numeric_evidence} if plan["tool"] == "python_sandbox" else {"evidence": evidence}
-            packet = ask(WORKER + WORK_INSTRUCTIONS[plan["tool"]],
+            passages = _passages(evidence, web_query or question) if plan["tool"] == "direct_reasoning" and external else {}
+            if passages:
+                schema = _object(answer=_string(1800), citations=_array({"enum": list(passages)}, 6, 1))
+                proposal = ask(WORKER + "Beantworte die Frage mit den Auszügen. citations enthält ausschließlich Kennungen wie p1. Nutze mehrere verschiedene, konkrete Belege.",
+                               {"question": question, "passages": passages, "correction": issue}, schema)
+                selected = proposal.get("citations")
+                if not isinstance(selected, list) or not selected or len(selected) > 6 or any(
+                        not isinstance(key, str) or key not in passages for key in selected):
+                    raise AgentError("Gültige Belegkennung fehlt.")
+                packet = {"answer": proposal.get("answer"), "citations": [
+                    {"source": passages[key][0], "quote": passages[key][1]} for key in dict.fromkeys(selected)
+                ]}
+            else:
+                packet = ask(WORKER + WORK_INSTRUCTIONS[plan["tool"]],
                          {"question": question, "plan": plan, **worker_data,
                           "correction": issue, "history": context}, _worker_schema(plan, evidence))
             answer = _work(plan, packet, evidence, execute, external, numeric_evidence)

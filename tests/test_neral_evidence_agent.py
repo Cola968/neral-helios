@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from neral_evidence_agent import run_evidence_agent
+from neral_quantity_plans import quantity_plan
 from neral_page_reader import MainText, _public_address, read_top_pages
 
 
@@ -80,6 +81,24 @@ class PageReaderTest(unittest.TestCase):
         with patch("neral_page_reader.socket.getaddrinfo", return_value=addresses):
             with self.assertRaises(ValueError):
                 _public_address("mixed.example.com")
+
+
+class ExactQuantityTest(unittest.TestCase):
+    def test_rate_uses_same_metal_currency_and_quote_basis(self):
+        question = "Was ist der Materialwert eines 125-Gramm-Silberbarrens in Euro (1 Feinunze = 31,1035 Gramm)?"
+        evidence = {"user": question, "web1": "| GOLD | 3.360,00 €/oz\n| SILBER | 44,00 $/oz | 40,50 €/oz | 1,30 €/g"}
+        plan, numbers = quantity_plan(question, evidence)
+        self.assertEqual(numbers["price"]["token"], "40,50")
+        self.assertEqual(plan["calculations"][1]["expr"], "mass / grams_per_ounce * price")
+        self.assertIsNone(quantity_plan(question, {"user": question, "web1": "SILBER 44,00 $/oz"}))
+
+    def test_inventory_requires_the_complete_source(self):
+        question = ("Jan stellt 4 Kisten mit je 10 Flaschen in den Raum. 3 Flaschen zerbrechen. "
+                    "In jedes übrige Glas füllt er 0,25 Liter Saft. Der Behälter enthält vorher 20 Liter. "
+                    "Was bleibt im Behälter? Wie viele gefüllte Flaschen stehen bereit?")
+        _, numbers = quantity_plan(question, {"user": question})
+        self.assertEqual(numbers["lost"]["token"], "3")
+        self.assertIsNone(quantity_plan(question + " Weitere 2 bleiben leer.", {"user": question}))
 
 
 if __name__ == "__main__":
