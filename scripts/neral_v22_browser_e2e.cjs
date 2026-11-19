@@ -129,6 +129,11 @@ async function main(){
           "source_count:Array.isArray(d.results)?d.results.length:0,"+
           "source_https:Array.isArray(d.results)&&d.results.every(s=>/^https:\\/\\//.test(s.url||'')),"+
           "verified:d.verified,tool_used:d.tool_used,tier:d.tier,model_generated:d.model_generated,"+
+          "sandbox_executed:d.sandbox_executed,sandbox_attempts:d.sandbox_attempts,"+
+          "sandbox_failure_code:d.sandbox_failure_code||null,"+
+          "sandbox_failure_exception:d.sandbox_failure_exception||null,"+
+          "model_fallback_generated:d.model_fallback_generated===true,"+
+          "verification_status:d.verification_status||null,"+
           "scope:d.verification_scope,safe_to_promote:d.safe_to_promote});}).catch(()=>{});"+
         "}return r;};})();true");
     out.account_created=true;
@@ -141,6 +146,19 @@ async function main(){
         "Freundinnen (Pia inklusive ihres Bruders)?";
       const first=await send(hut,{web:false,kind:"mountain-hut",force:false});
       const firstNetwork=await net("chat");
+      out.v22.hut_http={
+        http_status:firstNetwork.status,
+        tier:firstNetwork.tier,
+        tool_used:firstNetwork.tool_used||null,
+        sandbox_executed:firstNetwork.sandbox_executed===true,
+        sandbox_attempts:firstNetwork.sandbox_attempts||0,
+        sandbox_failure_code:firstNetwork.sandbox_failure_code||null,
+        sandbox_failure_exception:firstNetwork.sandbox_failure_exception||null,
+        model_fallback_generated:firstNetwork.model_fallback_generated===true,
+        verification_status:firstNetwork.verification_status||null,
+        badge:first.status,
+        has_all_expected_amounts:/504/.test(first.body)&&/336/.test(first.body)&&/420/.test(first.body)
+      };
       check(firstNetwork.status===200 && firstNetwork.tool_used==="helios_code_sandbox" &&
             firstNetwork.tier==="Helios" && firstNetwork.verified===false &&
             firstNetwork.safe_to_promote===false,
