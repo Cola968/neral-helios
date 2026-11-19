@@ -856,7 +856,7 @@
          (shouldSearchWeb(text,lastWebQuery) ||
           (pendingTopicRequested && isPendingWebTopic(text))) &&
          (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
-        const searchText=evidenceAgentEnabled && !selectedAttachments.length
+        const searchText=evidenceAgentEnabled
           ? text.split(/\s+und\s+(?:rechne|berechne|ermittle|calculate|compute)\b/iu,1)[0]
           : text;
         const webQuery=makeSearchQuery(searchText,lastWebQuery);
@@ -875,7 +875,7 @@
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
         motionActivity("search-query",mode,{query:webQuery});
-        if(evidenceAgentEnabled && !selectedAttachments.length){
+        if(evidenceAgentEnabled){
           agentWebQuery=webQuery;
           webAttempted=true;
           lastWebQuery=webQuery;
@@ -980,6 +980,7 @@
         if(threeTierEnabled){
           data.append("tier",selectedTier);
           data.append("force_sandbox",forceSandbox?"true":"false");
+          if(agentWebQuery)data.append("web_query",agentWebQuery);
         }
         selectedAttachments.forEach(f=>data.append("files",f,f.name));
         path="/api/neral/preview/attachment-chat";
@@ -1065,7 +1066,12 @@
       }else if(result.model_origin!=="local_foundation_not_neral_adapter" ||
                result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
-      result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      if(agentWebQuery){
+        sources=Array.isArray(result.sources)?result.sources:[];
+        webAttempted=Array.isArray(result.agent_steps)&&result.agent_steps.includes("web_search");
+      }else{
+        result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      }
       // Do not surface legacy canned "Grenze:" labels as a separate model
       // authority. Keep any substantive limitation text, simply label it
       // transparently as a note (not as an independently proven restriction).
@@ -1092,7 +1098,6 @@
       // The provisional display is replaced by the verified complete answer.
       partialNode?.remove();
       partialNode=null;
-      if(agentWebQuery && Array.isArray(result.sources))sources=result.sources;
       const verified=result.verified===true && result.model_generated===false &&
         result.verification_scope!=="none";
       let origin = verified

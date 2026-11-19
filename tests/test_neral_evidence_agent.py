@@ -9,16 +9,9 @@ from neral_page_reader import MainText, _public_address, read_top_pages
 class EvidenceAgentTest(unittest.TestCase):
     def setUp(self):
         self.question = "250 Gramm zu 31,1035 Gramm je Feinunze. Was kostet das Gold in Euro?"
-        self.plan = {"tool": "python_sandbox", "parts": ["Materialwert"], "inputs": [
-            {"name": "grams", "need": "Barrenmasse"},
-            {"name": "ounce", "need": "Gramm je Feinunze"},
-            {"name": "price", "need": "Goldpreis EUR/Feinunze"},
-        ]}
-        self.worker = {"bindings": {
-            "grams": {"source": "user", "quote": "250 Gramm", "token": "250", "locale": "de"},
-            "ounce": {"source": "user", "quote": "31,1035 Gramm je Feinunze", "token": "31,1035", "locale": "de"},
-            "price": {"source": "web1", "quote": "Gold: 3.367,35 EUR pro Feinunze", "token": "3.367,35", "locale": "de"},
-        }, "calculations": [{"label": "Materialwert", "expr": "grams / ounce * price", "unit": "EUR"}], "missing": []}
+        self.plan = {"tool": "python_sandbox", "parts": ["Materialwert"]}
+        self.worker = {"locale": "de", "calculations": [
+            {"label": "Materialwert", "expr": "u1 / u2 * w1_1", "unit": "EUR"}], "missing": []}
         self.pages = Mock(return_value=[{"url": "https://gold.example.com/price", "page_read": True,
                                         "page_text": "Gold: 3.367,35 EUR pro Feinunze"}])
         self.search = Mock()
@@ -39,17 +32,23 @@ class EvidenceAgentTest(unittest.TestCase):
         self.search.search.assert_called_once_with("Goldpreis")
 
     def test_missing_price_never_reaches_sandbox(self):
-        del self.worker["bindings"]["price"]
-        self.worker["missing"] = ["price"]
+        self.worker["missing"] = ["Goldpreis EUR/Feinunze"]
+        self.worker["calculations"] = []
         result = self.run_agent([self.plan, self.worker, self.worker, self.worker])
         self.assertEqual(result["agent_attempts"], 3)
         self.assertIn("Goldpreis EUR/Feinunze", result["text"])
         self.execute.assert_not_called()
 
     def test_invented_literal_never_reaches_sandbox(self):
-        self.worker["calculations"][0]["expr"] = "grams / ounce * 0"
+        self.worker["calculations"][0]["expr"] = "u1 / u2 * 0"
         result = self.run_agent([self.plan, self.worker, self.worker, self.worker])
         self.assertFalse(result["agent_checked"])
+        self.execute.assert_not_called()
+
+    def test_web_calculation_cannot_use_only_user_numbers(self):
+        self.worker["calculations"][0]["expr"] = "u1 / u2"
+        result = self.run_agent([self.plan, self.worker, self.worker, self.worker])
+        self.assertIn("externen Quelle", result["text"])
         self.execute.assert_not_called()
 
     def test_checker_rejects_and_repairs(self):

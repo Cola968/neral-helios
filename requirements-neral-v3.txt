@@ -1,0 +1,2 @@
+# Install into the local V3 runtime, separately from model weights.
+lm-format-enforcer==0.11.3

@@ -170,12 +170,15 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     from neral_local_chat_api import register_neral_local_chat_api
     chat_busy = register_neral_local_chat_api(
         app,backend,experimental_high_backend=experimental_high_backend)
+    if search_service is None and three_tier_runtime is not None and three_tier_runtime.evidence_agent:
+        from neral_web_search import WebSearch
+        search_service = WebSearch()
     from neral_preview_attachments import register_preview_attachment_api
     register_preview_attachment_api(
         app, backend, chat_busy, vision_analyzer=vision_analyzer,
         experimental_high_backend=experimental_high_backend,
         prepare_model=app._neral_prepare_model,
-        three_tier_runtime=three_tier_runtime)
+        three_tier_runtime=three_tier_runtime, search_service=search_service)
 
     from neral_local_voice import register_local_voice_api
     local_voice = register_local_voice_api(app, service=voice_service)
@@ -188,9 +191,6 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     # context and single-GPU lock. Default app behavior is unchanged.
     if three_tier_runtime is not None:
         from neral_three_tier_runtime import register_three_tier_api
-        if search_service is None and three_tier_runtime.evidence_agent:
-            from neral_web_search import WebSearch
-            search_service = WebSearch()
         register_three_tier_api(app, three_tier_runtime, busy=chat_busy,
                                 search_service=search_service)
 
@@ -291,6 +291,11 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if args.evidence_agent and not args.experimental_three_tier_hf:
         parser.error("--evidence-agent requires --experimental-three-tier-hf")
+    if args.evidence_agent:
+        try:
+            from lmformatenforcer import JsonSchemaParser  # noqa: F401
+        except ImportError:
+            parser.error("Install the local V3 dependency from requirements-neral-v3.txt")
     from neral_agent_autonomy import OllamaLocalBackend
     from waitress import serve
     high=build_experimental_high(args.model,args.experimental_high_qwen35)

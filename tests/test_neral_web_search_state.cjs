@@ -3,7 +3,7 @@ const {test}=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
 const {TextEncoder}=require("node:util");
 
-async function runPrompt(question,{web=false,results=[],previews=[]}={}){
+async function runPrompt(question,{web=false,results=[],previews=[],v3=false}={}){
   const handlers=new Map(),elements={},calls=[];
   function element(id){
     return elements[id] ||= {value:"",textContent:"",checked:false,disabled:false,children:[],
@@ -19,17 +19,28 @@ async function runPrompt(question,{web=false,results=[],previews=[]}={}){
   async function fetch(url,options={}){
     calls.push({url,body:options.body&&typeof options.body==="string"?JSON.parse(options.body):null});
     if(url.endsWith("/session"))
-      return {ok:true,json:async()=>({csrf:"TEST_CSRF",model:"qwen3:8b"})};
+      return {ok:true,json:async()=>({csrf:"TEST_CSRF",model:"qwen3:8b",
+        evidence_agent_enabled:v3,three_tier_enabled:v3})};
+    if(url.endsWith("/three-tier/status"))
+      return {ok:true,json:async()=>({enabled:true,luna:"qwen3.5:4b",helios:"qwen3.5:9b+neral-v2-full",
+        tiers:["Luna","Terra","Helios"]})};
     if(url.endsWith("/status"))
       return {ok:true,json:async()=>({model:"qwen3:8b",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false})};
     if(url==="/api/web/search")
       return {ok:true,json:async()=>({results,previews,provider:"fixture"})};
+    if(url==="/api/neral/chat/three-tier")
+      return {ok:true,json:async()=>({tier:"Helios",text:"Gelesener Beleg",runtime_tier_verified:true,
+        model:"qwen3.5:9b+neral-v2-full",model_origin:"local_neral_lora_experimental",
+        adapter_loaded:true,adapter_sha256:"a".repeat(64),auto_escalated_from:"Luna",
+        verified:false,model_generated:true,safe_to_promote:false,proof_backend:null,
+        agent_steps:["planner","web_search","web_reader","worker","validation_checker"],
+        sources:[{title:"Dokumentation",url:"https://example.com/docs",page_read:true,reachable:true}]})};
     if(url==="/api/neral/chat/generate")
       return {ok:true,json:async()=>({text:"Antwort",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false,model_generated:true})};
     throw new Error("Unexpected URL "+url);
   }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8"),{
-    document:{getElementById:element,createElement:tag=>({tag,textContent:"",children:[],className:"",
+    document:{documentElement:{dataset:{}},getElementById:element,createElement:tag=>({tag,textContent:"",children:[],className:"",
       append(...x){this.children.push(...x)},remove(){},setAttribute(){},getAttribute(){return null}})},
     fetch,TextEncoder,AbortSignal,AbortController,Error,console,
   },{timeout:2000});
@@ -40,6 +51,18 @@ async function runPrompt(question,{web=false,results=[],previews=[]}={}){
   }
   return {calls,elements};
 }
+
+test("V3 sends the original question and a separate opt-in query, then displays the Helios answer",async()=>{
+  const prompt="Suche im Web nach dem aktuellen Goldpreis und berechne den Materialwert";
+  const {calls,elements}=await runPrompt(prompt,{web:true,v3:true});
+  assert.equal(calls.some(c=>c.url==="/api/web/search"),false);
+  const chat=calls.find(c=>c.url==="/api/neral/chat/three-tier");
+  assert.equal(chat.body.prompt,prompt);
+  assert.match(chat.body.web_query,/Goldpreis/i);
+  assert.doesNotMatch(chat.body.web_query,/Materialwert/i);
+  assert.equal(elements.error.textContent,"");
+  assert.match(JSON.stringify(elements.messages.children),/Gelesener Beleg/);
+});
 
 test("explicit internet request with Web disabled shows a useful message and never calls model",async()=>{
   const {calls,elements}=await runPrompt("Suche im Internet nach aktuellen Raumfahrtmissionen",{web:false});

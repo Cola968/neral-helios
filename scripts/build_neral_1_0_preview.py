@@ -89,6 +89,7 @@ REQUIRED_FILES = (
     "neral_web_search.py",
     "neral_page_reader.py",
     "neral_evidence_agent.py",
+    "requirements-neral-v3.txt",
     "neral_web_api.py",
     "agent_mode.py",
     "static/neral-preview.js",

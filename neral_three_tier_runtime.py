@@ -161,7 +161,8 @@ class FrozenQwen35HF:
 
     def respond_chat(self, turns: list[dict], *, max_new_tokens: int,
                      temperature: float | None = None,
-                     max_time_seconds: float | None = None) -> str:
+                     max_time_seconds: float | None = None,
+                     response_schema: dict | None = None) -> str:
         # Transformers does not accept temperature=0 as a sampling
         # temperature. Explicit zero means GREEDY decoding, so use
         # do_sample=False and do not pass temperature to generate().
@@ -182,6 +183,14 @@ class FrozenQwen35HF:
         if self.model == HELIOS and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         self._load()
+        generation = {}
+        if response_schema is not None:
+            from neral_evidence_agent import json_token_filter, prepare_json_tokenizer
+            cached = getattr(self, "_json_tokenizer_data", None)
+            if cached is None or cached[0] is not self._tokenizer:
+                cached = self._tokenizer, prepare_json_tokenizer(self._tokenizer)
+                self._json_tokenizer_data = cached
+            generation["prefix_allowed_tokens_fn"] = json_token_filter(cached[1], response_schema)
         import torch
         encoded = self._tokenizer.apply_chat_template(
             turns, tokenize=True, add_generation_prompt=True,
@@ -199,7 +208,7 @@ class FrozenQwen35HF:
                               else 50.0 if max_new_tokens == 768 else 25.0),
                     use_cache=True,
                     pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id)
+                    eos_token_id=self._tokenizer.eos_token_id, **generation)
             produced = output[0, len(encoded):].tolist()
             eos = {self._tokenizer.eos_token_id}
             for special in ("<|im_end|>", "<|endoftext|>"):
@@ -1087,11 +1096,12 @@ class ThreeTierRuntime:
                              force_sandbox=False):
         from neral_evidence_agent import run_evidence_agent
 
-        def respond(instruction, payload, budget):
+        def respond(instruction, payload, budget, schema):
             self._switch(self.helios)
             return self.helios.respond_chat(
                 [{"role": "system", "content": instruction},
-                 {"role": "user", "content": payload}], max_new_tokens=budget)
+                 {"role": "user", "content": payload}], max_new_tokens=budget,
+                response_schema=schema)
 
         result = run_evidence_agent(turns[-1]["content"], respond, self.execute_python,
                                     web_query=web_query, search=search, files=files,
