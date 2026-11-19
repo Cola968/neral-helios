@@ -101,7 +101,9 @@ def select_relevant_excerpt(text: str, query: str, limit: int = MAX_PAGE_TEXT) -
     best_start,best_score=0,-1
     # Small bounded overlapping windows avoid slicing away the relevant
     # section of large documentation pages. The sources remain untrusted.
-    for start in range(0,max(1,len(text)-limit+1),max(300,limit//3)):
+    starts=list(range(0,max(1,len(text)-limit+1),max(300,limit//3)))
+    starts.append(max(0,len(text)-limit))  # never miss the final section
+    for start in starts:
         window=text[start:start+limit].casefold()
         score=sum((3 if term in window else 0)+min(window.count(term),4)
                   for term in terms)
