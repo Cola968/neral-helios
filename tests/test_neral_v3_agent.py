@@ -37,6 +37,14 @@ class V3AgentGroundingTests(unittest.TestCase):
         self.assertFalse(guard_sandbox_stdout("0",expected=expected))
         self.assertFalse(guard_sandbox_stdout("30000.00",expected=expected))
 
+    def test_price_quoted_as_number_then_euro_symbol_is_ounce_price(self):
+        source={**PAGE,"text":(
+            "Gold ist aktuell wertvoll. Preis je Feinunze: 3.800,50 €. "
+            "Diese Angabe steht im Seiteninhalt, nicht im Such-Snippet.")}
+        facts=anchored_numeric_facts([source])
+        self.assertTrue(any(f["value"]==Decimal("3800.50") and
+                            f["unit"]=="EUR/oz" for f in facts))
+
     def test_no_web_value_never_becomes_zero_sandbox_result(self):
         empty=[{**PAGE,"text":"Goldpreis auf Anfrage. Kurs wird dynamisch geladen."}]
         facts=anchored_numeric_facts(empty)
