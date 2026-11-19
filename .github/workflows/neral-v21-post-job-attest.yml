@@ -55,13 +55,13 @@ jobs:
           $listeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
           if($listeners.Count -ne 1){throw 'No unique NERAL localhost listener'}
           $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-          $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 9
+          $homepage=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 9
           $api=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 9
           $data=$api.Content|ConvertFrom-Json
-          if($home.StatusCode -ne 200 -or $api.StatusCode -ne 200 -or
+          if($homepage.StatusCode -ne 200 -or $api.StatusCode -ne 200 -or
              $data.three_tier_enabled -ne $true -or
              (@($data.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios' -or
-             $home.Content -notmatch 'id="forceSandbox"'){
+             $homepage.Content -notmatch 'id="forceSandbox"'){
             throw 'Live V2.1 three-tier homepage and toggle not ready'
           }
           $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)
