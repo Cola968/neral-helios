@@ -267,7 +267,7 @@ try{
   if($startText -notmatch 'NERAL_V3_AGENT_ENABLED'){
     $header = '$env:NERAL_V3_AGENT_ENABLED="1"' + [Environment]::NewLine
     [IO.File]::WriteAllText($service, $header+$startText,
-      (New-Object System.Text.UTF8Encoding($false)))
+      ([System.Text.UTF8Encoding]::new($false)))
   }
   Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
   WaitForOwnApp
