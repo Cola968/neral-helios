@@ -3,7 +3,7 @@ import unittest
 from decimal import Decimal
 from neral_v3_agent import (validate_web_pages, plan_request,
                             anchored_numeric_facts, expected_material_value,
-                            guard_sandbox_stdout, missing_web_data_reply)
+                            guard_sandbox_stdout, missing_web_data_reply, try_source_anchored_unit_worker)
 
 
 QUESTION = ("Suche aktuell den Goldpreis in Euro pro Feinunze und rechne, "
@@ -44,6 +44,39 @@ class V3AgentGroundingTests(unittest.TestCase):
         facts=anchored_numeric_facts([source])
         self.assertTrue(any(f["value"]==Decimal("3800.50") and
                             f["unit"]=="EUR/oz" for f in facts))
+
+    def test_general_unit_worker_executes_only_page_grounded_parameters(self):
+        class ActualDocker:
+            def __init__(self): self.codes=[]
+            def execute_python(self,code):
+                self.codes.append(code)
+                return {"status":"PASSED","output":"29339.14"}
+        docker=ActualDocker()
+        result=try_source_anchored_unit_worker(docker, QUESTION,
+                                                anchored_numeric_facts([PAGE]))
+        self.assertTrue(result["sandbox_executed"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["tool_used"],"python_sandbox")
+        self.assertIn("29.339,14",result["text"])
+        self.assertIn(PAGE["url"],result["text"])
+        self.assertEqual(len(docker.codes),1)
+        self.assertIn("Decimal",docker.codes[0])
+        self.assertIn("3650.20",docker.codes[0])
+        self.assertIn("31.1035",docker.codes[0])
+
+    def test_unit_worker_rejects_dummy_and_missing_source_without_execution(self):
+        class WrongDocker:
+            def __init__(self):self.calls=0
+            def execute_python(self,code):
+                self.calls+=1
+                return {"status":"PASSED","output":"0"}
+        wrong=WrongDocker()
+        self.assertIsNone(try_source_anchored_unit_worker(wrong,QUESTION,
+                         anchored_numeric_facts([PAGE])))
+        self.assertEqual(wrong.calls,1)
+        absent=WrongDocker()
+        self.assertIsNone(try_source_anchored_unit_worker(absent,QUESTION,[]))
+        self.assertEqual(absent.calls,0)
 
     def test_no_web_value_never_becomes_zero_sandbox_result(self):
         empty=[{**PAGE,"text":"Goldpreis auf Anfrage. Kurs wird dynamisch geladen."}]
