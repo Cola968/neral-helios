@@ -182,6 +182,19 @@ async function main(){
         const r=await net("chat");
         return r.force_sandbox===true?r:null;
       },12000);
+      out.v22.birthday_http={
+        http_status:secondNetwork.status,
+        tier:secondNetwork.tier,
+        tool_used:secondNetwork.tool_used||null,
+        sandbox_executed:secondNetwork.sandbox_executed===true,
+        sandbox_attempts:secondNetwork.sandbox_attempts||0,
+        sandbox_failure_code:secondNetwork.sandbox_failure_code||null,
+        model_fallback_generated:secondNetwork.model_fallback_generated===true,
+        badge:second.status,
+        observed_numbers:[...new Set(
+          second.body.match(/\b\d{1,6}(?:[.,]\d{1,4})?\b/g)||[])].slice(0,12),
+        expected_percent_visible:/50[.,]73\s*%/.test(second.body)
+      };
       check(secondNetwork.status===200 && secondNetwork.tool_used==="helios_code_sandbox" &&
             secondNetwork.tier==="Helios" && secondNetwork.verified===false &&
             secondNetwork.safe_to_promote===false,
