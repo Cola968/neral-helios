@@ -1099,7 +1099,12 @@
             docker_unavailable:"Docker nicht aktiv",
             image_unavailable:"Solver-Image fehlt",
             invalid_python_code:"Python-Code ungültig",
-            runtime_error:"Laufzeitfehler",
+            runtime_error:"Laufzeitfehler"+(
+              ["ValueError","ZeroDivisionError","KeyError","TypeError",
+               "IndexError","AssertionError","OverflowError","NameError",
+               "SyntaxError","ImportError","ModuleNotFoundError"].includes(
+                 result.sandbox_failure_exception)
+              ? ": "+result.sandbox_failure_exception : ""),
             empty_stdout:"Keine Ausgabe",
             timeout:"Zeitlimit erreicht"
           }[result.sandbox_failure_code])+
