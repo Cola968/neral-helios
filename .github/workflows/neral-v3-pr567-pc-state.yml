@@ -54,7 +54,7 @@ jobs:
             try{
               foreach($module in $parts){
                 $ErrorActionPreference='Continue'
-                & $py -B -c ('__import__('+([char]39)+$module+([char]39)+');print(567)') 2>$null | Out-Null
+                & $py -B -c ('import '+$module) 2>$null | Out-Null
                 $ok=($LASTEXITCODE -eq 0)
                 $ErrorActionPreference='Stop'
                 $importResult+=($module+':'+$ok)
