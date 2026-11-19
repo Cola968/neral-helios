@@ -1,0 +1,58 @@
+name: NERAL PR567 owned V2.2 recovery after failed rollback
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v3_pr567_restore_v22.ps1'
+      - '.github/workflows/neral-v3-pr567-restore-v22.yml'
+permissions:
+  contents: read
+jobs:
+  restore-known-stable-task:
+    if: github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'codex/neral-v3-evidence-agent'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-pr567-local-9690-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: afe0c6970a35635cce655fd8ad9c67b81714f38b
+          path: baseline
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Require explicit owner-approved recovery commit
+        id: permit
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($env:GITHUB_HEAD_REF -eq 'codex/neral-v3-evidence-agent' -and
+             $subject -eq 'ops(v3): owner-approved restore V2.2 port9690'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_PR567_RESTORE_APPROVED'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_PR567_RESTORE_SAFE_SKIP'
+          }
+      - name: Read-only parse before Windows task restoration
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_v3_pr567_restore_v22.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){throw 'Recovery script syntax invalid; no changes'}
+      - name: Restore only the exact pre-V3 task and prove HTTP 200
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v3_pr567_restore_v22.ps1
+          if($LASTEXITCODE -ne 0){throw 'Known stable V2.2 recovery failed'}
+          Write-Host 'NERAL_PR567_OWNED_V22_TASK_RECOVERY_COMPLETED'
