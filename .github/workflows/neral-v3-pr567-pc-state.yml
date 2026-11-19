@@ -1,0 +1,108 @@
+name: NERAL PR567 read-only local service and rollback state
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v3_pr567_upgrade.ps1'
+      - '.github/workflows/neral-v3-pr567-pc-state.yml'
+permissions:
+  contents: read
+jobs:
+  check-local-state-only:
+    if: github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'codex/neral-v3-evidence-agent'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-pr567-readonly-observer-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Verify owned port and service state without changing anything
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $installed=Test-Path -LiteralPath (Join-Path $root 'neral_evidence_agent.py') -PathType Leaf
+          $flag=$false
+          if(Test-Path -LiteralPath $service -PathType Leaf){
+            $flag=([IO.File]::ReadAllText($service).Contains('NERAL_V3_AGENT_ENABLED'))
+          }
+          $mode='unknown'
+          $http=0
+          try{
+            $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 8
+            $api=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 8
+            $http=[int]$home.StatusCode
+            $mode=if($api.evidence_agent_enabled -eq $true){'V3'}else{'V2.2'}
+          }catch{$mode='session_failed'}
+          $taskState=if($task){[string]$task.State}else{'missing'}
+          Write-Host ('NERAL_PR567_READONLY_PC_STATE task='+$taskState+' listeners='+$listeners.Count+' http='+$http+' mode='+$mode+' agent_file='+$installed+' service_v3_flag='+$flag)
+          # Read-only recovery diagnostics: no passwords, model outputs or chats.
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $last=if($taskInfo){[int]$taskInfo.LastTaskResult}else{-999}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $parts=@('neral_preview_server','waitress','flask','torch','transformers')
+          $env:PYTHONPATH=(Join-Path $root 'local_state/three-tier-web-deps')+[IO.Path]::PathSeparator+$root
+          $importResult=@()
+          if(Test-Path -LiteralPath $py -PathType Leaf){
+            Push-Location $root
+            try{
+              foreach($module in $parts){
+                $ErrorActionPreference='Continue'
+                & $py -B -c ('import '+$module) 2>$null | Out-Null
+                $ok=($LASTEXITCODE -eq 0)
+                $ErrorActionPreference='Stop'
+                $importResult+=($module+':'+$ok)
+              }
+            }finally{Pop-Location}
+          }
+          $hashes=@()
+          foreach($rel in @('neral_preview_server.py','neral_three_tier_runtime.py','neral_preview_attachments.py','static/neral-preview.js')){
+            $file=Join-Path $root $rel
+            $hashes+=($rel+':'+(Test-Path -LiteralPath $file -PathType Leaf))
+          }
+          Write-Host ('NERAL_PR567_SAFE_IMPORT_DIAG last_task_result='+$last+
+            ' python_modules='+($importResult -join ',')+' installed='+($hashes -join ','))
+          # HTTP probe uses no cookies, credentials or user prompt content.
+          $owner="unknown";$ownerName="unknown";$status="not_attempted"
+          if($listeners.Count -eq 1){
+            $p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$listeners[0].OwningProcess) -ErrorAction SilentlyContinue
+            $owner=if($p -and [string]$p.CommandLine -match '(?i)neral_preview_server' -and
+                      [string]$p.CommandLine -match '--experimental-three-tier-hf'){'neral-hf'}else{'unexpected'}
+            $ownerName=if($p){[string]$p.Name}else{'missing'}
+          }
+          $curl=Get-Command curl.exe -ErrorAction SilentlyContinue
+          if($curl){
+            $ErrorActionPreference='Continue'
+            $probe=@(& $curl.Source --noproxy '*' --silent --show-error --connect-timeout 4 --max-time 18 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+            $curlExit=$LASTEXITCODE
+            $ErrorActionPreference='Stop'
+            $status='curl_exit_'+$curlExit+'_http_'+($probe -join '')
+          }
+          Write-Host ('NERAL_PR567_HTTP_DIAG owner='+$owner+' process_name='+$ownerName+' probe='+$status)
+          # Curl cookie roundtrip: compare session endpoint without printing
+          # session tokens, response body or user data.
+          $jar=Join-Path $env:RUNNER_TEMP ('neral-probe-'+[guid]::NewGuid().ToString('N')+'.txt')
+          $homeCode='n/a';$apiCode='n/a';$apiExit=-1
+          try{
+            if($curl){
+              $ErrorActionPreference='Continue'
+              $homeCode=(@(& $curl.Source --noproxy '*' --silent --connect-timeout 4 --max-time 15 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join '')
+              $homeExit=$LASTEXITCODE
+              $apiCode=(@(& $curl.Source --noproxy '*' --silent --connect-timeout 4 --max-time 15 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/api/neral/preview/session' 2>$null) -join '')
+              $apiExit=$LASTEXITCODE
+              $ErrorActionPreference='Stop'
+              Write-Host ('NERAL_PR567_COOKIE_HTTP_STATUS home='+$homeCode+' session='+$apiCode+
+                ' home_exit='+$homeExit+' session_exit='+$apiExit)
+            }
+          }finally{
+            if(Test-Path -LiteralPath $jar -PathType Leaf){Remove-Item -LiteralPath $jar -Force}
+          }
+
+
+

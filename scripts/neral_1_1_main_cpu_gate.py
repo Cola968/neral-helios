@@ -64,6 +64,8 @@ def verify_main_integrity():
                 '224a691c4ff9869d9513ec18ed7d554cfa3ed079',
                 # V2.2 status UI passed real guarded Chrome on 2026-11-19.
                 '18ce89cc02977b878659ddfe6d7635f1a5212c12',
+                # V3 opt-in browser routing and source display, exact blob only.
+                '3a4930c12059841cafe84c10225fd2218ef8ee0f',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
             # Already present in current main (f960b3e7); legacy CURRENT_MAIN is older.

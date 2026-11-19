@@ -10,6 +10,7 @@ import argparse
 import ast
 import hmac
 import json
+import os
 import re
 import secrets
 import sys
@@ -73,7 +74,8 @@ def build_experimental_high(low_model: str, enabled: bool):
         inference_profile="measured_nonthinking_2048")
 
 
-def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None, experimental_high_backend=None, three_tier_runtime=None):
+def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None, experimental_high_backend=None, three_tier_runtime=None, port=PORT):
+    origin = f"http://{HOST}:{port}"
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -111,9 +113,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
             request.max_content_length = MAX_REQUEST_BYTES
         if request.path == "/api/neral/voice/transcribe":
             request.max_content_length = 500_000
-        if request.host not in (f"127.0.0.1:{PORT}",):
+        if request.host != f"{HOST}:{port}":
             return jsonify(error="Nur der lokale NERAL-Dienst ist erlaubt."), 403
-        if (request.headers.get("Origin") not in (None, ORIGIN) or
+        if (request.headers.get("Origin") not in (None, origin) or
                 request.headers.get("Sec-Fetch-Site") in ("cross-site", "none") and
                 request.path.startswith("/api/")):
             return jsonify(error="Anfrage von einer fremden Webseite blockiert."), 403
@@ -160,6 +162,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
                        experimental_high_enabled=experimental_high_backend is not None,
                        model_origin="local_foundation_not_neral_adapter",
                        release_validated=False,adapter_promoted=False,
+                       evidence_agent_enabled=bool(three_tier_runtime is not None and
+                                                   three_tier_runtime.evidence_agent),
                        three_tier_enabled=three_tier_runtime is not None,
                        three_tier_levels=(['Luna','Terra','Helios']
                                           if three_tier_runtime is not None else []))
@@ -167,12 +171,15 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     from neral_local_chat_api import register_neral_local_chat_api
     chat_busy = register_neral_local_chat_api(
         app,backend,experimental_high_backend=experimental_high_backend)
+    if search_service is None and three_tier_runtime is not None and three_tier_runtime.evidence_agent:
+        from neral_web_search import WebSearch
+        search_service = WebSearch()
     from neral_preview_attachments import register_preview_attachment_api
     register_preview_attachment_api(
         app, backend, chat_busy, vision_analyzer=vision_analyzer,
         experimental_high_backend=experimental_high_backend,
         prepare_model=app._neral_prepare_model,
-        three_tier_runtime=three_tier_runtime)
+        three_tier_runtime=three_tier_runtime, search_service=search_service)
 
     from neral_local_voice import register_local_voice_api
     local_voice = register_local_voice_api(app, service=voice_service)
@@ -185,7 +192,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     # context and single-GPU lock. Default app behavior is unchanged.
     if three_tier_runtime is not None:
         from neral_three_tier_runtime import register_three_tier_api
-        register_three_tier_api(app, three_tier_runtime, busy=chat_busy)
+        register_three_tier_api(app, three_tier_runtime, busy=chat_busy,
+                                search_service=search_service)
 
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same
@@ -269,6 +277,10 @@ def main(argv=None):
                         help="Opt-in HIGH with installed Qwen3.5:9b; defaults off.")
     parser.add_argument("--experimental-three-tier-hf",action="store_true",
                         help="Explicit local 4B Luna + frozen Helios-v2-full HF; default off.")
+    parser.add_argument("--evidence-agent", action="store_true",
+                        help="Enable the NERAL V3.0 evidence agent on the local HF runtime.")
+    parser.add_argument("--port", type=int, choices=(PORT, 9691), default=PORT,
+                        help="Use 9691 for an isolated local acceptance candidate.")
     parser.add_argument("--luna-4b-hf",type=Path,
                         default=Path("D:/neral-qlora-v2/qwen35-4b-hf"))
     parser.add_argument("--helios-9b-hf",type=Path,
@@ -278,6 +290,17 @@ def main(argv=None):
     parser.add_argument("--experimental-dual-routing",action="store_true",
                         help="Opt-in pinned QLoRA for TIR and base-Qwen for raw fallback; default off.")
     args=parser.parse_args(argv)
+    # Explicit process-scoped opt-in for the existing Windows Scheduled Task.
+    # The default remains disabled; no cloud or model setting changes.
+    if os.environ.get("NERAL_V3_AGENT_ENABLED") == "1":
+        args.evidence_agent = True
+    if args.evidence_agent and not args.experimental_three_tier_hf:
+        parser.error("--evidence-agent requires --experimental-three-tier-hf")
+    if args.evidence_agent:
+        try:
+            from lmformatenforcer import JsonSchemaParser  # noqa: F401
+        except ImportError:
+            parser.error("Install the local V3 dependency from requirements-neral-v3.txt")
     from neral_agent_autonomy import OllamaLocalBackend
     from waitress import serve
     high=build_experimental_high(args.model,args.experimental_high_qwen35)
@@ -286,7 +309,6 @@ def main(argv=None):
             raise ValueError("Dual-Routing requires explicit HIGH plus two installed pinned models.")
         from scripts.neral_generalization_100_run import require_exact_models
         require_exact_models()  # fail before listening if either digest differs
-        import os
         os.environ["NERAL_EXPERIMENTAL_DUAL_ROUTE"]="1"
     if args.experimental_three_tier_hf and (args.experimental_high_qwen35 or args.experimental_dual_routing):
         raise ValueError("Three-tier HF cannot share experimental Ollama HIGH/dual routing")
@@ -300,16 +322,17 @@ def main(argv=None):
         tier_runtime=ThreeTierRuntime(
             FrozenQwen35HF(args.luna_4b_hf),
             FrozenQwen35HF(args.helios_9b_hf,full_root=args.helios_v2_full),
-            legacy_backend=legacy)
+            legacy_backend=legacy, evidence_agent=args.evidence_agent)
     app=create_preview_app(legacy,experimental_high_backend=high,
-                           three_tier_runtime=tier_runtime)
-    print(f"NERAL 1.0 Local Preview: {ORIGIN} | LOW={args.model} | "
+                           three_tier_runtime=tier_runtime,port=args.port)
+    version = "3.0" if args.evidence_agent else "1.0"
+    print(f"NERAL {version} Local Preview: http://{HOST}:{args.port} | LOW={args.model} | "
           f"HIGH={getattr(high,'model',args.model)} | "
           f"inference_profile={args.inference_profile} | "
           f"dual_routing_opt_in={args.experimental_dual_routing} | "
           f"three_tier_hf_opt_in={tier_runtime is not None} | "
           "no default model promotion",flush=True)
-    serve(app,host=HOST,port=PORT,threads=4)
+    serve(app,host=HOST,port=args.port,threads=4)
 
 
 if __name__=="__main__":

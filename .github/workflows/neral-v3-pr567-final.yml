@@ -1,0 +1,143 @@
+name: NERAL V3 PR567 independent context and four real Chrome tasks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_evidence_agent.py'
+      - 'neral_preview_server.py'
+      - 'neral_three_tier_runtime.py'
+      - 'neral_page_reader.py'
+      - 'neral_quantity_plans.py'
+      - 'neral_z3_json_compiler.py'
+      - 'static/neral-preview.js'
+      - 'tests/test_neral_evidence_agent.py'
+      - 'scripts/neral_v3_pr567_*.ps1'
+      - 'scripts/neral_v3_pr567_*.cjs'
+      - '.github/workflows/neral-v3-pr567-final.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_evidence_agent.py'
+      - 'neral_preview_server.py'
+      - 'neral_three_tier_runtime.py'
+      - 'neral_page_reader.py'
+      - 'neral_quantity_plans.py'
+      - 'neral_z3_json_compiler.py'
+      - 'static/neral-preview.js'
+      - 'scripts/neral_v3_pr567_*.ps1'
+      - 'scripts/neral_v3_pr567_*.cjs'
+      - '.github/workflows/neral-v3-pr567-final.yml'
+permissions:
+  contents: read
+jobs:
+  context-and-source-cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install bounded CPU test dependencies
+        run: python -m pip install 'Flask>=3,<4' 'z3-solver==4.16.0.0' 'waitress==3.0.2' 'pypdf>=5,<7'
+      - name: Test current-task isolation and evidence provenance
+        run: python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
+      - name: Existing three-tier everyday and Z3 contracts
+        run: python -m unittest discover -s tests -p test_neral_three_tier_everyday.py -v
+      - name: Check exact V3 browser and runtime syntax
+        run: |
+          python -m py_compile neral_evidence_agent.py neral_preview_server.py neral_three_tier_runtime.py
+          node --check scripts/neral_v3_pr567_browser_e2e.cjs
+          node --check static/neral-preview.js
+  guarded-rtx4070-chrome:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'codex/neral-v3-evidence-agent'
+    needs: [context-and-source-cpu]
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-pr567-local-9690-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Owner and commit approval gate for local PC mutation
+        id: permit
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($env:GITHUB_HEAD_REF -eq 'codex/neral-v3-evidence-agent' -and
+             $subject -eq 'ops(v3): owner-approved PR567 four-task Chrome and rollback'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V3_PR567_LOCAL_PC_MUTATION_APPROVED'
+          } else {
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V3_PR567_LOCAL_PC_MUTATION_SAFE_SKIP'
+          }
+      - uses: actions/setup-node@v4
+        if: steps.permit.outputs.run == 'true'
+        with:
+          node-version: '22'
+      - name: Read-only local PowerShell and Chrome source checks
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $tok=$null;$err=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_v3_pr567_upgrade.ps1'),[ref]$tok,[ref]$err) | Out-Null
+          if(@($err).Count -gt 0){throw 'V3 upgrade PowerShell syntax invalid'}
+          & node --check scripts/neral_v3_pr567_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Chrome CDP source syntax invalid'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m unittest discover -s tests -p test_neral_evidence_agent.py -v
+          if($LASTEXITCODE -ne 0){throw 'Current-task isolation CPU tests failed on actual PC'}
+          Write-Host 'NERAL_V3_PR567_LOCAL_CPU_GREEN'
+      - name: Stage exact NERAL service, run 4/4 real Chrome or revert
+        if: steps.permit.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v3_pr567_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'V3 live Chrome gate failed; rollback required'}
+          Write-Host 'NERAL_V3_PR567_REAL_CHROME_4OF4_PASS'
+  merged-main-local-sync:
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'PR #567')"
+    needs: [context-and-source-cpu]
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-pr567-local-9690-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check merged main HEAD and locally installed evidence agent
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REF -ne 'refs/heads/main'){throw 'Not main'}
+          & .\scripts\neral_v3_pr567_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'V3 main deployment failed; rollback required'}
+          # The guarded staging script itself checks the authenticated V3
+          # cookie-backed API via curl; repeat the public HTTP scalar here.
+          $code=@(& curl.exe --noproxy '*' --silent --connect-timeout 4 --max-time 12 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){
+            throw 'V3 merged-main homepage HTTP200 proof missing'
+          }
+          Write-Host ('NERAL_V3_PR567_MERGED_MAIN_HTTP_200 sha='+(& git rev-parse HEAD).Trim())

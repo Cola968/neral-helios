@@ -266,22 +266,23 @@ def compile_z3_json(raw: object) -> str:
     if payload["objective"] == "count_all":
         lines += [
             "count=0",
-            "while solver.check() == z3.sat:",
+            "while (status:=solver.check()) == z3.sat:",
             "    m=solver.model()",
             *checks,
             "    count+=1",
             "    if count>100000: raise RuntimeError('Enumeration limit exceeded')",
             "    solver.add(z3.Or([v != m[v] for v in all_vars]))",
+            "if status != z3.unsat: raise RuntimeError('Z3 could not complete enumeration')",
             "print(count)",
         ]
     else:
         lines += [
-            "if solver.check() == z3.sat:",
+            "if (status:=solver.check()) == z3.sat:",
             "    m=solver.model()",
             *checks,
             "    print('; '.join(str(v)+'='+str(m.eval(v,model_completion=True)) for v in all_vars))",
-            "else:",
-            "    print('UNSAT')",
+            "elif status == z3.unsat: print('UNSAT')",
+            "else: raise RuntimeError('Z3 could not decide satisfiability')",
         ]
     code = "\n".join(lines) + "\n"
     if (len(code.encode("utf-8")) > 4096 or

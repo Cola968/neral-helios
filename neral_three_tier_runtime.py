@@ -161,7 +161,8 @@ class FrozenQwen35HF:
 
     def respond_chat(self, turns: list[dict], *, max_new_tokens: int,
                      temperature: float | None = None,
-                     max_time_seconds: float | None = None) -> str:
+                     max_time_seconds: float | None = None,
+                     response_schema: dict | None = None) -> str:
         # Transformers does not accept temperature=0 as a sampling
         # temperature. Explicit zero means GREEDY decoding, so use
         # do_sample=False and do not pass temperature to generate().
@@ -182,6 +183,14 @@ class FrozenQwen35HF:
         if self.model == HELIOS and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         self._load()
+        generation = {}
+        if response_schema is not None:
+            from neral_evidence_agent import json_token_filter, prepare_json_tokenizer
+            cached = getattr(self, "_json_tokenizer_data", None)
+            if cached is None or cached[0] is not self._tokenizer:
+                cached = self._tokenizer, prepare_json_tokenizer(self._tokenizer)
+                self._json_tokenizer_data = cached
+            generation["prefix_allowed_tokens_fn"] = json_token_filter(cached[1], response_schema)
         import torch
         encoded = self._tokenizer.apply_chat_template(
             turns, tokenize=True, add_generation_prompt=True,
@@ -199,7 +208,7 @@ class FrozenQwen35HF:
                               else 50.0 if max_new_tokens == 768 else 25.0),
                     use_cache=True,
                     pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id)
+                    eos_token_id=self._tokenizer.eos_token_id, **generation)
             produced = output[0, len(encoded):].tolist()
             eos = {self._tokenizer.eos_token_id}
             for special in ("<|im_end|>", "<|endoftext|>"):
@@ -1055,7 +1064,7 @@ def _sandbox_output(report: object) -> str | None:
 
 class ThreeTierRuntime:
     def __init__(self, luna, helios, *, legacy_backend=None,
-                 execute_python=None, execute_dataset_python=None):
+                 execute_python=None, execute_dataset_python=None, evidence_agent=False):
         if (getattr(luna, "model", None) != LUNA or
                 getattr(luna, "adapter_sha256", None) is not None or
                 getattr(helios, "model", None) != HELIOS or
@@ -1081,6 +1090,28 @@ class ThreeTierRuntime:
         if execute_dataset_python is not None and not callable(execute_dataset_python):
             raise ValueError("Dataset Docker callback must be callable")
         self.execute_dataset_python = execute_dataset_python
+        self.evidence_agent = evidence_agent
+
+    def answer_with_evidence(self, turns, tier, *, web_query=None, search=None, files=None,
+                             force_sandbox=False):
+        from neral_evidence_agent import run_evidence_agent
+
+        def respond(instruction, payload, budget, schema):
+            self._switch(self.helios)
+            return self.helios.respond_chat(
+                [{"role": "system", "content": instruction},
+                 {"role": "user", "content": payload}], max_new_tokens=budget,
+                response_schema=schema)
+
+        result = run_evidence_agent(turns[-1]["content"], respond, self.execute_python,
+                                    web_query=web_query, search=search, files=files,
+                                    history=turns[1:-1][-2:], force_sandbox=force_sandbox)
+        return {**result, "tier": "Helios", "mode": "HELIOS", "model": self.helios.model,
+                "model_generated": True, "adapter_loaded": self.helios.loaded,
+                "adapter_sha256": self.helios.adapter_sha256 if self.helios.loaded else None,
+                "model_origin": "local_neral_lora_experimental",
+                "quality_improvement_proven": False,
+                **({"auto_escalated_from": tier} if tier != "Helios" else {})}
 
     def release_for_legacy(self):
         """Drop only this service's HF CUDA state before an Ollama reply.
@@ -1596,6 +1627,10 @@ class ThreeTierRuntime:
         if (type(turns) is not list or len(turns) < 2 or
                 turns[-1].get("role") != "user"):
             raise ValueError("Invalid local chat turns")
+        if self.evidence_agent and not sandbox_files:
+            from neral_evidence_agent import SIMPLE
+            if force_sandbox or not SIMPLE.fullmatch(turns[-1]["content"]):
+                return self.answer_with_evidence(turns, tier, force_sandbox=force_sandbox)
         # Explicit user control bypasses source-only shortcuts. Never
         # fabricate an execution: even greetings must attempt Docker.
         if force_sandbox or sandbox_files:
@@ -1682,7 +1717,7 @@ def _safe_runtime_error_code(exc: Exception) -> str:
     return "runtime_unavailable"
 
 
-def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
+def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_service=None):
     # The CUDA evaluation environment need not install the Flask preview.
     from flask import jsonify, request
     from neral_local_chat_api import _messages
@@ -1710,7 +1745,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
         if not request.is_json:
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
-        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data"}
+        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_query"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
@@ -1719,7 +1754,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             return jsonify(error="Ungültiger Luna/Terra/Helios-Modus."), 400
         try:
             web_stage = None
+            web_query = payload.get("web_query")
+            if "web_query" in payload and (
+                    not runtime.evidence_agent or search_service is None or
+                    type(web_query) is not str or not 2 <= len(web_query.strip()) <= 160 or
+                    not all(ch.isprintable() for ch in web_query) or "web_data" in payload):
+                raise ValueError("Invalid opt-in web query")
             if "web_data" in payload:
+                if runtime.evidence_agent:
+                    raise ValueError("V3 requires server-read web evidence")
                 from neral_v21_attachment_data import prepare_web_dataset
                 web_stage = prepare_web_dataset(payload["web_data"])
             turns = _messages({"prompt": payload["prompt"],
@@ -1738,10 +1781,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            result = runtime.answer(
-                turns, payload["tier"],
-                force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
-                sandbox_files=web_stage["staged_files"] if web_stage else None)
+            if web_query:
+                result = runtime.answer_with_evidence(
+                    turns, payload["tier"], web_query=web_query, search=search_service,
+                    force_sandbox=payload.get("force_sandbox", False))
+            else:
+                result = runtime.answer(
+                    turns, payload["tier"],
+                    force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
+                    sandbox_files=web_stage["staged_files"] if web_stage else None)
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
         except Exception as exc:
