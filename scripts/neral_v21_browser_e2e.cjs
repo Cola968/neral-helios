@@ -133,8 +133,17 @@ async function main(){
         "}return r;};})();true");
     out.account_created=true;
     try{
-      const code=await send("Wie viele Zeichen hat das Wort Universum?",{web:false,kind:"forced",force:true});
+      const code=await send("Was ergibt sieben mal acht?",{web:false,kind:"forced",force:true});
       const response=await net("chat");
+      out.v21.response_meta={
+        http_status:response.status,
+        force_sandbox:response.force_sandbox,
+        verified:response.verified,
+        tool_used:response.tool_used||null,
+        safe_to_promote:response.safe_to_promote,
+        model_generated:response.model_generated,
+        tier:response.tier
+      };
       check(response.force_sandbox===true,"Force flag absent from actual HTTP payload");
       check(response.status===200 && response.verified===false &&
             response.tool_used==="helios_code_sandbox" &&
@@ -142,7 +151,7 @@ async function main(){
             response.tier==="Helios","Real Helios Docker execution not independently attested");
       check(code.status==="Werkzeug: Helios Code-Sandbox (ausgeführt)",
             "V2 status was not displayed beneath the assistant answer");
-      check(/Sandbox-Ausgabe \(nicht unabhängig geprüft\):\s*9/.test(code.body),
+      check(/Sandbox-Ausgabe \(nicht unabhängig geprüft\):\s*56(?:\b|$)/.test(code.body),
             "Real sandbox stdout not visible or numerically wrong");
       out.v21.force_sandbox=true;
       out.status="V21_BROWSER_E2E_PASS";
