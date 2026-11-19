@@ -15,12 +15,12 @@ _PRICE_PER_OZ = re.compile(
     r"(?:€|EUR|Euro)\s*(?:/|pro|je)?\s*(?:Feinunze|Unze|oz)\b"
 )
 _PRICE_UNIT_FIRST = re.compile(
-    r"(?iu)\\b(?:Feinunze|Unze|oz)\\b.{0,35}?"
-    r"(?P<amount>\\d[\\d.,\\u00a0 ]{0,16}?)\\s*(?:€|EUR|Euro)\\b"
+    r"(?iu)\b(?:Feinunze|Unze|oz)\b.{0,35}?"
+    r"(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR|Euro)\b"
 )
 _PRICE_SYMBOL_FIRST = re.compile(
-    r"(?iu)\\b(?:Feinunze|Unze|oz)\\b.{0,35}?"
-    r"(?:€|EUR|Euro)\\s*(?P<amount>\\d[\\d.,\\u00a0 ]{0,16}?)\\b"
+    r"(?iu)\b(?:Feinunze|Unze|oz)\b.{0,35}?"
+    r"(?:€|EUR|Euro)\s*(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\b"
 )
 _CURRENCY = re.compile(
     r"(?iu)(?<!\w)(?P<amount>\d[\d.,\u00a0 ]{0,16}?)\s*(?:€|EUR|Euro)\b"
@@ -318,11 +318,14 @@ def run_v3_web_agent(runtime, turns: list[dict], tier: str, pages: list[dict]) -
     compute=any(s in steps for s in ("python_sandbox","z3_solver"))
     facts=anchored_numeric_facts(page_data)
     if compute:
-        if not facts:
+        needs_ounce_price=(bool(re.search(r"(?iu)\\bFeinunze\\b",question))
+                           and bool(re.search(r"(?iu)\\b(?:Gramm|Goldbarren)\\b",question)))
+        expected=expected_material_value(question,facts)
+        if not facts or (needs_ounce_price and expected is None):
             result=missing_web_data_reply(question,page_data,
-                                          "ein numerischer Ausgangswert mit Einheit")
+                "Goldpreis in EUR pro Feinunze" if needs_ounce_price
+                else "ein numerischer Ausgangswert mit Einheit")
         else:
-            expected=expected_material_value(question,facts)
             import json
             staged={"data/data1.json":json.dumps({
                 "question":question,
