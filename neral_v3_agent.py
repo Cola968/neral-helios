@@ -20,7 +20,7 @@ _MAX_STEPS = 5
 MAX_REPAIRS = 2
 _CURRENCY = re.compile(r"(?iu)(?:€|\beur\b|\beuro\b|\b(?:us\s*)?dollar\b|\bUSD\b)")
 _NUMBER = re.compile(r"(?<![\w])(?:[1-9]\d{0,2}(?:[.\s]\d{3})*(?:,\d+)?|[1-9]\d*(?:[.,]\d+)?)(?!\w)")
-_PRICE = re.compile(r"(?iu)\b(?:preis\w*|kurs\w*|kost\w*|materialwert|betrag|wert\w*|quote\w*|rate|price|exchange|cost|geld)\b")
+_PRICE = re.compile(r"(?iu)\b(?:\w*preis\w*|\w*kurs\w*|kost\w*|materialwert|betrag|wert\w*|quote\w*|rate|price|exchange|cost|geld)\b")
 _SOURCE = re.compile(r"(?iu)\b(?:quelle\w*|beleg\w*|link\w*|source\w*|citation\w*)\b")
 _BAD_FALLBACK = re.compile(r"(?iu)\b(?:dummy|platzhalter(?:wert)?|beispiel(?:kurs|preis)|geschätzt(?:er)?\s+preis|fiktive(?:r)?\s+kurs)\b")
 
@@ -223,6 +223,7 @@ def run_agent_loop(question: str, *, planner: Callable[[str], str],
                 review = checker_verdict(checker(_CHECKER + "\n" + review_text))
                 if review["ok"]:
                     return {"ok": True, "answer": response, "steps": trace,
+                            "worker_result": results[-1],
                             "attempts": attempt + 1, "verified": False}
                 feedback = "Prüfer: " + review["reason"]
             else:
