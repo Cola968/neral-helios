@@ -66,6 +66,18 @@ jobs:
             $source=[string]$docker.Source
             $clientKind=if($source -match '(?i)Docker'){ 'DockerPath' }elseif($source -match '(?i)Podman'){ 'PodmanPath' }else{ 'OtherPath' }
             Write-Host ('NERAL_V21_DOCKER_CLIENT_KIND '+$clientKind)
+            Write-Host ('NERAL_V21_DOCKER_CLIENT_PATH '+[string]$docker.Source)
+            $parent=Split-Path -Parent ([string]$docker.Source)
+            $two=Split-Path -Parent (Split-Path -Parent $parent)
+            $extraExe=@(
+              (Join-Path $parent 'Docker Desktop.exe'),
+              (Join-Path (Split-Path -Parent $parent) 'Docker Desktop.exe'),
+              (Join-Path $two 'Docker Desktop.exe')
+            )
+            Write-Host ('NERAL_V21_DOCKER_CLIENT_ADJACENT_DESKTOP '+[bool](@($extraExe|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf}).Count -gt 0))
+            $desktopHelp=@(& $docker.Source --help 2>$null | Select-String -Pattern '(?m)^\\s+desktop\\s' -ErrorAction SilentlyContinue)
+            Write-Host ('NERAL_V21_DOCKER_CLI_DESKTOP_PLUGIN '+[bool]($desktopHelp.Count -gt 0))
+
             $context=@(& $docker.Source context show 2>$null)
             Write-Host ('NERAL_V21_DOCKER_CONTEXT '+$(if($context.Count -gt 0){($context -join '')}else{'unavailable'}))
             & $docker.Source image inspect neral-python-tools:v2 *> $null
