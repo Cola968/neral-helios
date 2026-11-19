@@ -142,6 +142,124 @@ class EvidenceAgentTest(unittest.TestCase):
         self.execute.assert_not_called()
 
 
+    def test_qualitative_web_comparison_checks_both_sides_not_literal_comparison(self):
+        from neral_evidence_agent import _qualitative_comparison_issue
+        question = ("Suche Webseiten und vergleiche Mozilla Firefox mit Google Chrome: "
+                    "Welche Engine und welche Tracking-Eigenschaften haben sie?")
+        evidence = {
+            "user": question,
+            "web1": "Mozilla Firefox uses the Gecko browser engine. Firefox blocks tracking.",
+            "web2": "Google Chrome uses the Blink browser engine. Chrome has privacy controls.",
+        }
+        citations = [
+            {"source": "web1", "quote": "Mozilla Firefox uses the Gecko browser engine."},
+            {"source": "web2", "quote": "Google Chrome uses the Blink browser engine."},
+        ]
+        sources = [
+            {"page_read": True, "url": "https://mozilla.example.org/engine"},
+            {"page_read": True, "url": "https://chrome.example.org/engine"},
+        ]
+        answer = ("Firefox verwendet Gecko und schützt vor Tracking. "
+                  "Chrome verwendet Blink und bietet Datenschutzeinstellungen. "
+                  "Das ist eine Gegenüberstellung zweier getrennt belegter Merkmale.")
+        self.assertIsNone(_qualitative_comparison_issue(
+            question, answer, citations, evidence, sources))
+
+    def test_qualitative_web_comparison_rejects_missing_web_read(self):
+        from neral_evidence_agent import _qualitative_comparison_issue
+        question = "Vergleiche Firefox mit Chrome: Engine und Tracking."
+        evidence = {"user": question, "web1": "Firefox Gecko", "web2": "Chrome Blink"}
+        citations = [{"source": "web1", "quote": "Firefox Gecko"},
+                     {"source": "web2", "quote": "Chrome Blink"}]
+        sources = [{"page_read": False}, {"page_read": False}]
+        self.assertIn("Webseite", _qualitative_comparison_issue(
+            question, "Firefox Gecko, Chrome Blink.", citations, evidence, sources))
+
+    def test_qualitative_web_comparison_rejects_one_sided_answer(self):
+        from neral_evidence_agent import _qualitative_comparison_issue
+        question = "Vergleiche Firefox mit Chrome: Engine."
+        evidence = {"user": question, "web1": "Firefox Gecko", "web2": "Chrome Blink"}
+        citations = [{"source": "web1", "quote": "Firefox Gecko"},
+                     {"source": "web2", "quote": "Chrome Blink"}]
+        sources = [{"page_read": True}, {"page_read": True}]
+        self.assertIn("Chrome", _qualitative_comparison_issue(
+            question, "Firefox verwendet Gecko.", citations, evidence, sources))
+
+    def test_qualitative_web_comparison_rejects_invented_number(self):
+        from neral_evidence_agent import _qualitative_comparison_issue
+        question = "Vergleiche Firefox mit Chrome: Tracking."
+        evidence = {"user": question, "web1": "Firefox blocks tracking.",
+                    "web2": "Chrome has privacy settings."}
+        citations = [{"source": "web1", "quote": "Firefox blocks tracking."},
+                     {"source": "web2", "quote": "Chrome has privacy settings."}]
+        sources = [{"page_read": True}, {"page_read": True}]
+        self.assertIn("Zahl", _qualitative_comparison_issue(
+            question, "Firefox blockiert 98 % aller Tracker, Chrome bietet Einstellungen.",
+            citations, evidence, sources))
+
+    def test_qualitative_comparison_has_bounded_contradiction_review(self):
+        question = ("Suche Webseiten und vergleiche Mozilla Firefox mit Google Chrome: "
+                    "Welche Engine verwenden sie?")
+        web = Mock(return_value=[
+            {"url": "https://mozilla.example.org/", "page_read": True,
+             "page_text": "Mozilla Firefox uses the Gecko engine."},
+            {"url": "https://chrome.example.org/", "page_read": True,
+             "page_text": "Google Chrome uses the Blink engine."},
+        ])
+        search = Mock()
+        search.search.return_value = {"results": [{"url": "https://mozilla.example.org/"},
+                                                   {"url": "https://chrome.example.org/"}]}
+        packets = [
+            {"tool": "direct_reasoning", "parts": ["Beide Engines gegenüberstellen"]},
+            {"answer": "Firefox verwendet Gecko. Chrome verwendet Blink.",
+             "citations": ["p1", "p2"]},
+            {"contradiction": False, "claim": "", "source_quote": ""},
+        ]
+        calls = []
+        def respond(system, raw, budget, schema):
+            calls.append((system, json.loads(raw)))
+            return json.dumps(packets.pop(0))
+        result = run_evidence_agent(question, respond, Mock(), web_query="Firefox Chrome engines",
+                                    search=search, page_reader=web)
+        self.assertTrue(result["agent_checked"])
+        self.assertEqual(result["agent_attempts"], 1)
+        self.assertIn("Firefox verwendet Gecko.", result["text"])
+        self.assertIn("[web1]", result["text"])
+        self.assertIn("[web2]", result["text"])
+        self.assertEqual(len(calls), 3)
+        self.assertNotIn("history", calls[-1][1])
+
+    def test_qualitative_comparison_rejects_cited_contradiction(self):
+        question = "Vergleiche Firefox mit Chrome: Engine."
+        web = Mock(return_value=[
+            {"url": "https://mozilla.example.org/", "page_read": True,
+             "page_text": "Firefox uses Gecko engine."},
+            {"url": "https://chrome.example.org/", "page_read": True,
+             "page_text": "Chrome uses Blink engine."},
+        ])
+        search = Mock()
+        search.search.return_value={"results":[{"url":"https://mozilla.example.org/"},
+                                                 {"url":"https://chrome.example.org/"}]}
+        packets = [
+            {"tool": "direct_reasoning", "parts": ["Engines"]},
+            {"answer": "Firefox verwendet Blink. Chrome verwendet Gecko.",
+             "citations": ["p1", "p2"]},
+            {"contradiction": True, "claim": "Firefox verwendet Blink.",
+             "source_quote": "Firefox uses Gecko engine."},
+            {"tool": "direct_reasoning", "parts": ["Engines"]},
+            {"answer": "Firefox verwendet Gecko. Chrome verwendet Blink.",
+             "citations": ["p1", "p2"]},
+            {"contradiction": False, "claim": "", "source_quote": ""},
+        ]
+        def respond(system, raw, budget, schema):
+            return json.dumps(packets.pop(0))
+        result = run_evidence_agent(question, respond, Mock(), web_query="Firefox Chrome engines",
+                                    search=search, page_reader=web)
+        self.assertTrue(result["agent_checked"])
+        self.assertEqual(result["agent_attempts"], 2)
+        self.assertIn("Firefox verwendet Gecko.", result["text"])
+
+
 class PageReaderTest(unittest.TestCase):
     def test_extracts_text_without_navigation_or_scripts(self):
         p = MainText()
