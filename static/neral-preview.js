@@ -1000,7 +1000,7 @@
       if(threeTierEnabled && !selectedAttachments.length){
         path="/api/neral/chat/three-tier";
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
-                                     history:safeHistory(),force_sandbox:forceSandbox,
+                                     history:safeHistory(),force_sandbox:forceSandbox,v3_agent:true,
                                      ...(readPages.length ? {web_pages:readPages}: {}),
                                      ...(webData.length && !readPages.length &&
                                          (forceSandbox||isWebDataQuestion(text))
