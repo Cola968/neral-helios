@@ -1,0 +1,36 @@
+name: NERAL V3 universal reader and agent regression
+on:
+  pull_request:
+    paths:
+      - 'neral_v3_web_reader.py'
+      - 'neral_v3_agent.py'
+      - 'neral_web_api.py'
+      - 'neral_v21_attachment_data.py'
+      - 'neral_three_tier_runtime.py'
+      - 'static/neral-preview.js'
+      - 'static/neral-web-live.js'
+      - 'tests/test_neral_v3_universal.py'
+      - '.github/workflows/neral-v3-universal-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  v3-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests for page reader, agent and dummy-guard
+        run: python -m unittest discover -s tests -p test_neral_v3_universal.py -v
+      - name: Existing web and local runtime regressions
+        run: |
+          python -m unittest discover -s tests -p test_neral_web_search.py -v
+          python -m unittest discover -s tests -p test_neral_live_sources.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_everyday.py -v
+      - name: V3 JavaScript syntax
+        run: |
+          node --check static/neral-preview.js
+          node --check static/neral-web-live.js
