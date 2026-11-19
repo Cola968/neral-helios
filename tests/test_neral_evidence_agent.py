@@ -211,7 +211,8 @@ class EvidenceAgentTest(unittest.TestCase):
                                                    {"url": "https://chrome.example.org/"}]}
         packets = [
             {"tool": "direct_reasoning", "parts": ["Beide Engines gegenüberstellen"]},
-            {"answer": "Firefox verwendet Gecko. Chrome verwendet Blink.",
+            {"left": "verwendet Gecko.", "right": "verwendet Blink.",
+             "synthesis": "Beide verwenden unterschiedliche Rendering-Engines.",
              "citations": ["p1", "p2"]},
             {"contradiction": False, "claim": "", "source_quote": ""},
         ]
@@ -223,7 +224,7 @@ class EvidenceAgentTest(unittest.TestCase):
                                     search=search, page_reader=web)
         self.assertTrue(result["agent_checked"])
         self.assertEqual(result["agent_attempts"], 1)
-        self.assertIn("Firefox verwendet Gecko.", result["text"])
+        self.assertIn("Firefox: verwendet Gecko.", result["text"])
         self.assertIn("[web1]", result["text"])
         self.assertIn("[web2]", result["text"])
         self.assertEqual(len(calls), 3)
@@ -242,12 +243,14 @@ class EvidenceAgentTest(unittest.TestCase):
                                                  {"url":"https://chrome.example.org/"}]}
         packets = [
             {"tool": "direct_reasoning", "parts": ["Engines"]},
-            {"answer": "Firefox verwendet Blink. Chrome verwendet Gecko.",
+            {"left": "verwendet Blink.", "right": "verwendet Gecko.",
+             "synthesis": "Die beiden Engines unterscheiden sich.",
              "citations": ["p1", "p2"]},
-            {"contradiction": True, "claim": "Firefox verwendet Blink.",
+            {"contradiction": True, "claim": "Firefox: verwendet Blink.",
              "source_quote": "Firefox uses Gecko engine."},
             {"tool": "direct_reasoning", "parts": ["Engines"]},
-            {"answer": "Firefox verwendet Gecko. Chrome verwendet Blink.",
+            {"left": "verwendet Gecko.", "right": "verwendet Blink.",
+             "synthesis": "Beide verwenden unterschiedliche Rendering-Engines.",
              "citations": ["p1", "p2"]},
             {"contradiction": False, "claim": "", "source_quote": ""},
         ]
@@ -257,7 +260,7 @@ class EvidenceAgentTest(unittest.TestCase):
                                     search=search, page_reader=web)
         self.assertTrue(result["agent_checked"])
         self.assertEqual(result["agent_attempts"], 2)
-        self.assertIn("Firefox verwendet Gecko.", result["text"])
+        self.assertIn("Firefox: verwendet Gecko.", result["text"])
 
 
 class PageReaderTest(unittest.TestCase):
