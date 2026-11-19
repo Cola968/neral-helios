@@ -1,4 +1,4 @@
-# Explicit owner approval: run sealed synthetic cases only against the existing local V3 app.
+# Explicit owner approval: rerun sealed benchmark after HTML-to-JSON session bootstrap repair.
 name: NERAL V3.1 sealed prospective 100-case quality gate
 on:
   pull_request:
