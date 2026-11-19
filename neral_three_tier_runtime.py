@@ -1259,6 +1259,31 @@ class ThreeTierRuntime:
                             "Netzwerk, keine Shell. Werte mit print ausgeben.")}
                     ]
                     continue
+            # V3: a missing external page field must never silently become
+            # a default price/rate of zero. Reject the code BEFORE Docker.
+            v3_web = (os.environ.get("NERAL_V3_AGENT") == "1"
+                      and sandbox_files is not None
+                      and "data/data1.json" in sandbox_files
+                      and "Gelesene Webseiten" in source)
+            if v3_web and not constraint_mode:
+                from neral_v3_agent import reject_dummy_code
+                if reject_dummy_code(code):
+                    output = None
+                    failure_code = "source_mismatch"
+                    last_error = "Webdaten durch Null/None-Platzhalter ersetzt"
+                    failure_trace.append({"stage":"web_input",
+                        "error_type":"DummyWebInput","error_code":failure_code})
+                    prompt_turns = base + [
+                        {"role":"assistant","content":prior},
+                        {"role":"user","content":(
+                            "Der Code wurde wegen eines Null-/None-Fallbacks "
+                            "für fehlende Webdaten vor der Ausführung abgelehnt. "
+                            "Lies die echte Seite aus data/data1.json; keine "
+                            "get(...,0), or 0 oder erfundenen Preise. "
+                            "Fehlt eine Zahl, gib die Lücke als Text aus, "
+                            "keine scheinbare Rechnung. Nur Python-Codeblock.")}
+                    ]
+                    continue
             try:
                 if sandbox_files:
                     if self.execute_dataset_python is None:
@@ -1271,6 +1296,33 @@ class ThreeTierRuntime:
             except Exception:
                 report = {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
             output = _sandbox_output(report)
+            if output is not None and v3_web and not constraint_mode:
+                from neral_v3_agent import validate_web_calculation
+                try:
+                    pages = json.loads(sandbox_files["data/data1.json"])
+                except (TypeError, ValueError, UnicodeError):
+                    pages = []
+                original = _original_web_question(source).split("\nDatenquelle:",1)[0]
+                checked = validate_web_calculation(original,pages,stdout=output,code=code)
+                if not checked["ok"]:
+                    last_error = checked["message"]
+                    failure_code = "source_mismatch"
+                    failure_trace.append({
+                        "stage":"web_evidence","error_type":checked["code"],
+                        "error_code":failure_code})
+                    output = None
+                    prompt_turns = base + [
+                        {"role":"assistant","content":prior},
+                        {"role":"user","content":(
+                            "Die Web-Evidenzprüfung lehnte die Rechnung ab: "
+                            +last_error+
+                            " Benutze nur konkrete Zahlen und Einheiten aus "
+                            "read_status=read, content in data/data1.json. "
+                            "Keine Preisannahmen, kein Standardwert 0. "
+                            "Bei fehlendem Wert gib eine klare Textdiagnose "
+                            "statt einer Zahl aus. Nur ein Python-Codeblock.")}
+                    ]
+                    continue
             if output is not None and not constraint_mode and not sandbox_files:
                 person_ok = _source_person_nights_output_ok(source, output)
                 if person_ok is False:
@@ -1738,10 +1790,20 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            result = runtime.answer(
-                turns, payload["tier"],
-                force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
-                sandbox_files=web_stage["staged_files"] if web_stage else None)
+            if (os.environ.get("NERAL_V3_AGENT") == "1" and (
+                    web_stage is not None or payload.get("force_sandbox",False)
+                    or _is_free_compute_task(
+                        _original_web_question(payload["prompt"])))):
+                from neral_v3_runtime import answer_v3
+                result = answer_v3(runtime,turns,payload["tier"],
+                    web_stage=web_stage,
+                    sandbox_files=web_stage["staged_files"] if web_stage else None,
+                    force_sandbox=payload.get("force_sandbox",False))
+            else:
+                result = runtime.answer(
+                    turns, payload["tier"],
+                    force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
+                    sandbox_files=web_stage["staged_files"] if web_stage else None)
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
         except Exception as exc:
