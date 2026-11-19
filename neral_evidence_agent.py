@@ -409,17 +409,24 @@ def _is_qualitative_web_comparison(question, plan, sources):
 
 
 def _entity_search_query(web_query, name, entities, search_index):
-    """Only search for explicit subjects and user-supplied task vocabulary."""
-    rest = web_query
+    """Compose one subject-specific search from the user's requested topic."""
+    # Comparison instructions ("find pages, compare...") are not useful search
+    # keywords. Prefer the actual features after the question's colon.
+    task = web_query.split(":", 1)[-1] if ":" in web_query else web_query
     for other in entities:
-        rest = re.sub(r"(?<!\w)" + re.escape(other) + r"(?!\w)", " ", rest, flags=re.I)
-    rest = re.sub(r"(?i)\b(?:vs|versus|vergleich\w*|vergleiche|unterschied\w*|und|mit|zwischen)\b",
-                  " ", rest)
-    context = " ".join(re.findall(r"[\w-]+", rest))[:80].strip()
-    if not context:
-        context = "Eigenschaften"
-    suffix = ("", "offizielle Funktionen", "Fakten Hintergrund")[min(search_index, 2)]
-    return " ".join(piece for piece in (name, context, suffix) if piece)[:150]
+        task = re.sub(r"(?<!\w)" + re.escape(other) + r"(?!\w)", " ", task, flags=re.I)
+    stop = {"suche", "aktuelle", "webseiten", "vergleiche", "vergleich",
+            "welche", "welcher", "welches", "werden", "wird", "beim", "beide",
+            "verwenden", "beschrieben", "nenne", "belegbare", "quellen",
+            "unterschiede", "zwischen", "gegen", "und", "mit", "den", "die",
+            "das", "für", "eine", "einen", "einem", "sich", "über", "welchen",
+            "welchem", "welcher", "seine", "ihre", "dieser", "diese", "sind",
+            "what", "which", "compare", "versus", "vs", "between", "and", "the"}
+    terms = [word for word in re.findall(r"[\w-]+", task)
+             if len(word) >= 3 and word.casefold() not in stop]
+    context = " ".join(terms[:7]) or "Eigenschaften"
+    suffix = ("", "official features", "reference facts")[min(search_index, 2)]
+    return " ".join(part for part in (name, context, suffix) if part)[:150]
 
 
 def _qualitative_comparison_issue(question, answer, citations, evidence, sources):
