@@ -228,7 +228,7 @@ $env:PYTHONPATH=$deps+[IO.Path]::PathSeparator+$existing+[IO.Path]::PathSeparato
 # Windows PowerShell 5.1 turns native stderr into a terminating error if
 # ErrorActionPreference=Stop, even for an intentional missing-import probe.
 $ErrorActionPreference='Continue'
-& $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")' 2>$null
+& $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print(567)' 2>$null
 $hasEnforcer=($LASTEXITCODE -eq 0)
 $ErrorActionPreference='Stop'
 if(-not $hasEnforcer){
@@ -241,7 +241,7 @@ if(-not $hasEnforcer){
   $ErrorActionPreference='Stop'
   if($pipExit -ne 0){throw 'V3 isolated JSON enforcer wheel installation failed; service unchanged'}
   $ErrorActionPreference='Continue'
-  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print("NERAL_V3_LMFE_AVAILABLE")'
+  & $python -B -c 'from lmformatenforcer import JsonSchemaParser; import interegular; print(567)'
   $probeExit=$LASTEXITCODE
   $ErrorActionPreference='Stop'
   if($probeExit -ne 0){throw 'V3 isolated dependency import failed; service unchanged'}
