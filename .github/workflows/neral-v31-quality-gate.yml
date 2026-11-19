@@ -1,4 +1,4 @@
-# V3.1 evaluation is opt-in on the owner's local RTX4070. No service mutation.
+# Owner-authorized V3.1 real 100-case benchmark; no model or service mutation.
 name: NERAL V3.1 prospective 100-case integrity and RTX4070 benchmark
 on:
   pull_request:
