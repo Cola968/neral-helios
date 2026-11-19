@@ -82,6 +82,21 @@ class V31ProspectiveCases(unittest.TestCase):
         self.assertIn("median",result["latency_seconds"])
         self.assertIn("p95",result["latency_seconds"])
 
+    def test_report_rejects_mismatched_case_evidence_or_fake_boolean(self):
+        cases=build_cases()
+        rows=[score_case(c,{"text":str(c.get("gold","")),"seconds":0.1},200)
+              for c in cases]
+        for field,value in (
+            ("question_sha256","0"*64),
+            ("category","web"),
+            ("passed",1),
+            ("critical_unverified","true"),
+        ):
+            changed=[dict(r) for r in rows]
+            changed[0][field]=value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                summarize(cases,changed)
+
     def test_manifest_rejects_duplicates_and_altered_gold(self):
         cases=build_cases()
         with self.assertRaises(ValueError):
