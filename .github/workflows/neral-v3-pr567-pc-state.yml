@@ -85,5 +85,24 @@ jobs:
             $status='curl_exit_'+$curlExit+'_http_'+($probe -join '')
           }
           Write-Host ('NERAL_PR567_HTTP_DIAG owner='+$owner+' process_name='+$ownerName+' probe='+$status)
+          # Curl cookie roundtrip: compare session endpoint without printing
+          # session tokens, response body or user data.
+          $jar=Join-Path $env:RUNNER_TEMP ('neral-probe-'+[guid]::NewGuid().ToString('N')+'.txt')
+          $homeCode='n/a';$apiCode='n/a';$apiExit=-1
+          try{
+            if($curl){
+              $ErrorActionPreference='Continue'
+              $homeCode=(@(& $curl.Source --noproxy '*' --silent --connect-timeout 4 --max-time 15 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join '')
+              $homeExit=$LASTEXITCODE
+              $apiCode=(@(& $curl.Source --noproxy '*' --silent --connect-timeout 4 --max-time 15 --cookie-jar $jar --cookie $jar --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/api/neral/preview/session' 2>$null) -join '')
+              $apiExit=$LASTEXITCODE
+              $ErrorActionPreference='Stop'
+              Write-Host ('NERAL_PR567_COOKIE_HTTP_STATUS home='+$homeCode+' session='+$apiCode+
+                ' home_exit='+$homeExit+' session_exit='+$apiExit)
+            }
+          }finally{
+            if(Test-Path -LiteralPath $jar -PathType Leaf){Remove-Item -LiteralPath $jar -Force}
+          }
+
 
 
