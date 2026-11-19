@@ -141,8 +141,8 @@ class ThreeTierContracts(unittest.TestCase):
         self.assertFalse(answer["verified"])
         self.assertIsNone(answer["proof_backend"])
         self.assertFalse(answer["sandbox_executed"])
-        self.assertEqual(len(high.calls), 3,
-            "Quantitative unknown source must try bounded Helios sandbox, not guess")
+        self.assertEqual(len(high.calls), 4,
+            "Three code attempts plus unverified Helios fallback, never fake proof")
 
     def test_invalid_model_identity_and_tier_fail_closed(self):
         runtime, low, high, _ = make_runtime()
