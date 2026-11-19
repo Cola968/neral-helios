@@ -1089,6 +1089,21 @@
           result.sandbox_executed === true &&
           result.verified === false && result.safe_to_promote === false
         ? "Werkzeug: Helios Code-Sandbox (ausgeführt)"
+        : tierResponse && result.tier==="Helios" &&
+          result.sandbox_executed===false &&
+          typeof result.sandbox_failure_code==="string" &&
+          ["docker_unavailable","image_unavailable","invalid_python_code",
+           "runtime_error","empty_stdout","timeout"].includes(result.sandbox_failure_code)
+        ? "Werkzeug: Python-Sandbox fehlgeschlagen ("+
+          ({
+            docker_unavailable:"Docker nicht aktiv",
+            image_unavailable:"Solver-Image fehlt",
+            invalid_python_code:"Python-Code ungültig",
+            runtime_error:"Laufzeitfehler",
+            empty_stdout:"Keine Ausgabe",
+            timeout:"Zeitlimit erreicht"
+          }[result.sandbox_failure_code])+
+          ") · Modus: Helios (Modellantwort ungeprüft)"
         : sources.length
         ? "Werkzeug: Websuche ("+sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
         : tierResponse
