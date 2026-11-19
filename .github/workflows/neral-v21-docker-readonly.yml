@@ -1,0 +1,43 @@
+name: NERAL V2.1 read-only Docker readiness after PC reboot
+on:
+  push:
+    branches: [feat/neral-v21-universal-sandbox-20261118]
+    paths: ['.github/workflows/neral-v21-docker-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  local-docker-check:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read only Docker Desktop, engine and pinned image state
+        run: |
+          $ErrorActionPreference='Continue'
+          $docker=Get-Command docker.exe -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_DOCKER_CLIENT_PRESENT '+[bool]($null -ne $docker))
+          $service=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          Write-Host ('NERAL_V21_DOCKER_SERVICE_STATE '+$(if($service){[string]$service.Status}else{'missing'}))
+          $desktop='C:/Program Files/Docker/Docker/Docker Desktop.exe'
+          Write-Host ('NERAL_V21_DOCKER_DESKTOP_EXE_PRESENT '+[bool](Test-Path -LiteralPath $desktop -PathType Leaf))
+          $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue).Count
+          Write-Host ('NERAL_V21_DOCKER_DESKTOP_PROCESS_PRESENT '+[bool]($running -gt 0))
+          if($null -ne $docker){
+            $context=@(& $docker.Source context show 2>$null)
+            Write-Host ('NERAL_V21_DOCKER_CONTEXT '+$(if($context.Count -gt 0){($context -join '')}else{'unavailable'}))
+            & $docker.Source image inspect neral-python-tools:v2 *> $null
+            $ready=($LASTEXITCODE -eq 0)
+            Write-Host ('NERAL_V21_DOCKER_PINNED_IMAGE_READY '+[bool]$ready)
+            if($ready){
+              $probe=@(& $docker.Source run --rm --pull never --network none --read-only --memory 256m --cpus 0.5 --pids-limit 32 neral-python-tools:v2 python -B -c 'import sympy,z3;print(7*8)' 2>$null)
+              Write-Host ('NERAL_V21_DOCKER_REAL_EXEC_OK '+[bool]($LASTEXITCODE -eq 0 -and ($probe -join '').Trim() -eq '56'))
+            }
+          }
