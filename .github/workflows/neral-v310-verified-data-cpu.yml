@@ -1,0 +1,41 @@
+name: NERAL Verified Training Dataset CPU-only preflight (NO GPU)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_verified_training.py'
+      - 'neral_three_tier_runtime.py'
+      - 'scripts/neral_v39_import_verified.py'
+      - 'scripts/neral_v39_prepare_local_dataset.py'
+      - 'scripts/neral_qlora_verified_v39.py'
+      - 'datasets/neral_v39_seed97.jsonl'
+      - 'tests/test_neral_verified_training_data.py'
+      - 'tests/test_neral_verified_qlora_cpu.py'
+      - '.github/workflows/neral-v310-verified-data-cpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu-only-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verified logger and importer CPU tests
+        run: python -m unittest discover -s tests -p test_neral_verified_training_data.py -v
+      - name: r16 NF4 and seed97 CPU tests
+        run: python -m unittest discover -s tests -p test_neral_verified_qlora_cpu.py -v
+      - name: Offline CPU-only QLoRA dry-run
+        run: python -m scripts.neral_qlora_verified_v39 --check-cpu --train datasets/neral_v39_seed97.jsonl
+      - name: Python syntax checks (no model/GPU import)
+        run: |
+          python -m py_compile neral_three_tier_runtime.py neral_verified_training.py scripts/neral_v39_import_verified.py scripts/neral_v39_prepare_local_dataset.py scripts/neral_qlora_verified_v39.py
