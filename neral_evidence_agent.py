@@ -525,6 +525,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         verified_python_question, verified_shift_count, verified_math_question,
         grounded_entity_facts, property_grounded_web_answer, _property_type,
         _property_evidence)
+    from neral_page_reader import evidence_sentence_windows
     if not files and not web_query:
         for verify in (verified_python_question, verified_shift_count, verified_math_question):
             certified = verify(question, execute)
@@ -536,13 +537,15 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             # Always search by subject and property, not with memorized
             # expected answers or benchmark gold. Require actual read pages.
             typed = _property_type(question)
+            # Prefer present-day descriptions, primary technical docs and
+            # introductory/infobox facts over historical comparison snippets.
             query_terms = {
-                "engine": ("browser rendering engine implementation",
-                           "browser engine technical documentation"),
-                "creator": ("programming language created by developer",
-                            "programming language creator designed by"),
-                "kernel": ("operating system kernel architecture",
-                           "operating system kernel software"),
+                "engine": ("current browser rendering layout engine official documentation",
+                           "browser rendering engine MDN Wikipedia"),
+                "creator": ("programming language creator originally designed by documentation",
+                            "programming language original author creator Wikipedia"),
+                "kernel": ("operating system kernel architecture official documentation",
+                           "operating system kernel source technical overview"),
             }
             verified_pages = []
             collected_urls = set()
@@ -555,22 +558,62 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             hits.get("results", []), query, name,
                             reader=page_reader, max_pages=3,
                             exclude_urls=tuple(collected_urls),
-                            predicate=lambda p: _property_evidence(
-                                p.get("page_text",""),name,typed) is not None)
+                            predicate=lambda p: (
+                                _property_evidence(p.get("page_text",""),name,typed) is not None
+                                or bool(evidence_sentence_windows(
+                                    p.get("page_text",""),name,typed))))
                     except WebSearchError:
                         pages = []
                     for page in pages:
                         if page.get("url") in collected_urls:
                             continue
-                        if _property_evidence(page.get("page_text",""),name,typed) is None:
+                        if (_property_evidence(page.get("page_text",""),name,typed) is None
+                                and not evidence_sentence_windows(page.get("page_text",""),name,typed)):
                             continue
                         verified_pages.append({**page, "entity_focus":name})
                         collected_urls.add(page["url"])
                         break
                     if any(p.get("entity_focus") == name for p in verified_pages):
                         break
+            def propose_literal_fact(entity, prop, page_text, windows):
+                # Helios proposes a JSON fact, but cannot certify its own
+                # output. Only the deterministic verifier may approve it.
+                # Never include test gold values, search snippets, or URLs
+                # as alleged proof sentences.
+                schema = {
+                    "type":"object","additionalProperties":False,
+                    "properties":{
+                        "entity":{"type":"string","maxLength":90},
+                        "fact":{"type":"string","maxLength":90},
+                        "evidence_sentence":{"type":"string","maxLength":650},
+                    },
+                    "required":["entity","fact","evidence_sentence"],
+                }
+                instructions = (
+                    "Extract one complete current factual property from the "
+                    "provided literal read-page sentences. Return ONLY JSON "
+                    "with entity, fact, evidence_sentence. The evidence_sentence "
+                    "MUST be copied verbatim and in full from one supplied "
+                    "sentence. The fact MUST appear as a whole word/name in "
+                    "that sentence and must be a value for the requested "
+                    "property of the requested entity. Never answer 'same', "
+                    "a category name, a nickname, a historical browser "
+                    "engine, or a shortened/truncated personal name. "
+                    "If no complete source fact exists, return empty strings.")
+                payload={
+                    "entity":entity,"property":prop,
+                    "source_sentences":[w["sentence"] for w in windows[:8]],
+                    "context":[w["context"][:400] for w in windows[:4]],
+                }
+                try:
+                    raw=respond(instructions,json.dumps(payload,ensure_ascii=False),
+                                420,schema)
+                    return _json_object(raw)
+                except (ValueError,TypeError,RuntimeError,RecursionError):
+                    return None
             direct = property_grounded_web_answer(
-                tuple(compare_names), verified_pages, web_query)
+                tuple(compare_names), verified_pages, web_query,
+                proposer=propose_literal_fact)
             if direct is not None:
                 return direct
     sources = []
