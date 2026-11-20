@@ -535,7 +535,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         if len(compare_names) >= 2 and not _FORMAL_INTENT.search(question):
             # Always search by subject and property, not with memorized
             # expected answers or benchmark gold. Require actual read pages.
-            typed = _property_type(web_query)
+            typed = _property_type(question)
             query_terms = {
                 "engine": ("browser rendering engine implementation",
                            "browser engine technical documentation"),
