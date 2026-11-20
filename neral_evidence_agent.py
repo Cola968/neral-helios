@@ -530,7 +530,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             certified = verify(question, execute)
             if certified is not None:
                 return {**certified, "agent_attempts": 1}
-    if not files and web_query and search is not None and _property_type(web_query):
+    if not files and web_query and search is not None and _property_type(question):
         compare_names = _comparison_entities(question)
         if len(compare_names) >= 2 and not _FORMAL_INTENT.search(question):
             # Always search by subject and property, not with memorized
