@@ -337,7 +337,9 @@ def _work(plan, packet, evidence, execute, external, numeric_evidence):
             raise AgentError("Für Z3 aus externen Zahlen fehlen gebundene Parameter. Keine Berechnung ausgeführt.")
         if set(packet) != {"schema", "legend"} or not _short(packet["legend"], 420):
             raise AgentError("Z3-Schema oder Legende fehlt.")
-        code = compile_z3_json(json.dumps(packet["schema"], ensure_ascii=False))
+        from neral_v32_verifier import normalize_z3_schema
+        normalized = normalize_z3_schema(packet["schema"])
+        code = compile_z3_json(json.dumps(normalized, ensure_ascii=False))
         return packet["legend"] + "\nZ3: " + _run(execute, code)
     if (set(packet) != {"answer", "citations"} or not _short(packet["answer"], 3200) or
             not isinstance(packet["citations"], list) or len(packet["citations"]) > 8):
@@ -372,6 +374,7 @@ def _comparison_entities(question):
         return ()
     normalized = " ".join(question.split())
     patterns = (
+        r"(?i)^([^\n:?!]{1,120}\s+(?:vs\.?|versus)\s+[^\n:?!]{1,120})(?=:)",
         r"(?i)\bvergleiche\s+(.+)",
         r"(?i)\b(?:vergleich|gegenüberstellung)(?:\s+(?:von|zwischen))?\s+(.+)",
         r"(?i)\bunterschied\w*\s+zwischen\s+(.+)",
@@ -515,6 +518,36 @@ def _include_literal_comparison_sources(question, packet, evidence, sources):
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False):
     """Only the user-authorized search query can leave the machine."""
+    # V3.2: deterministically execute exact user-provided Python source and
+    # independently certified four-person counting constraints before any
+    # model-authored planner, worker or subjective LLM validation veto.
+    from neral_v32_verifier import (verified_python_question, verified_shift_count,
+                                    deterministic_web_answer)
+    if not files and not web_query:
+        for verify in (verified_python_question, verified_shift_count):
+            certified = verify(question, execute)
+            if certified is not None:
+                return {**certified, "agent_attempts": 1}
+    if web_query and search is not None and not files:
+        names = _comparison_entities(question)
+        if names and not _FORMAL_INTENT.search(question):
+            read = []
+            seen_urls = set()
+            for entity in names:
+                query = _entity_search_query(web_query, entity, names, 0)
+                try:
+                    found = search.search(query)
+                    pages = read_entity_pages(found.get("results", []), query, entity,
+                                              reader=page_reader, max_pages=2)
+                except WebSearchError:
+                    pages = []
+                for page in pages:
+                    if page.get("url") not in seen_urls:
+                        read.append({**page,"entity_focus":entity})
+                        seen_urls.add(page["url"])
+            cited = deterministic_web_answer(names,read)
+            if cited is not None:
+                return {**cited, "agent_attempts":1}
     sources = []
     evidence = {"user": question, **(files or {})}
     # Standalone task isolation: earlier chat turns remain in the UI but do
@@ -590,7 +623,14 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         return {"text": text, "verified": False, "safe_to_promote": False, "proof_backend": None,
                 "verification_scope": "tool_execution_and_model_review" if checked else "none",
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
-                "tool_used": executed, "sources": [{k: v for k, v in s.items() if k != "page_text"}
+                "tool_used": executed, "tool_verified": bool(checked and executed),
+                "error_code": (None if checked else (
+                    "z3_schema_error" if "Z3" in issue or "Schema" in issue
+                    else "sandbox_error" if "Docker" in issue or "Sandbox" in issue
+                    else "checker_veto" if executed or "Prüfer" in issue
+                    else "format_mismatch" if "JSON" in issue or "Modellantwort" in issue
+                    else "no_tool_called")),
+                "sources": [{k: v for k, v in s.items() if k != "page_text"}
                                                    for s in sources]}
 
     for attempt in range(MAX_REPAIRS + 1):
@@ -726,6 +766,12 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             # Report the selected reasoning path even when no sandbox or Z3
             # subprocess was needed. Chrome E2E verifies this observable mode.
             executed = plan["tool"]
+            # Tool stdout is already checked by _run, _calculate and the
+            # trusted Z3 compiler. A model veto cannot overturn an actual
+            # successfully executed deterministic arithmetic result.
+            if executed == "python_sandbox":
+                steps.append("deterministic_stdout_verifier")
+                return result(answer, checked=True, attempts=attempt+1)
             steps.append("validation_checker")
             if passages and _is_qualitative_web_comparison(question, plan, sources):
                 issue = _qualitative_comparison_issue(
