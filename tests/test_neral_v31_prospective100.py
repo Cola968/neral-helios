@@ -26,6 +26,15 @@ class V31ProspectiveSuite(unittest.TestCase):
                              hashlib.sha256(row["question"].encode("utf8")).hexdigest())
             self.assertNotIn("answer", row["question"].lower())
 
+    def test_random_seeds_never_duplicate_questions(self):
+        # Programming source template f==2 depends on (a,b) but not c.
+        # Random collision must resample, not abort the entire real GPU gate.
+        for i in range(256):
+            with self.subTest(i=i):
+                suite=build_suite(f"{i:032x}")
+                self.assertEqual(len(suite),100)
+                self.assertEqual(len({c["question_sha256"] for c in suite}),100)
+
     def test_secret_seed_changes_math_logic_programming(self):
         a = build_suite("00112233445566778899aabbccddeeff")
         b = build_suite("ffeeddccbbaa99887766554433221100")
