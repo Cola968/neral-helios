@@ -444,75 +444,134 @@ def _property_type(topic: str) -> str | None:
     return None
 
 
-def _property_evidence(text: str, entity: str, prop: str) -> tuple[str,str] | None:
-    """Return (property, verbatim quote) from a local subject/fact clause.
+_INVALID_PROPERTY_VALUES = frozenset({
+    "same", "identical", "unknown", "n/a", "none",
+    "javascript", "open standards", "browser", "rendering",
+    "engine", "layout engine", "language", "developer",
+})
+_HISTORICAL_ENGINE = re.compile(
+    r"\b(?:initially|originally|formerly|previously|historically|"
+    r"used to|früher|ursprünglich|prior to|in the past)\b", re.I)
+_PERSON = re.compile(
+    r"[A-ZÀ-Ý][a-zà-ÿ]{2,}(?:\s+(?:van|von|de|da|der|dos))?"
+    r"\s+[A-ZÀ-Ý][a-zà-ÿ]{2,}(?:\s+[A-ZÀ-Ý][a-zà-ÿ]{2,})?"
+)
+_ENGINE_VALUE = re.compile(
+    r"\b([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:-[A-Za-z0-9]+)?)\s+"
+    r"(?:(?:rendering|browser|layout)\s+)?engine\b")
+_ENGINE_VERB = re.compile(
+    r"\b(?:uses|utilizes|runs on|basiert auf|nutzt|verwendet|"
+    r"powered by|is built on)\s+(?:the\s+)?"
+    r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b",re.I)
+_CREATOR_BY = re.compile(
+    r"\b(?:created|developed|designed|invented|authored)\s+by\s+|"
+    r"\b(?:entwickelt|erschaffen|entworfen)\s+von\s+",re.I)
 
-    Candidates must be explicitly linked to entity and not merely appear in
-    a different section on a page. A short context window, not model-created
-    information, is the sole source of each property.
+
+def verify_web_fact_proposal(proposal, page_text, entity, prop):
+    """Validate Helios' proposed fact against a FULL literal read-page sentence.
+
+    Presence in text alone is insufficient: the sentence must actually tie
+    this subject to the requested property. Partial tokens, historical
+    browser engines, secondary names, and generic values are rejected.
     """
-    if not isinstance(text,str) or not text.strip() or len(text)>120000:
+    from neral_page_reader import evidence_sentence_windows
+    if (not isinstance(proposal,dict) or
+            set(proposal)!={"entity","fact","evidence_sentence"} or
+            proposal["entity"]!=entity or type(proposal["fact"]) is not str or
+            type(proposal["evidence_sentence"]) is not str):
         return None
-    entity_pat=re.compile(r"(?<!\w)"+re.escape(entity)+r"(?!\w)",re.I)
-    # Property tokens are generic technology/personal-name grammars; there is
-    # no entity-to-answer lookup table and no benchmark gold in runtime code.
-    engine=re.compile(r"(?<!\w)(Gecko|Blink|WebKit|Trident|EdgeHTML|Presto|[A-Z][a-z]+(?:[A-Z][a-z]+)*)"
-                      r"\s+(?:rendering\s+|browser\s+|layout\s+)?engine\b",re.I)
-    name=re.compile(r"\b([A-Z][a-z]{2,}(?:\s+(?:van|von|de))?\s+[A-Z][a-z]{2,})\b")
-    for occurrence in entity_pat.finditer(text):
-        # Do not bridge several independent paragraphs/sentences.
-        a=max(0,occurrence.start()-115)
-        b=min(len(text),occurrence.end()+350)
-        fragment=text[a:b]
-        snippets=re.split(r"(?<=[.!?])\s+|\n+",fragment)
-        for snippet in snippets:
-            if entity_pat.search(snippet) is None:
+    fact=proposal["fact"].strip()
+    sentence=proposal["evidence_sentence"].strip()
+    if (not 2<=len(fact)<=85 or not 20<=len(sentence)<=650 or
+            fact.casefold() in _INVALID_PROPERTY_VALUES or
+            any(c in fact for c in "\r\n\t<>[]{}")):
+        return None
+    # Reject prefixes such as "Guido van Ros" within "Guido van Rossum".
+    literal=re.search(r"(?<!\w)"+re.escape(fact)+r"(?!\w)",sentence,re.I)
+    if literal is None:
+        return None
+    windows=evidence_sentence_windows(page_text,entity,prop,max_windows=40)
+    if not any(w["sentence"]==sentence for w in windows):
+        return None
+    if re.search(r"(?<!\w)"+re.escape(entity)+r"(?!\w)",sentence,re.I) is None:
+        return None
+    if prop=="creator":
+        if _PERSON.fullmatch(fact) is None:
+            return None
+        rel=_CREATOR_BY.search(sentence)
+        if rel is None:
+            return None
+        # A creator must follow the grammatical relation, not appear
+        # somewhere else in an unrelated historical passage.
+        tail=sentence[rel.end():]
+        who=_PERSON.search(tail)
+        if who is None or who.group(0).casefold()!=fact.casefold():
+            return None
+    elif prop=="engine":
+        if _HISTORICAL_ENGINE.search(sentence):
+            return None
+        if fact.casefold() in {"the","a","an","engine","browser","rendering","javascript"}:
+            return None
+        named=_ENGINE_VALUE.search(sentence)
+        verbal=_ENGINE_VERB.search(sentence)
+        # Facts may follow "rendering engine is X", or
+        # "X is the rendering engine used by [entity]".
+        reverse=re.search(
+            r"\b(?:browser|rendering|layout)\s+engine\s+(?:is|was|:)\s+"
+            r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b",sentence,re.I)
+        candidates=[m.group(1) for m in (named,verbal,reverse) if m]
+        if not any(candidate.casefold()==fact.casefold() for candidate in candidates):
+            return None
+    elif prop=="kernel":
+        if (not fact.casefold().endswith("kernel") or
+                "kernel" not in sentence.casefold()):
+            return None
+        if re.search(r"(?<!\w)"+re.escape(fact)+r"(?!\w)",sentence,re.I) is None:
+            return None
+    else:
+        return None
+    return fact,sentence
+
+
+def _property_evidence(text: str, entity: str, prop: str) -> tuple[str,str] | None:
+    """Extract only grammatically attributable, complete source sentences."""
+    from neral_page_reader import evidence_sentence_windows
+    windows=evidence_sentence_windows(text,entity,prop,max_windows=40)
+    for win in windows:
+        sentence=win["sentence"]
+        if prop=="engine":
+            if _HISTORICAL_ENGINE.search(sentence):
                 continue
-            if prop=="engine":
-                m=engine.search(snippet)
-                if m:
-                    value=m[1]
-                else:
-                    # Explicit subject-verb-property construction, e.g.
-                    # 'Firefox uses Gecko for rendering', 'Chrome nutzt Blink'.
-                    m=re.search(
-                        r"(?:uses|utilizes|runs on|basiert auf|nutzt|verwendet|"
-                        r"powered by|is built on)\s+(?:the\s+)?"
-                        r"(Gecko|Blink|WebKit|Trident|EdgeHTML|Presto)\b",snippet,re.I)
-                    value=m[1] if m else None
-                if not value:
-                    continue
-            elif prop=="creator":
-                relation=re.search(
-                    r"(?:created|developed|designed|invented)\s+by\s+|"
-                    r"(?:entwickelt|erschaffen|entworfen)\s+von\s+",
-                    snippet,re.I)
-                if relation is None:
-                    continue
-                m=name.search(snippet[relation.end():relation.end()+90])
-                value=m[1] if m else None
-                if not value:
-                    continue
-            elif prop=="kernel":
-                m=re.search(
-                    r"\b("+re.escape(entity)+r"[- ]kernel|"
-                    r"kernel\s+(?:of|of the)\s+"+re.escape(entity)+r")\b",
-                    snippet,re.I)
-                if m is None:
-                    continue
-                value=(entity+"-Kernel")
-            else:
-                return None
-            quote=snippet.strip()
-            if not 25<=len(quote)<=650:
-                continue
-            if any(ch in quote for ch in ("\x00","\r")):
-                continue
-            return value,quote
+            matches=list(_ENGINE_VALUE.finditer(sentence))
+            matches+=list(_ENGINE_VERB.finditer(sentence))
+            matches+=list(re.finditer(
+                r"\b(?:browser|rendering|layout)\s+engine\s+(?:is|was|:)\s+"
+                r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b",sentence,re.I))
+            candidates=[m.group(1) for m in matches]
+        elif prop=="creator":
+            candidates=[]
+            rel=_CREATOR_BY.search(sentence)
+            if rel is not None:
+                match=_PERSON.search(sentence[rel.end():])
+                if match:
+                    candidates.append(match.group(0))
+        elif prop=="kernel":
+            candidates=re.findall(
+                r"(?<!\w)([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]+[- ]Kernel)\b",
+                sentence,re.I)
+        else:
+            return None
+        for fact in candidates:
+            result=verify_web_fact_proposal(
+                {"entity":entity,"fact":fact,"evidence_sentence":sentence},
+                text,entity,prop)
+            if result is not None:
+                return result
     return None
 
 
-def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], topic: str) -> dict | None:
+def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], topic: str, *, proposer=None) -> dict | None:
     """Build property-specific comparison text only from actually read pages.
 
     One literal HTTPS quote and URL for each entity, plus an independently
@@ -528,7 +587,17 @@ def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], 
                     or not isinstance(page.get("url"),str)
                     or not page["url"].startswith("https://")):
                 continue
-            parsed=_property_evidence(page.get("page_text",""),entity,prop)
+            page_text=page.get("page_text","")
+            parsed=_property_evidence(page_text,entity,prop)
+            if parsed is None and callable(proposer):
+                from neral_page_reader import evidence_sentence_windows
+                windows=evidence_sentence_windows(page_text,entity,prop)
+                if windows:
+                    try:
+                        proposal=proposer(entity,prop,page_text,windows)
+                        parsed=verify_web_fact_proposal(proposal,page_text,entity,prop)
+                    except (ValueError,TypeError,RuntimeError,KeyError):
+                        parsed=None
             if parsed is None:
                 continue
             fact,quote=parsed
