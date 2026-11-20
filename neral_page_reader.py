@@ -117,6 +117,72 @@ def _complete_text_clip(value, limit=MAX_TEXT):
     return chunk[:endpoints[-1]].strip() if endpoints else ""
 
 
+
+
+def select_web_paragraphs(page_text, entity, topic, *, limit=3):
+    """Select 2-3 coherent literal page paragraphs, not isolated regex words.
+
+    The page text is provided only by the bounded HTTPS reader; no search
+    snippets, page titles, model predictions, or invented text can enter this
+    context. Oversized paragraphs are split only at complete sentence ends.
+    """
+    if (not isinstance(page_text,str) or not isinstance(entity,str) or
+            not isinstance(topic,str) or not page_text.strip() or not entity.strip()
+            or len(page_text)>120000 or not isinstance(limit,int)
+            or not 1<=limit<=3):
+        return []
+    initial=[part.strip() for part in page_text.splitlines() if part.strip()]
+    units=[]
+    for p in initial:
+        if len(p)<=600:
+            units.append(p)
+            continue
+        sentences=re.split(r"(?<=[.!?])\s+",p)
+        group=""
+        for sentence in sentences:
+            if not sentence.strip():
+                continue
+            if len(sentence)>600:
+                if group:
+                    units.append(group);group=""
+                continue
+            if group and len(group)+len(sentence)+1>600:
+                units.append(group);group=sentence
+            else:
+                group=(group+" "+sentence).strip()
+        if group:
+            units.append(group)
+    if not units:
+        return []
+    words=[word.casefold() for word in re.findall(r"[\w-]{4,}",topic)
+           if word.casefold() not in {"browser","wiki","wikipedia","official",
+                                     "technologie","webseite","quelle","pages",
+                                     "documentation","nach","vergleiche","vergleich"}]
+    name=entity.casefold()
+    current=("currently","today","now","uses","is","verwendet","nutzt","heute")
+    historical=("initially","formerly","originally","earlier","historically",
+                "ursprünglich","früher","vorläufer","forked from")
+    def rank(i):
+        low=units[i].casefold()
+        entity_match=name in low
+        topical=sum(1 for word in words if word in low)
+        temporal=1 if any(w in low for w in current) else 0
+        old=1 if any(w in low for w in historical) else 0
+        return (int(entity_match)*4+topical*2+temporal-old*4,
+                -i)
+    ordered=sorted(range(len(units)),key=rank,reverse=True)
+    selected=[]
+    for i in ordered:
+        p=units[i]
+        if len(p)<35 or (name not in p.casefold() and
+                        not any(word in p.casefold() for word in words)):
+            continue
+        if p not in selected:
+            selected.append(p)
+        if len(selected)>=limit:
+            break
+    return selected
+
 def evidence_sentence_windows(page_text, entity, topic, *, max_windows=10):
     """Literal source sentences with adjacent context; no dangling final text."""
     if (not isinstance(page_text,str) or not page_text.strip() or
