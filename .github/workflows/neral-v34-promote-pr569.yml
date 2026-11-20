@@ -1,0 +1,63 @@
+name: NERAL V3.4 post-merge owner RTX4070 promotion (90-of-100 gated)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'neral_evidence_agent.py'
+      - 'neral_v32_verifier.py'
+      - 'neral_page_reader.py'
+      - 'scripts/neral_v34_promote_pr569.ps1'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  promote-owner-pin:
+    if: >-
+      github.event.head_commit.message ==
+      'ops(v3.4): verified promote PR569'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download owner-approved sealed 100-case benchmark aggregate
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-v32-summary-44759001934
+          path: ${{ runner.temp }}/neral-v34-verified-gate/summary
+          github-token: ${{ github.token }}
+          run-id: 44759001934
+      - name: Download independent benchmark_details.jsonl
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-v32-benchmark-details-44759001934
+          path: ${{ runner.temp }}/neral-v34-verified-gate/details
+          github-token: ${{ github.token }}
+          run-id: 44759001934
+      - name: Validate pinned GPU and local PowerShell promotion script
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu=@(& nvidia-smi --query-gpu=name --format=csv,noheader)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch 'RTX 4070'){
+            throw 'Exact owner RTX 4070 not available'
+          }
+          $t=$null;$e=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v34_promote_pr569.ps1'),[ref]$t,[ref]$e)
+          if(@($e).Count -ne 0){throw 'Promotion script syntax invalid'}
+      - name: Gated permanent local NERAL deployment and HTTP200 confirmation
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:V34_SUMMARY=Join-Path $env:RUNNER_TEMP 'neral-v34-verified-gate/summary/summary.json'
+          $env:V34_DETAILS=Join-Path $env:RUNNER_TEMP 'neral-v34-verified-gate/details/benchmark_details.jsonl'
+          & .\scripts\neral_v34_promote_pr569.ps1
+          if($LASTEXITCODE -ne 0){throw 'Pinned NERAL promotion failed'}
