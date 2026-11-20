@@ -7,6 +7,7 @@ on:
       - 'neral_v32_verifier.py'
       - 'neral_page_reader.py'
       - 'scripts/neral_v34_promote_pr569.ps1'
+      - '.github/workflows/neral-v34-promote-pr569.yml'
 permissions:
   contents: read
   actions: read
