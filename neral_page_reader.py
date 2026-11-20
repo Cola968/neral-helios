@@ -237,7 +237,7 @@ def entity_evidence_excerpt(text, entity):
 
 
 def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
-                      max_pages=2, exclude_urls=()):
+                      max_pages=2, exclude_urls=(), predicate=None):
     """Read ranked HTTPS candidates until an actual page covers *entity*.
 
     The first three search hits can all be off-topic. Inspect at most nine
@@ -264,6 +264,10 @@ def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
             if not safe_result_url(page.get("url")):
                 continue
             if entity_evidence_excerpt(page.get("page_text"), entity) is None:
+                continue
+            # V3.3 topic-specific read: keep scanning up to nine actual
+            # fetched pages until the requested property has literal evidence.
+            if predicate is not None and not predicate(page):
                 continue
             found.append(page)
             if len(found) == max_pages:
