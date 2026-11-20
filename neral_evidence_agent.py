@@ -767,12 +767,13 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
              "read_pages":[{"entity":name,"url":page["url"],
                             "paragraphs":page["paragraphs"]}
                            for name,page in zip(names,sources)]}
+    raw=""
+    diagnostic=None
     try:
         raw=respond(system,json.dumps(payload,ensure_ascii=False),768,schema)
         packet=parse_web_synthesis_json(raw,tuple(names))
         facts={row["entity"]:row["fact"] for row in packet["facts"]}
-        # Compare normalized semantic tokens against the deterministic
-        # source-backed extraction; placeholders and different facts lose.
+        # Compare normalized semantic tokens against independent evidence.
         expected={}
         for name in names:
             line=next((line for line in independent["text"].splitlines()
@@ -787,14 +788,21 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
             if checked.get("tool_verified") is True:
                 checked["verification_scope"]="read_page_literal_property_and_model_agreement"
                 return checked
-    except (AgentError,ValueError,TypeError,RuntimeError,RecursionError):
-        pass
+        diagnostic={"raw_output":raw[:800],
+                    "exception":"AgentError: Model property differed from literal verified page claim"}
+    except (AgentError,ValueError,TypeError,RuntimeError,RecursionError) as exc:
+        diagnostic={"raw_output":raw[:800] if isinstance(raw,str) else "",
+                    "exception":type(exc).__name__+": "+str(exc)[:280]}
+    # A model's malformed JSON, unknown value or wrong claim is NOT grounds
+    # to discard a complete, independently extracted literal source proof.
     return {**independent,
             "verification_status":"literal_property_verified_model_not_accepted",
             "agent_steps":["web_search","page_reader",
                            "per_entity_property_extraction",
                            "literal_source_proof","model_not_trusted"],
-            "agent_attempts":1}
+            "agent_attempts":1,
+            **({"web_model_diagnostic":diagnostic} if diagnostic else {})}
+
 
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False):
