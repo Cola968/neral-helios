@@ -1790,7 +1790,17 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     turns, payload["tier"],
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
-            return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
+            # V3.10: local-only training capture after an independent verifier.
+            # Failure to write a dataset row never changes the answer or proof.
+            from neral_verified_training import verifier_ok, append_verified_example
+            proof_ok = verifier_ok(result)
+            if proof_ok:
+                try:
+                    append_verified_example(turns[-1]["content"], result)
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    pass
+            return jsonify({**result, "verifier_ok": proof_ok,
+                            "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
         except Exception as exc:
             # This is a bounded failure CLASSIFICATION only, not exception text.
