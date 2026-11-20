@@ -31,17 +31,17 @@ jobs:
       - name: Download owner-approved sealed 100-case benchmark aggregate
         uses: actions/download-artifact@v4
         with:
-          name: neral-v32-summary-44773011800
+          name: neral-v32-summary-44780489102
           path: ${{ runner.temp }}/neral-v34-verified-gate/summary
           github-token: ${{ github.token }}
-          run-id: 44773011800
+          run-id: 44780489102
       - name: Download independent benchmark_details.jsonl
         uses: actions/download-artifact@v4
         with:
-          name: neral-v32-benchmark-details-44773011800
+          name: neral-v32-benchmark-details-44780489102
           path: ${{ runner.temp }}/neral-v34-verified-gate/details
           github-token: ${{ github.token }}
-          run-id: 44773011800
+          run-id: 44780489102
       - name: Validate pinned GPU and local PowerShell promotion script
         run: |
           $ErrorActionPreference='Stop'
