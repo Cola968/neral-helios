@@ -526,7 +526,80 @@ _WEB_BAD_FACTS=frozenset({
 })
 
 
-def _simple_web_failure(reason, sources, *, model_called=False):
+
+
+def normalize_web_synthesis_json(packet, entities):
+    """Normalize predictable JSON field variants, never invent missing facts.
+
+    Field-key aliases are accepted; subject identities and non-placeholder
+    property values remain exact. A malformed, incomplete, or contradictory
+    structure is rejected instead of being completed from model memory.
+    """
+    if not isinstance(packet, dict) or not isinstance(entities,(tuple,list)):
+        raise AgentError("Web JSON must be an object with named entities")
+    names=tuple(entities)
+    if not 2<=len(names)<=4 or len(set(names))!=len(names):
+        raise AgentError("Web comparison entities invalid")
+    if len(packet)==1 and next(iter(packet)) in ("facts","answers","results","items"):
+        values=next(iter(packet.values()))
+        if not isinstance(values,list):
+            raise AgentError("Web facts must be a list")
+        entries=[]
+        entity_alias=("entity","name","subject")
+        fact_alias=("fact","value","property","answer")
+        for obj in values:
+            if not isinstance(obj,dict):
+                raise AgentError("Web fact item is not an object")
+            names_present=[k for k in entity_alias if k in obj]
+            facts_present=[k for k in fact_alias if k in obj]
+            if len(names_present)!=1 or len(facts_present)!=1 or len(obj)!=2:
+                raise AgentError("Web fact schema has ambiguous fields")
+            entries.append({"entity":obj[names_present[0]],"fact":obj[facts_present[0]]})
+    elif set(packet)==set(names) and all(isinstance(k,str) for k in packet):
+        entries=[{"entity":name,"fact":packet[name]} for name in names]
+    else:
+        raise AgentError("Web JSON shape unsupported")
+    if len(entries)!=len(names):
+        raise AgentError("Web JSON does not cover every subject")
+    by_name={}
+    for row in entries:
+        name,fact=row["entity"],row["fact"]
+        if (not isinstance(name,str) or name not in names or name in by_name
+                or type(fact) is not str or not 2<=len(fact.strip())<=125
+                or fact.strip().casefold() in _WEB_BAD_FACTS
+                or any(char in fact for char in ("\r","\n","[web","<",">"))):
+            raise AgentError("Web subject or property invalid")
+        by_name[name]=fact.strip()
+    if set(by_name)!=set(names):
+        raise AgentError("Web subjects incomplete")
+    return {"facts":[{"entity":name,"fact":by_name[name]} for name in names]}
+
+
+def parse_web_synthesis_json(raw, entities):
+    """Read a complete model JSON object with optional wrapper prose/fences.
+
+    Bracket slicing is only a presentation fix. It never closes incomplete
+    JSON, replaces field values, repairs misspellings, or guesses facts.
+    """
+    if not isinstance(raw,str) or not raw.strip() or len(raw)>16000:
+        raise AgentError("Web model output empty or oversized")
+    source=raw.strip()
+    fence=re.search(r"(?is)" + chr(96)*3 + r"(?:json)?\s*([\s\S]*?)\s*" +
+                    chr(96)*3,source)
+    if fence:
+        source=fence.group(1).strip()
+    first,last=source.find("{"),source.rfind("}")
+    if first<0 or last<=first:
+        raise AgentError("Web model JSON object not completed")
+    snippet=source[first:last+1]
+    try:
+        decoded=json.loads(snippet,object_pairs_hook=_unique)
+    except (ValueError,TypeError,RecursionError) as exc:
+        raise AgentError("Invalid Web JSON: "+str(exc)[:280]) from exc
+    return normalize_web_synthesis_json(decoded,entities)
+
+
+def _simple_web_failure(reason, sources, *, model_called=False, diagnostic=None):
     code="checker_veto" if model_called else "no_tool_called"
     return {"text":"Der Vergleich konnte mit gelesenen Quellen nicht ausreichend beantwortet werden.",
             "tool_used":"direct_reasoning" if model_called else None,
@@ -539,7 +612,8 @@ def _simple_web_failure(reason, sources, *, model_called=False):
             "agent_attempts":int(model_called),
             "sources":[{k:v for k,v in page.items()
                         if k not in ("page_text","paragraphs")}
-                       for page in sources]}
+                       for page in sources],
+            **({"web_model_diagnostic":diagnostic} if diagnostic is not None else {})}
 
 
 def simple_web_answer(entities, sources, packet, *, topic=""):
@@ -665,10 +739,20 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
              "read_pages":[{"entity":name,"url":page["url"],
                             "paragraphs":page["paragraphs"]}
                            for name,page in zip(names,sources)]}
+    raw=""
     try:
-        data=_json_object(respond(system,json.dumps(payload,ensure_ascii=False),320,schema))
-    except (AgentError,ValueError,TypeError,RuntimeError,RecursionError):
-        return _simple_web_failure("model_invalid_json",sources,model_called=True)
+        # This service is a pinned Hugging-Face Qwen3.5 backend, NOT Ollama:
+        # respond() forwards response_schema to a constrained HF token filter.
+        # Its only allowed generation budgets are 96, 256 or 768 tokens.
+        raw=respond(system,json.dumps(payload,ensure_ascii=False),768,schema)
+        data=parse_web_synthesis_json(raw,tuple(names))
+    except (AgentError,ValueError,TypeError,RuntimeError,RecursionError) as exc:
+        diagnostic={
+            "raw_output":raw[:800] if isinstance(raw,str) else "",
+            "exception":type(exc).__name__+": "+str(exc)[:450],
+        }
+        return _simple_web_failure(
+            "model_invalid_json",sources,model_called=True,diagnostic=diagnostic)
     return simple_web_answer(tuple(names),sources,data,topic=topic)
 
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
