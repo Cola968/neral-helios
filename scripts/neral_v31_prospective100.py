@@ -297,7 +297,7 @@ def evaluate_case(case: dict, response: dict, status: int) -> dict:
         correct=_web_facts_in_answer(case,text)
     tool=response.get("tool_used")
     permitted_error={"no_tool_called","sandbox_error","z3_schema_error","z3_unsat",
-                     "checker_veto","format_mismatch"}
+                     "checker_veto","format_mismatch","source_evidence_missing"}
     explicit=response.get("error_code")
     if explicit not in permitted_error:
         explicit=None
