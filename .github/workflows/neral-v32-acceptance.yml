@@ -16,6 +16,7 @@ on:
       - 'tests/test_neral_v35_simple_web.py'
       - 'tests/test_neral_v36_json_budget.py'
       - 'tests/test_neral_v37_web_repair.py'
+      - 'tests/test_neral_v38_web_fact_precision.py'
       - 'neral_knowledge_verifier.py'
       - '.github/workflows/neral-v32-acceptance.yml'
   push:
@@ -34,6 +35,7 @@ on:
       - 'tests/test_neral_v35_simple_web.py'
       - 'tests/test_neral_v36_json_budget.py'
       - 'tests/test_neral_v37_web_repair.py'
+      - 'tests/test_neral_v38_web_fact_precision.py'
       - 'neral_knowledge_verifier.py'
       - '.github/workflows/neral-v32-acceptance.yml'
 permissions:
@@ -63,6 +65,7 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v35_simple_web.py -v
           python -m unittest discover -s tests -p test_neral_v36_json_budget.py -v
           python -m unittest discover -s tests -p test_neral_v37_web_repair.py -v
+          python -m unittest discover -s tests -p test_neral_v38_web_fact_precision.py -v
           python -m unittest discover -s tests -p test_neral_v31_prospective100.py -v
           python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
       - name: Verify syntax and Python import closure
