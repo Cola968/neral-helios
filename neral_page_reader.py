@@ -72,16 +72,22 @@ class MainText(HTMLParser):
             return "\n".join(lines)
         terms = set(re.findall(r"\b[^\W\d_]{3,}\b", query.casefold())) - {
             "der", "die", "das", "den", "dem", "bitte", "aktuell", "nach", "und", "von", "was"}
-        def priority(line):
+        topic = re.compile(r"\b(?:rendering|browser|layout|engine|entwickler|"
+                           r"schöpfer|creator|developed|created|designed|"
+                           r"developer|kernel|infobox)\b", re.I)
+        history = re.compile(r"\b(?:initially|formerly|previously|originally|"
+                             r"historically|used to|früher|ursprünglich)\b", re.I)
+        def priority(line, index):
             lower = line.casefold()
             matches = sum(term in lower for term in terms)
-            # Keep numerical table rows and prices near the top even when a
-            # table's topic is only stated in its heading.
             measured = bool(re.search(r"\d\s*(?:[%€$£]|(?:[a-z]{2,3})\b)", lower))
             tabular = lower.startswith("|") and any(ch.isdigit() for ch in lower)
-            return matches * 2 + (4 if measured or tabular else 0)
+            lead = 4 if index < 24 and matches else 0
+            subject = 5 if topic.search(line) else 0
+            historical_penalty = 7 if history.search(line) else 0
+            return matches*2 + lead + subject + (4 if measured or tabular else 0) - historical_penalty
 
-        ranked = sorted(range(len(lines)), key=lambda i: (-priority(lines[i]), i))
+        ranked = sorted(range(len(lines)), key=lambda i: (-priority(lines[i], i), i))
         selected = set()
         remaining = MAX_TEXT
         for i in ranked:
@@ -94,8 +100,134 @@ class MainText(HTMLParser):
                 break
         # A single long relevant paragraph still provides an excerpt.
         if not selected or (ranked and len(lines[ranked[0]]) >= MAX_TEXT):
-            return lines[ranked[0]][:MAX_TEXT]
+            return _complete_text_clip(lines[ranked[0]], MAX_TEXT)
         return "\n".join(lines[i] for i in sorted(selected))
+
+
+
+
+def _complete_text_clip(value, limit=MAX_TEXT):
+    """Never terminate a source excerpt in the middle of a proper name."""
+    if not isinstance(value, str):
+        return ""
+    if len(value) <= limit:
+        return value
+    chunk = value[:limit]
+    endpoints = [i+1 for i,ch in enumerate(chunk) if ch in ".!?\n" and i>=limit//3]
+    return chunk[:endpoints[-1]].strip() if endpoints else ""
+
+
+
+
+def select_web_paragraphs(page_text, entity, topic, *, limit=3):
+    """Select 2-3 coherent literal page paragraphs, not isolated regex words.
+
+    The page text is provided only by the bounded HTTPS reader; no search
+    snippets, page titles, model predictions, or invented text can enter this
+    context. Oversized paragraphs are split only at complete sentence ends.
+    """
+    if (not isinstance(page_text,str) or not isinstance(entity,str) or
+            not isinstance(topic,str) or not page_text.strip() or not entity.strip()
+            or len(page_text)>120000 or not isinstance(limit,int)
+            or not 1<=limit<=3):
+        return []
+    initial=[part.strip() for part in page_text.splitlines() if part.strip()]
+    units=[]
+    for p in initial:
+        if len(p)<=600:
+            units.append(p)
+            continue
+        sentences=re.split(r"(?<=[.!?])\s+",p)
+        group=""
+        for sentence in sentences:
+            if not sentence.strip():
+                continue
+            if len(sentence)>600:
+                if group:
+                    units.append(group);group=""
+                continue
+            if group and len(group)+len(sentence)+1>600:
+                units.append(group);group=sentence
+            else:
+                group=(group+" "+sentence).strip()
+        if group:
+            units.append(group)
+    if not units:
+        return []
+    words=[word.casefold() for word in re.findall(r"[\w-]{4,}",topic)
+           if word.casefold() not in {"browser","wiki","wikipedia","official",
+                                     "technologie","webseite","quelle","pages",
+                                     "documentation","nach","vergleiche","vergleich"}]
+    name=entity.casefold()
+    current=("currently","today","now","uses","is","verwendet","nutzt","heute")
+    historical=("initially","formerly","originally","earlier","historically",
+                "ursprünglich","früher","vorläufer","forked from")
+    def rank(i):
+        low=units[i].casefold()
+        entity_match=name in low
+        topical=sum(1 for word in words if word in low)
+        temporal=1 if any(w in low for w in current) else 0
+        old=1 if any(w in low for w in historical) else 0
+        return (int(entity_match)*4+topical*2+temporal-old*4,
+                -i)
+    ordered=sorted(range(len(units)),key=rank,reverse=True)
+    selected=[]
+    for i in ordered:
+        p=units[i]
+        if len(p)<35 or (name not in p.casefold() and
+                        not any(word in p.casefold() for word in words)):
+            continue
+        if p not in selected:
+            selected.append(p)
+        if len(selected)>=limit:
+            break
+    return selected
+
+def evidence_sentence_windows(page_text, entity, topic, *, max_windows=10):
+    """Literal source sentences with adjacent context; no dangling final text."""
+    if (not isinstance(page_text,str) or not page_text.strip() or
+            len(page_text)>120000 or not isinstance(entity,str) or
+            not entity.strip() or not isinstance(topic,str)):
+        return []
+    spans = []
+    position = 0
+    boundaries = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
+    for match in boundaries.finditer(page_text):
+        sentence=page_text[position:match.start()].strip()
+        if sentence and (sentence.endswith((".","!","?")) or "\n" in match.group(0)):
+            spans.append(sentence)
+        position=match.end()
+    last=page_text[position:].strip()
+    if last.endswith((".","!","?")):
+        spans.append(last)
+    subject=re.compile(r"(?<!\w)"+re.escape(entity.strip())+r"(?!\w)",re.I)
+    topic_regex={
+        "engine":r"\b(?:browser|layout|rendering|engine|engineered)\b",
+        "creator":r"\b(?:created|developed|designed|invented|creator|developer|schöpfer|entwickelt)\b",
+        "kernel":r"\b(?:kernel|betriebssystem)\b",
+    }
+    t=topic.casefold()
+    kind=("engine" if "engine" in t else
+          "creator" if any(x in t for x in ("creator","entwickler","schöpfer","develop"))
+          else "kernel" if "kernel" in t else "")
+    prop=re.compile(topic_regex[kind],re.I) if kind else None
+    rows=[]
+    for i,sentence in enumerate(spans):
+        if not subject.search(sentence):
+            continue
+        if prop and not prop.search(sentence):
+            if i+1>=len(spans) or not prop.search(spans[i+1]):
+                continue
+        surrounding=" ".join(spans[max(0,i-1):min(len(spans),i+2)])
+        historical=bool(re.search(
+            r"\b(?:initially|formerly|previously|originally|historically|früher|ursprünglich)\b",
+            sentence,re.I))
+        current=bool(re.search(
+            r"\b(?:now|currently|today|since|uses|nutzt|verwendet|heute)\b",sentence,re.I))
+        rows.append({"sentence":sentence,"context":surrounding[:1000],
+                     "priority":(3 if current else 0)-(6 if historical else 0),
+                     "historical":historical})
+    return sorted(rows,key=lambda x:-x["priority"])[:max_windows]
 
 
 class _PinnedConnection(http.client.HTTPSConnection):
@@ -203,7 +335,7 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract):
         result.append({"url": page["url"] if page else url,
                        "title": str(hit.get("title", ""))[:160],
                        "snippet": str(hit.get("snippet", ""))[:350],
-                       "page_text": page["text"][:MAX_TEXT] if page else "",
+                       "page_text": (_complete_text_clip(page["text"]) or page["text"][:MAX_TEXT]) if page else "",
                        "page_read": page is not None, "reachable": page is not None,
                        "discovered": True})
     return result
@@ -237,7 +369,7 @@ def entity_evidence_excerpt(text, entity):
 
 
 def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
-                      max_pages=2, exclude_urls=()):
+                      max_pages=2, exclude_urls=(), predicate=None):
     """Read ranked HTTPS candidates until an actual page covers *entity*.
 
     The first three search hits can all be off-topic. Inspect at most nine
@@ -256,6 +388,20 @@ def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
             candidates.append(hit)
         if len(candidates) == 9:
             break
+    if predicate is not None:
+        # Prefer published reference articles and technical documentation
+        # for retrieval, but accept factual claims ONLY from page_read text.
+        def source_rank(hit):
+            url = safe_result_url(hit.get("url")) or ""
+            host = (urlsplit(url).hostname or "").casefold()
+            if host=="developer.mozilla.org":
+                return 0
+            if host=="wikipedia.org" or host.endswith(".wikipedia.org"):
+                return 1
+            if host.startswith(("docs.","developer.","documentation.")):
+                return 2
+            return 3
+        candidates.sort(key=source_rank)
     for offset in range(0, len(candidates), 3):
         batch = reader(candidates[offset:offset+3], query)
         for page in batch if isinstance(batch, list) else ():
@@ -264,6 +410,10 @@ def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
             if not safe_result_url(page.get("url")):
                 continue
             if entity_evidence_excerpt(page.get("page_text"), entity) is None:
+                continue
+            # V3.3 topic-specific read: keep scanning up to nine actual
+            # fetched pages until the requested property has literal evidence.
+            if predicate is not None and not predicate(page):
                 continue
             found.append(page)
             if len(found) == max_pages:

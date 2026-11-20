@@ -1,0 +1,150 @@
+# Explicit owner approval: rerun sealed benchmark after HTML-to-JSON session bootstrap repair.
+name: NERAL V3.1 sealed prospective 100-case quality gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v31_prospective100.py'
+      - 'tests/test_neral_v31_prospective100.py'
+      - 'tests/test_neral_v32_deterministic.py'
+      - 'neral_v32_verifier.py'
+      - '.github/workflows/neral-v31-prospective100.yml'
+  push:
+    branches: [codex/neral-v31-prospective100]
+    paths:
+      - 'scripts/neral_v31_prospective100.py'
+      - 'tests/test_neral_v31_prospective100.py'
+      - 'tests/test_neral_v32_deterministic.py'
+      - 'neral_v32_verifier.py'
+      - '.github/workflows/neral-v31-prospective100.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    name: CPU 100-case integrity and fail-closed scoring (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate prospective suite and scoring contracts
+        run: |
+          python -m unittest discover -s tests -p test_neral_v31_prospective100.py -v
+          python -m unittest discover -s tests -p test_neral_v32_deterministic.py -v
+      - name: Verify script syntax and no external test dependencies
+        run: python -m py_compile scripts/neral_v31_prospective100.py neral_v32_verifier.py
+  real-rtx4070:
+    name: Owner-approved real V3 service 100-case benchmark
+    needs: [cpu-contract]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/codex/neral-v31-prospective100' &&
+      github.event.head_commit.message == 'ops(v3.1): owner-approved prospective100 RTX4070'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-v31-local-9690-synthetic-only
+      cancel-in-progress: false
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert exact source authorization and running V3 service
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($subject -ne 'ops(v3.1): owner-approved prospective100 RTX4070'){
+            throw 'Not owner approved HEAD'
+          }
+          $gpu=@(& nvidia-smi --query-gpu=name --format=csv,noheader)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch 'RTX 4070'){
+            throw 'Actual owner RTX4070 not available'
+          }
+          # Following a Windows reboot, the approved NERAL task can be Ready
+          # while port 9690 is empty. Start ONLY that exact already-registered
+          # task; never deploy, install, update, or terminate unknown processes.
+          $probe=@(& curl.exe --noproxy '*' --silent --connect-timeout 4 --max-time 12 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+          $ready=($LASTEXITCODE -eq 0 -and ($probe -join '').Trim() -eq '200')
+          if(-not $ready){
+            $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+            $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+            $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+            if(-not(Test-Path -LiteralPath $service -PathType Leaf)){
+              throw 'Original approved NERAL service script not installed'
+            }
+            $registered=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if(@($registered.Actions).Count -ne 1 -or
+               [string]$registered.Actions[0].Arguments -notlike ('*'+$service+'*')){
+              throw 'Scheduled task identity does not match the pinned NERAL service'
+            }
+            $source=[IO.File]::ReadAllText($service)
+            if($source -notmatch 'NERAL_V3_AGENT_ENABLED' -or
+               $source -notmatch '(?i)-m\s+neral_preview_server' -or
+               $source -notmatch '--experimental-three-tier-hf'){
+              throw 'Installed launch script not verified V3'
+            }
+            $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+            if($listeners.Count -ne 0){
+              throw 'Port 9690 has a listener but does not answer; preserve owner'
+            }
+            $state=[string]$registered.State
+            if($state -eq 'Ready'){
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              Write-Host 'NERAL_V31_EXISTING_PINNED_TASK_STARTED'
+            }elseif($state -eq 'Running'){
+              Write-Host 'NERAL_V31_EXISTING_TASK_RUNNING_WAIT_FOR_STARTUP'
+            }else{
+              throw ('Pinned NERAL task not startable: '+$state)
+            }
+            $ready=$false
+            for($i=0;$i -lt 90;$i++){
+              Start-Sleep -Seconds 2
+              $code=@(& curl.exe --noproxy '*' --silent --connect-timeout 2 --max-time 3 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+              if($LASTEXITCODE -eq 0 -and ($code -join '').Trim() -eq '200'){
+                $ready=$true
+                break
+              }
+            }
+            if(-not $ready){
+              throw 'Pinned NERAL task failed to restore localhost 9690; no test attempted'
+            }
+          }
+          Write-Host 'NERAL_V31_PROSPECTIVE100_OWNER_PC_READY_HTTP_200'
+      - name: Evaluate sealed 100 synthetic prompts against existing local V3
+        timeout-minutes: 288
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py)){throw 'Known isolated Python runtime missing'}
+          $prefix=Join-Path $env:RUNNER_TEMP ('neral-v31-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          New-Item -ItemType Directory -Path $prefix -Force | Out-Null
+          $out=Join-Path $prefix 'summary.json'
+          $sealed=Join-Path $prefix 'private-sealed-cases.json'
+          $progress=Join-Path $prefix 'private-progress.jsonl'
+          'V31_SUMMARY_PATH='+$out >> $env:GITHUB_ENV
+          & $py -B -m scripts.neral_v31_prospective100 `
+            --authorize NERAL_V31_OWNER_APPROVED_PROSPECTIVE_100 `
+            --sealed $sealed --progress $progress --output $out
+          if($LASTEXITCODE -ne 0){throw 'Prospective run incomplete; no score can be claimed'}
+          if(-not(Test-Path -LiteralPath $out)){throw 'No final aggregate report'}
+          Write-Host 'NERAL_V31_PROSPECTIVE100_COMPLETE_WITH_AGGREGATE'
+      - name: Publish only aggregate quality and latency report
+        if: always() && env.V31_SUMMARY_PATH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v31-synthetic-100-scalar-${{ github.run_id }}
+          path: ${{ env.V31_SUMMARY_PATH }}
+          retention-days: 14
+          if-no-files-found: warn

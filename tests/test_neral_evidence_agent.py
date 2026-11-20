@@ -338,23 +338,24 @@ class EvidenceAgentTest(unittest.TestCase):
             url = hits[0]["url"]
             subject = next(name for name in facts if name.lower() in url)
             return [{"url": url, "page_read": True, "page_text": facts[subject]}]
-        replies = [
-            {"tool": "direct_reasoning", "parts": ["Drei Browser Engines"]},
-            {"sides": [{"entity": "Firefox", "details": "verwendet Gecko."},
-                       {"entity": "Chrome", "details": "verwendet Blink."},
-                       {"entity": "Edge", "details": "verwendet Blink."}],
-             "synthesis": "Firefox unterscheidet sich bei der Engine.",
-             "citations": ["p1", "p2", "p3"]},
-            {"contradiction": False, "claim": "", "source_quote": ""},
-        ]
-        result = run_evidence_agent(question,
-                                    lambda sys, raw, budget, schema: json.dumps(replies.pop(0)),
-                                    Mock(), web_query="Firefox Chrome Edge Browser Engine",
+        calls=[]
+        def once(sys,raw,budget,schema):
+            calls.append(raw)
+            return json.dumps({"facts":[
+                {"entity":"Firefox","fact":"Gecko"},
+                {"entity":"Chrome","fact":"Blink"},
+                {"entity":"Edge","fact":"Blink"},
+            ]})
+        result = run_evidence_agent(question,once,Mock(),
+                                    web_query="Firefox Chrome Edge Browser Engine",
                                     search=Search(), page_reader=reader)
         self.assertTrue(result["agent_checked"])
+        self.assertEqual(len(calls),1)
         self.assertEqual(result["agent_attempts"], 1)
         self.assertEqual(len(result["sources"]), 3)
-        self.assertIn("Edge: verwendet Blink.", result["text"])
+        self.assertIn("Edge: Blink", result["text"])
+        self.assertIn("[web3]", result["text"])
+        self.assertFalse(result["verified"])
         self.assertEqual(result["tool_used"], "direct_reasoning")
 
     def test_missing_entity_pages_are_researched_in_second_attempt(self):
