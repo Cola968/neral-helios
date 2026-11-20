@@ -77,6 +77,23 @@ class GroundedComparisons(unittest.TestCase):
         self.assertIn("Vela: Bruno Keller",out["text"])
         self.assertNotIn("2011",out["text"].split("Quanta:",1)[1].split("\n",1)[0])
 
+    def test_page_reader_skips_generic_pages_until_property_is_found(self):
+        from neral_page_reader import read_entity_pages
+        from neral_v32_verifier import _property_evidence
+        urls=[f"https://example.org/{i}" for i in range(5)]
+        pages={url:("Aster is a fast browser." if i<4 else
+                    "Aster uses the Aurora rendering engine to display web pages.")
+               for i,url in enumerate(urls)}
+        def reader(hits,query):
+            return [{"url":hit["url"],"page_read":True,
+                     "page_text":pages[hit["url"]]} for hit in hits]
+        result=read_entity_pages([{"url":url} for url in urls],
+            "Aster browser rendering engine","Aster",reader=reader,
+            max_pages=1,predicate=lambda page: _property_evidence(
+                page.get("page_text",""),"Aster","engine") is not None)
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]["url"],urls[4])
+
     def test_evidence_agent_short_circuit_uses_only_read_page_proofs(self):
         from neral_evidence_agent import run_evidence_agent
         class Search:
