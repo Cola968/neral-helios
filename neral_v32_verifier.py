@@ -464,10 +464,10 @@ _PERSON = re.compile(
 )
 _ENGINE_VALUE = re.compile(
     r"\b([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:-[A-Za-z0-9]+)?)\s+"
-    r"(?:(?:rendering|browser|layout)\s+)?engine\b")
+    r"(?:(?:rendering|browser|layout)\s+)?engine\b",re.I)
 _ENGINE_VERB = re.compile(
     r"\b(?:uses|utilizes|runs on|basiert auf|nutzt|verwendet|"
-    r"powered by|is built on)\s+(?:the\s+)?"
+    r"powered by|is built on)\s+(?:(?:the|die|der|das|den|dem|einen|eine|ein)\s+)?"
     r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b",re.I)
 _CREATOR_BY = re.compile(
     r"\b(?:created|developed|designed|invented|authored)\s+by\s+|"
@@ -517,7 +517,8 @@ def verify_web_fact_proposal(proposal, page_text, entity, prop):
     elif prop=="engine":
         if _HISTORICAL_ENGINE.search(sentence):
             return None
-        if fact.casefold() in {"the","a","an","engine","browser","rendering","javascript"}:
+        if fact.casefold() in {"the","a","an","die","der","das","den","dem","ein","eine","einen",
+                               "engine","browser","rendering","javascript"}:
             return None
         named=_ENGINE_VALUE.search(sentence)
         verbal=_ENGINE_VERB.search(sentence)
