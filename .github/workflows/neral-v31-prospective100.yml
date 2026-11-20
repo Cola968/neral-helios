@@ -66,11 +66,56 @@ jobs:
           if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch 'RTX 4070'){
             throw 'Actual owner RTX4070 not available'
           }
-          $http=@(& curl.exe --noproxy '*' --silent --connect-timeout 4 --max-time 12 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
-          if($LASTEXITCODE -ne 0 -or ($http -join '').Trim() -ne '200'){
-            throw 'Local stable V3 service not reachable'
+          # Following a Windows reboot, the approved NERAL task can be Ready
+          # while port 9690 is empty. Start ONLY that exact already-registered
+          # task; never deploy, install, update, or terminate unknown processes.
+          $probe=@(& curl.exe --noproxy '*' --silent --connect-timeout 4 --max-time 12 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+          $ready=($LASTEXITCODE -eq 0 -and ($probe -join '').Trim() -eq '200')
+          if(-not $ready){
+            $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+            $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+            $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+            if(-not(Test-Path -LiteralPath $service -PathType Leaf)){
+              throw 'Original approved NERAL service script not installed'
+            }
+            $registered=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if(@($registered.Actions).Count -ne 1 -or
+               [string]$registered.Actions[0].Arguments -notlike ('*'+$service+'*')){
+              throw 'Scheduled task identity does not match the pinned NERAL service'
+            }
+            $source=[IO.File]::ReadAllText($service)
+            if($source -notmatch 'NERAL_V3_AGENT_ENABLED' -or
+               $source -notmatch '(?i)-m\\s+neral_preview_server' -or
+               $source -notmatch '--experimental-three-tier-hf'){
+              throw 'Installed launch script not verified V3'
+            }
+            $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+            if($listeners.Count -ne 0){
+              throw 'Port 9690 has a listener but does not answer; preserve owner'
+            }
+            $state=[string]$registered.State
+            if($state -eq 'Ready'){
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              Write-Host 'NERAL_V31_EXISTING_PINNED_TASK_STARTED'
+            }elseif($state -eq 'Running'){
+              Write-Host 'NERAL_V31_EXISTING_TASK_RUNNING_WAIT_FOR_STARTUP'
+            }else{
+              throw ('Pinned NERAL task not startable: '+$state)
+            }
+            $ready=$false
+            for($i=0;$i -lt 90;$i++){
+              Start-Sleep -Seconds 2
+              $code=@(& curl.exe --noproxy '*' --silent --connect-timeout 2 --max-time 3 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+              if($LASTEXITCODE -eq 0 -and ($code -join '').Trim() -eq '200'){
+                $ready=$true
+                break
+              }
+            }
+            if(-not $ready){
+              throw 'Pinned NERAL task failed to restore localhost 9690; no test attempted'
+            }
           }
-          Write-Host 'NERAL_V31_PROSPECTIVE100_OWNER_PC_READY'
+          Write-Host 'NERAL_V31_PROSPECTIVE100_OWNER_PC_READY_HTTP_200'
       - name: Evaluate sealed 100 synthetic prompts against existing local V3
         timeout-minutes: 288
         run: |
