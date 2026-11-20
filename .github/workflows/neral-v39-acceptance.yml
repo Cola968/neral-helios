@@ -8,6 +8,8 @@ on:
       - 'neral_v32_verifier.py'
       - 'scripts/neral_v31_prospective100.py'
       - 'scripts/neral_v39_stage_and_benchmark.ps1'
+      - 'scripts/neral_v39_promote.ps1'
+      - '.github/workflows/neral-v39-promote.yml'
       - 'scripts/neral_v34_promote_pr569.ps1'
       - '.github/workflows/neral-v34-promote-pr569.yml'
       - 'tests/test_neral_v32_deterministic.py'
@@ -29,6 +31,8 @@ on:
       - 'neral_v32_verifier.py'
       - 'scripts/neral_v31_prospective100.py'
       - 'scripts/neral_v39_stage_and_benchmark.ps1'
+      - 'scripts/neral_v39_promote.ps1'
+      - '.github/workflows/neral-v39-promote.yml'
       - 'scripts/neral_v34_promote_pr569.ps1'
       - '.github/workflows/neral-v34-promote-pr569.yml'
       - 'tests/test_neral_v32_deterministic.py'
@@ -91,6 +95,12 @@ jobs:
             (Join-Path $pwd 'scripts/neral_v34_promote_pr569.ps1'),
             [ref]$tokens2,[ref]$errors2)
           if(@($errors2).Count -ne 0){throw ('Promotion PowerShell syntax errors: '+($errors2 | Out-String))}
+          $tokens3=$null
+          $errors3=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $pwd 'scripts/neral_v39_promote.ps1'),
+            [ref]$tokens3,[ref]$errors3)
+          if(@($errors3).Count -ne 0){throw ('V3.9 promotion PowerShell syntax errors: '+($errors3 | Out-String))}
   v39-prospective-real-rtx4070:
     needs: [v39-cpu-contracts]
     if: >-
