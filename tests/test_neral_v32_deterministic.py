@@ -150,6 +150,44 @@ class V32DeterministicContracts(unittest.TestCase):
         self.assertEqual(facts["Firefox"]["source"], "web1")
         self.assertEqual(facts["Chrome"]["source"], "web2")
 
+    def test_100_synthetic_raw_case_details_survive_after_run(self):
+        import hashlib
+        import json
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from scripts.neral_v31_prospective100 import run_live
+        def fake_fetch(path, payload=None, csrf=None):
+            if path != "/api/neral/chat/three-tier":
+                raise AssertionError("Unexpected external call")
+            return 200, {"text":"not solved","tool_used":None,
+                         "agent_checked":False,"agent_steps":["planner"]}
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            args=SimpleNamespace(
+                authorize="NERAL_V32_OWNER_APPROVED_NEW_100",
+                sealed=root/"frozen.json",progress=root/"checkpoint.jsonl",
+                details=root/"benchmark_details.jsonl",output=root/"summary.json")
+            with patch("scripts.neral_v31_prospective100._open_client",
+                       return_value=(fake_fetch,"dummy-local-session")), \
+                 patch("scripts.neral_v31_prospective100.time.sleep"), \
+                 patch("scripts.neral_v31_prospective100.secrets.token_hex",
+                       return_value="00112233445566778899aabbccddeeff"):
+                report=run_live(args)
+            lines=args.details.read_text(encoding="utf8").splitlines()
+            self.assertEqual(len(lines),100)
+            self.assertEqual(report["detail_count"],100)
+            self.assertTrue(report["synthetic_individual_rows_retained"])
+            self.assertEqual(report["details_sha256"],
+                             hashlib.sha256(args.details.read_bytes()).hexdigest())
+            sample=json.loads(lines[0])
+            self.assertEqual(set(("case","observed","grader","elapsed_seconds"))
+                             - set(sample),set())
+            self.assertIn("question",sample["case"])
+            self.assertIn("answer_correct",sample["grader"])
+            self.assertIn("strict_e2e_pass",sample["grader"])
+
     def test_summary_separates_both_metrics(self):
         cases=build_suite("00112233445566778899aabbccddeeff")
         rows=[{"id":x["id"],"category":x["category"],
