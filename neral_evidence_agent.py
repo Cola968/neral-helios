@@ -554,7 +554,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                         pages = read_entity_pages(
                             hits.get("results", []), query, name,
                             reader=page_reader, max_pages=3,
-                            exclude_urls=tuple(collected_urls))
+                            exclude_urls=tuple(collected_urls),
+                            predicate=lambda p: _property_evidence(
+                                p.get("page_text",""),name,typed) is not None)
                     except WebSearchError:
                         pages = []
                     for page in pages:
