@@ -1,0 +1,80 @@
+name: NERAL V3.1 read-only forensic reconstruction of completed run
+on:
+  push:
+    branches: [codex/neral-v31-prospective100]
+    paths:
+      - '.github/workflows/neral-v31-forensic-readonly.yml'
+permissions:
+  contents: read
+jobs:
+  previous-run-evidence-only:
+    if: github.repository == 'Cola968/neral-helios'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Analyze only sealed synthetic run 44691127989 if temp receipts survived
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:RUNNER_TEMP 'neral-v31-44691127989-1'
+          $sealed = Join-Path $path 'private-sealed-cases.json'
+          $progress = Join-Path $path 'private-progress.jsonl'
+          if(-not (Test-Path -LiteralPath $sealed -PathType Leaf) -or -not (Test-Path -LiteralPath $progress -PathType Leaf)){
+            Write-Host 'NERAL_V31_ORIGINAL_PRIVATE_ROWS_UNAVAILABLE'
+            exit 0
+          }
+          $digest = (Get-FileHash -LiteralPath $sealed -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -ne 'a32d69de57b3a8cae20209f9f80558d6768ef1e46b270e978fb4189b11b97d51'){
+            throw 'Sealed run SHA256 does not match original successful summary'
+          }
+          $manifest = Get-Content -LiteralPath $sealed -Raw -Encoding UTF8 | ConvertFrom-Json
+          $rows = @(Get-Content -LiteralPath $progress -Encoding UTF8 | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+          $cases = @($manifest.cases)
+          if($rows.Count -ne 100 -or $cases.Count -ne 100){
+            throw 'Original 100 rows incomplete'
+          }
+          $ids = @($rows | Select-Object -ExpandProperty id -Unique)
+          $caseids = @($cases | Select-Object -ExpandProperty id -Unique)
+          if($ids.Count -ne 100 -or $caseids.Count -ne 100){
+            throw 'Case IDs missing or duplicated'
+          }
+          foreach($row in $rows){
+            if(-not ($caseids -contains $row.id)){throw 'Observed case ID not in sealed manifest'}
+          }
+          $cats = @('mathematics','logic','programming','knowledge','web')
+          $stats = @{}
+          foreach($cat in $cats){
+            $selected = @($rows | Where-Object { $_.category -eq $cat })
+            if($selected.Count -ne 20){throw 'Category count incorrect'}
+            $n = @($selected | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.tool) }).Count
+            $avg = [Math]::Round((($selected | Measure-Object -Property latency_seconds -Average).Average),3)
+            $tools = @{}
+            foreach($g in @($selected | Group-Object -Property tool)){
+              $label = if([string]::IsNullOrWhiteSpace([string]$g.Name)){'NONE'}else{[string]$g.Name}
+              $tools[$label] = [int]$g.Count
+            }
+            $stats[$cat] = @{ correct = @($selected | Where-Object { $_.correct -eq $true }).Count
+                tool_field_present = $n; tool_field_present_percent = 5*$n
+                average_latency_seconds = $avg; reported_tools = $tools }
+          }
+          $examples = @()
+          foreach($cat in $cats){
+            $failed = @($rows | Where-Object { $_.category -eq $cat -and $_.correct -eq $false })
+            foreach($row in @($failed | Select-Object -First 3)){
+              $case = @($cases | Where-Object { $_.id -eq $row.id })[0]
+              $expected = if($case.kind -eq 'integer'){$case.gold}
+                elseif($case.kind -eq 'word'){$case.gold}
+                else{(@($case.facts) -join ' | ')}
+              $sample = [string]$case.question
+              if($sample.Length -gt 280){$sample=$sample.Substring(0,280)}
+              $examples += @{id=$row.id; category=$cat; error=$row.error
+                question=$sample; expected=[string]$expected; recorded_tool=$row.tool}
+            }
+          }
+          $forensic = @{status='ORIGINAL_PROGRESS_RECONSTRUCTED'
+            case_count=100; source_run=44691127989; source_sha=$digest
+            category_stats=$stats; failure_samples=$examples
+            caution='No raw model responses or agent_steps were retained; tool field does not prove real invocation'}
+          Write-Host ('NERAL_V31_ORIGINAL_PROGRESS_FORENSIC '+($forensic | ConvertTo-Json -Depth 8 -Compress))
