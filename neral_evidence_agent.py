@@ -522,32 +522,12 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     # independently certified four-person counting constraints before any
     # model-authored planner, worker or subjective LLM validation veto.
     from neral_v32_verifier import (verified_python_question, verified_shift_count,
-                                    deterministic_web_answer)
+                                    grounded_entity_facts)
     if not files and not web_query:
         for verify in (verified_python_question, verified_shift_count):
             certified = verify(question, execute)
             if certified is not None:
                 return {**certified, "agent_attempts": 1}
-    if web_query and search is not None and not files:
-        names = _comparison_entities(question)
-        if names and not _FORMAL_INTENT.search(question):
-            read = []
-            seen_urls = set()
-            for entity in names:
-                query = _entity_search_query(web_query, entity, names, 0)
-                try:
-                    found = search.search(query)
-                    pages = read_entity_pages(found.get("results", []), query, entity,
-                                              reader=page_reader, max_pages=2)
-                except WebSearchError:
-                    pages = []
-                for page in pages:
-                    if page.get("url") not in seen_urls:
-                        read.append({**page,"entity_focus":entity})
-                        seen_urls.add(page["url"])
-            cited = deterministic_web_answer(names,read)
-            if cited is not None:
-                return {**cited, "agent_attempts":1}
     sources = []
     evidence = {"user": question, **(files or {})}
     # Standalone task isolation: earlier chat turns remain in the UI but do
@@ -690,6 +670,11 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             worker_data = {"numbers": numeric_evidence} if plan["tool"] == "python_sandbox" else {"evidence": evidence}
             passages = _passages(evidence, web_query or question) if plan["tool"] == "direct_reasoning" and external else {}
             if passages:
+                # Deterministic factual grounding is a pre-generation input,
+                # not a substitute for the complete answer or its checker.
+                extracted_facts = (grounded_entity_facts(_comparison_entities(question), sources)
+                                   if _is_qualitative_web_comparison(question, plan, sources)
+                                   else {})
                 compared = _is_qualitative_web_comparison(question, plan, sources)
                 if compared:
                     names = _comparison_entities(question)
@@ -706,6 +691,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             "wörtlich belegte Passagenkennungen p1 usw.",
                             {"question": question, "left_name": left_name,
                              "right_name": right_name, "passages": passages,
+                             "entity_fact_excerpts": extracted_facts,
                              "correction": issue}, schema)
                         if not all(_short(proposal.get(field), limit)
                                    for field, limit in (("left", 520),
@@ -726,7 +712,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             "genau einmal mit belegten Eigenschaften in sides. "
                             "Füge eine faire synthesis und wörtliche citations hinzu.",
                             {"question": question, "entities": names,
-                             "passages": passages, "correction": issue}, schema)
+                             "passages": passages,
+                             "entity_fact_excerpts": extracted_facts,
+                             "correction": issue}, schema)
                         sides = proposal.get("sides")
                         if (not isinstance(sides, list) or len(sides) != len(names) or
                                 set(row.get("entity") for row in sides
@@ -769,9 +757,6 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             # Tool stdout is already checked by _run, _calculate and the
             # trusted Z3 compiler. A model veto cannot overturn an actual
             # successfully executed deterministic arithmetic result.
-            if executed == "python_sandbox":
-                steps.append("deterministic_stdout_verifier")
-                return result(answer, checked=True, attempts=attempt+1)
             steps.append("validation_checker")
             if passages and _is_qualitative_web_comparison(question, plan, sources):
                 issue = _qualitative_comparison_issue(
