@@ -72,16 +72,22 @@ class MainText(HTMLParser):
             return "\n".join(lines)
         terms = set(re.findall(r"\b[^\W\d_]{3,}\b", query.casefold())) - {
             "der", "die", "das", "den", "dem", "bitte", "aktuell", "nach", "und", "von", "was"}
-        def priority(line):
+        topic = re.compile(r"\b(?:rendering|browser|layout|engine|entwickler|"
+                           r"schöpfer|creator|developed|created|designed|"
+                           r"developer|kernel|infobox)\b", re.I)
+        history = re.compile(r"\b(?:initially|formerly|previously|originally|"
+                             r"historically|used to|früher|ursprünglich)\b", re.I)
+        def priority(line, index):
             lower = line.casefold()
             matches = sum(term in lower for term in terms)
-            # Keep numerical table rows and prices near the top even when a
-            # table's topic is only stated in its heading.
             measured = bool(re.search(r"\d\s*(?:[%€$£]|(?:[a-z]{2,3})\b)", lower))
             tabular = lower.startswith("|") and any(ch.isdigit() for ch in lower)
-            return matches * 2 + (4 if measured or tabular else 0)
+            lead = 4 if index < 24 and matches else 0
+            subject = 5 if topic.search(line) else 0
+            historical_penalty = 7 if history.search(line) else 0
+            return matches*2 + lead + subject + (4 if measured or tabular else 0) - historical_penalty
 
-        ranked = sorted(range(len(lines)), key=lambda i: (-priority(lines[i]), i))
+        ranked = sorted(range(len(lines)), key=lambda i: (-priority(lines[i], i), i))
         selected = set()
         remaining = MAX_TEXT
         for i in ranked:
@@ -94,8 +100,68 @@ class MainText(HTMLParser):
                 break
         # A single long relevant paragraph still provides an excerpt.
         if not selected or (ranked and len(lines[ranked[0]]) >= MAX_TEXT):
-            return lines[ranked[0]][:MAX_TEXT]
+            return _complete_text_clip(lines[ranked[0]], MAX_TEXT)
         return "\n".join(lines[i] for i in sorted(selected))
+
+
+
+
+def _complete_text_clip(value, limit=MAX_TEXT):
+    """Never terminate a source excerpt in the middle of a proper name."""
+    if not isinstance(value, str):
+        return ""
+    if len(value) <= limit:
+        return value
+    chunk = value[:limit]
+    endpoints = [i+1 for i,ch in enumerate(chunk) if ch in ".!?\n" and i>=limit//3]
+    return chunk[:endpoints[-1]].strip() if endpoints else ""
+
+
+def evidence_sentence_windows(page_text, entity, topic, *, max_windows=10):
+    """Literal source sentences with adjacent context; no dangling final text."""
+    if (not isinstance(page_text,str) or not page_text.strip() or
+            len(page_text)>120000 or not isinstance(entity,str) or
+            not entity.strip() or not isinstance(topic,str)):
+        return []
+    spans = []
+    position = 0
+    boundaries = re.compile(r"(?<=[.!?])(?:\s+|$)|\n+")
+    for match in boundaries.finditer(page_text):
+        sentence=page_text[position:match.start()].strip()
+        if sentence and (sentence.endswith((".","!","?")) or "\n" in match.group(0)):
+            spans.append(sentence)
+        position=match.end()
+    last=page_text[position:].strip()
+    if last.endswith((".","!","?")):
+        spans.append(last)
+    subject=re.compile(r"(?<!\w)"+re.escape(entity.strip())+r"(?!\w)",re.I)
+    topic_regex={
+        "engine":r"\b(?:browser|layout|rendering|engine|engineered)\b",
+        "creator":r"\b(?:created|developed|designed|invented|creator|developer|schöpfer|entwickelt)\b",
+        "kernel":r"\b(?:kernel|betriebssystem)\b",
+    }
+    t=topic.casefold()
+    kind=("engine" if "engine" in t else
+          "creator" if any(x in t for x in ("creator","entwickler","schöpfer","develop"))
+          else "kernel" if "kernel" in t else "")
+    prop=re.compile(topic_regex[kind],re.I) if kind else None
+    rows=[]
+    for i,sentence in enumerate(spans):
+        if not subject.search(sentence):
+            continue
+        if prop and not prop.search(sentence):
+            if i+1>=len(spans) or not prop.search(spans[i+1]):
+                continue
+        surrounding=" ".join(spans[max(0,i-1):min(len(spans),i+2)])
+        historical=bool(re.search(
+            r"\b(?:initially|formerly|previously|originally|historically|früher|ursprünglich)\b",
+            sentence,re.I))
+        current=bool(re.search(
+            r"\b(?:now|currently|today|since|uses|nutzt|verwendet|heute)\b",sentence,re.I))
+        rows.append({"sentence":sentence,"context":surrounding[:1000],
+                     "priority":(3 if current else 0)-(6 if historical else 0),
+                     "historical":historical})
+    return sorted(rows,key=lambda x:-x["priority"])[:max_windows]
 
 
 class _PinnedConnection(http.client.HTTPSConnection):
@@ -203,7 +269,7 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract):
         result.append({"url": page["url"] if page else url,
                        "title": str(hit.get("title", ""))[:160],
                        "snippet": str(hit.get("snippet", ""))[:350],
-                       "page_text": page["text"][:MAX_TEXT] if page else "",
+                       "page_text": _complete_text_clip(page["text"]) if page else "",
                        "page_read": page is not None, "reachable": page is not None,
                        "discovered": True})
     return result
