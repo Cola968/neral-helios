@@ -3,6 +3,7 @@
 # V3.4 source-window anti-truncation and Helios proposal verification holdout.
 # Approved independent RTX4070 benchmark: strict 90/100 gate with rollback.
 # V3.3 regression: user-approved new 100 synthetic cases after V3.2 diagnosis.
+# V3.7 source-first web search, strictly read-page-grounded property proof.
 # Owner-approved V3.2 candidate evaluation on the exact NERAL service, followed
 # by unconditional restoration. No changes to main, model weights or task definition.
 param()
