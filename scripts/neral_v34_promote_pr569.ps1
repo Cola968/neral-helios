@@ -121,7 +121,7 @@ function StartOwned {
 }
 
 # Entire score and source verification happens BEFORE any local mutation.
-$expectedSource='ab88cd8afc2d835a59cd6e8dee51a823a0b1a65f'
+$expectedSource='1824c0012230d45e436a6a4db98bb4798e8ad0df'
 $summaryPath=$env:V34_SUMMARY
 $detailsPath=$env:V34_DETAILS
 if([string]::IsNullOrWhiteSpace($summaryPath) -or [string]::IsNullOrWhiteSpace($detailsPath) -or
