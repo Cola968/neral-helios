@@ -322,6 +322,20 @@ def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
             candidates.append(hit)
         if len(candidates) == 9:
             break
+    if predicate is not None:
+        # Prefer published reference articles and technical documentation
+        # for retrieval, but accept factual claims ONLY from page_read text.
+        def source_rank(hit):
+            url = safe_result_url(hit.get("url")) or ""
+            host = (urlsplit(url).hostname or "").casefold()
+            if host=="developer.mozilla.org":
+                return 0
+            if host=="wikipedia.org" or host.endswith(".wikipedia.org"):
+                return 1
+            if host.startswith(("docs.","developer.","documentation.")):
+                return 2
+            return 3
+        candidates.sort(key=source_rank)
     for offset in range(0, len(candidates), 3):
         batch = reader(candidates[offset:offset+3], query)
         for page in batch if isinstance(batch, list) else ():
