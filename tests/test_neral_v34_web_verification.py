@@ -87,6 +87,30 @@ class ValueVerifierTests(unittest.TestCase):
         sources[1]["page_text"]="Lyra uses the same engine."
         self.assertIsNone(property_grounded_web_answer(("Orion","Lyra"),sources,"Browser-Engine"))
 
+    def test_model_suggested_fact_is_accepted_only_when_relation_and_full_quote_match(self):
+        sources=[
+            {"url":"https://example.org/orion","page_read":True,
+             "page_text":"Orion relies on the Aurora layout implementation to render webpages."},
+            {"url":"https://example.org/lyra","page_read":True,
+             "page_text":"Lyra currently uses the Borealis rendering engine."},
+        ]
+        calls=[]
+        def propose(entity,prop,page,windows):
+            calls.append(entity)
+            return {"entity":"Orion","fact":"Aurora",
+                    "evidence_sentence":"Orion relies on the Aurora layout implementation to render webpages."}
+        out=property_grounded_web_answer(
+            ("Orion","Lyra"),sources,"Browser-Engine",proposer=propose)
+        self.assertEqual(calls,["Orion"])
+        self.assertTrue(out["tool_verified"])
+        self.assertIn("Orion: Aurora",out["text"])
+        self.assertIn("Lyra: Borealis",out["text"])
+        def fake(entity,prop,page,windows):
+            return {"entity":"Orion","fact":"same",
+                    "evidence_sentence":sources[0]["page_text"]}
+        self.assertIsNone(property_grounded_web_answer(
+            ("Orion","Lyra"),sources,"Browser-Engine",proposer=fake))
+
     def test_one_page_read_cannot_forge_second_entity(self):
         sources=[
             {"url":"https://example.org/one","page_read":True,
