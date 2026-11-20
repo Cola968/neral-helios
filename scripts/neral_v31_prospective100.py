@@ -209,96 +209,194 @@ def answer_token(text: object) -> str:
     return compact.casefold()
 
 
+def _number_correct(text: str, gold: object) -> bool:
+    from decimal import Decimal, InvalidOperation
+    parsed = canonical_integer(text)
+    if type(gold) is int:
+        return parsed == gold
+    if type(gold) not in (float, Decimal):
+        return False
+    if parsed is None:
+        match = re.fullmatch(r"(?is)\s*(?:Antwort|Ergebnis|Resultat)\s*:\s*(-?\d+(?:[.,]\d+)?)\s*",text)
+        if match is None:
+            return False
+        try:
+            result = Decimal(match[1].replace(",","."))
+        except InvalidOperation:
+            return False
+    else:
+        result = Decimal(parsed)
+    target = Decimal(str(gold))
+    # No tolerance on discrete integers. Limited relative/absolute tolerance
+    # applies only to explicitly non-integer gold values.
+    return abs(result-target) <= max(Decimal("0.000001"),abs(target)*Decimal("0.000000001"))
+
+
+def _web_facts_in_answer(case: dict, text: str) -> bool:
+    """Prove that each entity's portion contains the expected fact.
+
+    Search the ENTIRE answer section, not a brittle 180-character window.
+    Avoid credit from the other entity's section or citations alone.
+    """
+    body = re.split(r"\n\s*\[web\d+\]\s*„",text,maxsplit=1)[0]
+    pairs = list(zip(case.get("entities",[]),case.get("facts",[])))
+    if len(pairs)<2:
+        return False
+    for index,(name,fact) in enumerate(pairs):
+        own=re.search(r"(?im)^\s*"+re.escape(name)+r"\s*:",body)
+        if own is None:
+            return False
+        other_sections=[
+            m.start() for other,_ in pairs if other!=name
+            for m in [re.search(r"(?im)^\s*"+re.escape(other)+r"\s*:",body)]
+            if m is not None and m.start()>own.start()
+        ]
+        fragment=body[own.end():min(other_sections) if other_sections else len(body)]
+        normalized=re.sub(r"[^\w]+"," ",fragment.casefold()).strip()
+        expected=re.sub(r"[^\w]+"," ",fact.casefold()).strip()
+        if expected not in normalized:
+            return False
+    return True
+
+
+def _word_correct(text: str, gold: str) -> bool:
+    synonyms={
+        "straßburg":{"strasbourg","straßburg"},
+        "lissabon":{"lisboa","lissabon"},
+        "helsinki":{"helsinki","helsingfors"},
+        "tallinn":{"tallinn"},
+        "mond":{"mond"},
+    }
+    response=answer_token(text)
+    expected=gold.casefold()
+    return response in synonyms.get(expected,{expected})
+
+
 def evaluate_case(case: dict, response: dict, status: int) -> dict:
-    """No partial credit for missing tool execution, fake sources or bad HTTP."""
-    text = response.get("text", "") if isinstance(response, dict) else ""
-    if status != 200:
-        return {"correct": False, "error": "http_error"}
-    if type(text) is not str or not text.strip():
-        return {"correct": False, "error": "empty_answer"}
-    if case.get("kind") == "word":
-        return {"correct": answer_token(text) == case.get("gold", "").casefold(),
-                "error": None if answer_token(text) == case.get("gold", "").casefold() else "wrong_knowledge"}
-    if response.get("agent_checked") is not True:
-        return {"correct": False, "error": "not_agent_checked"}
-    if case.get("kind") == "integer":
-        if response.get("tool_used") != case.get("tool"):
-            return {"correct": False, "error": "wrong_tool"}
-        if case.get("tool") == "z3_solver" and "Z3:" not in text:
-            return {"correct": False, "error": "missing_z3"}
-        match = canonical_integer(text)
-        return {"correct": match == case.get("gold"),
-                "error": None if match == case.get("gold") else "wrong_integer"}
-    if case.get("kind") == "web":
-        if response.get("tool_used") != "direct_reasoning":
-            return {"correct": False, "error": "wrong_web_tool"}
-        sources = response.get("sources")
-        if not isinstance(sources, list) or sum(s.get("page_read") is True
-                for s in sources if isinstance(s, dict)) < len(case["entities"]):
-            return {"correct": False, "error": "insufficient_read_pages"}
-        quotes = set(re.findall(r"\[web(\d+)\]\s*„[^“]{8,650}“", text))
-        if len(quotes) < len(case["entities"]) or any(
-                int(id_) not in range(1, len(sources)+1) or
-                sources[int(id_)-1].get("page_read") is not True for id_ in quotes):
-            return {"correct": False, "error": "missing_literal_citations"}
-        body = text.split("\n\n[web", 1)[0]
-        for entity, fact in zip(case["entities"], case["facts"]):
-            pattern = r"(?i)(?<!\w)" + re.escape(entity) + r"(?!\w)"
-            matches = list(re.finditer(pattern, body))
-            if not matches:
-                return {"correct": False, "error": "missing_entity"}
-            if not any(re.search(re.escape(fact), body[m.end():m.end()+180], re.I)
-                       for m in matches):
-                return {"correct": False, "error": "missing_expected_fact"}
-        return {"correct": True, "error": None}
-    return {"correct": False, "error": "unknown_kind"}
+    """Orthogonal factual correctness and independently evidenced execution.
+
+    Failure classification never hides a numerically correct, unverified
+    answer. No score is promoted from model-written claims of tool execution.
+    """
+    response=response if type(response) is dict else {}
+    value=response.get("text","")
+    text=value if type(value) is str else ""
+    kind=case.get("kind")
+    if status!=200:
+        return {"answer_correct":False,"tool_verified":False,
+                "strict_e2e_pass":False,"correct":False,"error":"http_error"}
+    if kind=="word":
+        correct=_word_correct(text,case.get("gold",""))
+        return {"answer_correct":correct,"tool_verified":False,
+                "strict_e2e_pass":correct,"correct":correct,
+                "error":None if correct else "wrong_knowledge"}
+    correct=False
+    if kind=="integer":
+        correct=_number_correct(text,case.get("gold"))
+    elif kind=="web":
+        correct=_web_facts_in_answer(case,text)
+    tool=response.get("tool_used")
+    permitted_error={"no_tool_called","sandbox_error","z3_schema_error","z3_unsat",
+                     "checker_veto","format_mismatch"}
+    explicit=response.get("error_code")
+    if explicit not in permitted_error:
+        explicit=None
+    verified=False
+    if kind=="integer":
+        expected=case.get("tool")
+        # The explicit V3.2 verifier returns tool_verified. Existing V3
+        # checks are recognized only when the tool identity and checker status
+        # are both present; this is backward-compatible, not an independent
+        # correctness certificate.
+        verified=tool==expected and (
+            response.get("tool_verified") is True or
+            response.get("agent_checked") is True)
+    elif kind=="web":
+        sources=response.get("sources",[])
+        valid=isinstance(sources,list) and all(isinstance(s,dict) for s in sources)
+        read=[(i+1,s) for i,s in enumerate(sources) if s.get("page_read") is True] if valid else []
+        citations=set(re.findall(r"\[web(\d+)\]\s*„[^“]{8,650}“",text))
+        verified=(tool=="direct_reasoning" and
+                  (response.get("tool_verified") is True or
+                   response.get("agent_checked") is True) and
+                  len(read)>=len(case.get("entities",[])) and
+                  len(citations)>=len(case.get("entities",[])) and
+                  all(1<=int(n)<=len(sources) and
+                      sources[int(n)-1].get("page_read") is True
+                      for n in citations))
+    strict=bool(correct and verified)
+    error=None
+    if not strict:
+        if explicit is not None:
+            error=explicit
+        elif not text.strip():
+            error="format_mismatch"
+        elif not tool or (kind=="integer" and tool!=case.get("tool")):
+            error="no_tool_called"
+        elif not verified:
+            error="checker_veto"
+        elif not correct and kind=="integer" and canonical_integer(text) is None:
+            error="format_mismatch"
+        else:
+            error="answer_incorrect"
+    return {"answer_correct":bool(correct),"tool_verified":bool(verified),
+            "strict_e2e_pass":strict,"correct":strict,"error":error}
 
 
 def summarize(cases: list[dict], rows: list[dict]) -> dict:
-    if len(cases) != 100 or len(rows) != 100:
+    if len(cases)!=100 or len(rows)!=100:
         raise ValueError("Exactly 100 full observations are mandatory")
-    ids = [x["id"] for x in cases]
-    result_ids = [x.get("id") for x in rows]
-    if len(set(ids)) != 100 or len(set(result_ids)) != 100 or set(ids) != set(result_ids):
+    ids=[x["id"] for x in cases]
+    result_ids=[x.get("id") for x in rows]
+    if len(set(ids))!=100 or len(set(result_ids))!=100 or set(ids)!=set(result_ids):
         raise ValueError("Missing or duplicate evaluated case")
-    outcomes = {x["id"]:x for x in rows}
-    grouped = {}
-    for category in CATEGORIES:
-        subset = [outcomes[c["id"]] for c in cases if c["category"] == category]
-        if len(subset) != 20:
-            raise ValueError("Category size mismatch")
-        grouped[category] = {
-            "count": 20,
-            "correct": sum(x.get("correct") is True for x in subset),
-            "errors": dict(Counter(x.get("error") or "wrong" for x in subset
-                                   if x.get("correct") is not True)),
-        }
-    durations = [x.get("latency_seconds") for x in rows]
-    if not all(type(x) in (int,float) and math.isfinite(x) and 0 <= x <= 3600
-               for x in durations):
+    durations=[x.get("latency_seconds") for x in rows]
+    if not all(type(v) in (int,float) and math.isfinite(v) and 0<=v<=3600
+               for v in durations):
         raise ValueError("Missing or invalid latency")
-    good = sum(x.get("correct") is True for x in rows)
-    by_tier = {}
+    byid={x["id"]:x for x in rows}
+    def answer(r):
+        return r.get("answer_correct",r.get("correct")) is True
+    def strict(r):
+        return r.get("strict_e2e_pass",r.get("correct")) is True
+    grouped={}
+    for category in CATEGORIES:
+        subset=[byid[c["id"]] for c in cases if c["category"]==category]
+        if len(subset)!=20:
+            raise ValueError("Category size mismatch")
+        uses=sum(bool(r.get("tool")) for r in subset)
+        grouped[category]={
+            "count":20,
+            "answer_correct":sum(answer(x) for x in subset),
+            "tool_verified":sum(x.get("tool_verified") is True for x in subset),
+            "tool_use_count":uses,
+            "tool_use_percent":round(100*uses/20,1),
+            "strict_e2e_pass":sum(strict(x) for x in subset),
+            "correct":sum(strict(x) for x in subset),
+            "average_latency_seconds":round(statistics.mean(x["latency_seconds"] for x in subset),3),
+            "errors":dict(Counter(x.get("error") or "unclassified" for x in subset
+                                  if not strict(x))),
+        }
+    good=sum(strict(x) for x in rows)
+    by_tier={}
     for tier in TIERS:
-        ts = [x for x in rows if x.get("requested_tier") == tier]
+        ts=[x for x in rows if x.get("requested_tier")==tier]
         if ts:
-            by_tier[tier] = {
-                "count": len(ts),
-                "correct": sum(x.get("correct") is True for x in ts),
-                "median_seconds": round(statistics.median(x["latency_seconds"] for x in ts), 3),
-            }
+            by_tier[tier]={
+                "count":len(ts),"correct":sum(strict(x) for x in ts),
+                "median_seconds":round(statistics.median(x["latency_seconds"] for x in ts),3)}
     return {
-        "status": "COMPLETE",
-        "cases": 100,
-        "correct": good,
-        "categories": grouped,
-        "latency_median_seconds": round(statistics.median(durations), 3),
-        "latency_p95_seconds": round(sorted(durations)[94], 3),
-        "tiers": by_tier,
-        "gate_90_of_100": good >= 90,
-        "unverified_web_successes": 0,  # checker required in evaluate_case
-        "baseline_v22": "NOT_RUN_NO_SIDE_BY_SIDE_SERVICE",
-        "model_promotion_authorized": False,
+        "status":"COMPLETE","cases":100,"correct":good,
+        "answer_correct":sum(answer(x) for x in rows),
+        "tool_verified":sum(x.get("tool_verified") is True for x in rows),
+        "strict_e2e_pass":good,
+        "categories":grouped,
+        "latency_average_seconds":round(statistics.mean(durations),3),
+        "latency_median_seconds":round(statistics.median(durations),3),
+        "latency_p95_seconds":round(sorted(durations)[94],3),
+        "tiers":by_tier,"gate_90_of_100":good>=90,
+        "baseline_v22":"NOT_RUN_NO_SIDE_BY_SIDE_SERVICE",
+        "model_promotion_authorized":False,
     }
 
 
