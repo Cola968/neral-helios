@@ -432,64 +432,102 @@ def _open_client():
 
 
 def run_live(args) -> dict:
-    if args.authorize != "NERAL_V31_OWNER_APPROVED_PROSPECTIVE_100":
-        raise PermissionError("Explicit prospective 100-run approval required")
-    if not Path(args.output).is_absolute() or not Path(args.sealed).is_absolute():
-        raise ValueError("Use absolute runner-temp output paths")
-    seed = secrets.token_hex(16)
-    cases = build_suite(seed)
-    seal_digest = seal_suite(Path(args.sealed), cases)
-    # Freeze the complete source and gold before creating any model response.
-    fetch, csrf = _open_client()
-    rows = []
-    progress = Path(args.progress)
-    progress.parent.mkdir(parents=True, exist_ok=True)
-    with progress.open("x", encoding="utf8") as saved:
-        for index, case in enumerate(cases):
-            # Rotate requested levels; effective model routing is recorded
-            # separately, so this does not claim independent model arms.
-            tier = TIERS[index % len(TIERS)]
-            started = time.monotonic()
+    if args.authorize != "NERAL_V32_OWNER_APPROVED_NEW_100":
+        raise PermissionError("Explicit V3.2 prospective 100-run approval required")
+    for path in (args.output,args.sealed,args.progress,args.details):
+        if not Path(path).is_absolute():
+            raise ValueError("Use absolute runner-temp output paths")
+    seed=secrets.token_hex(16)
+    cases=build_suite(seed)
+    seal_digest=seal_suite(Path(args.sealed),cases)
+    fetch,csrf=_open_client()
+    rows=[]
+    progress=Path(args.progress)
+    details=Path(args.details)
+    progress.parent.mkdir(parents=True,exist_ok=True)
+    details.parent.mkdir(parents=True,exist_ok=True)
+    # Exclusive create mode prevents accidental overwriting of earlier evidence.
+    with progress.open("x",encoding="utf8") as saved, details.open("x",encoding="utf8") as audit:
+        for index,case in enumerate(cases):
+            tier=TIERS[index%len(TIERS)]
+            started=time.monotonic()
+            response={}
+            status=0
             try:
-                payload = {"tier":tier, "prompt":case["question"], "history":[],
-                           "force_sandbox": False}
-                if case["category"] == "web":
-                    payload["web_query"] = case["web_query"]
-                status, response = fetch("/api/neral/chat/three-tier", payload, csrf)
-                score = evaluate_case(case, response, status)
-                effective = response.get("tier")
-                tool = response.get("tool_used")
+                payload={"tier":tier,"prompt":case["question"],"history":[],
+                         "force_sandbox":False}
+                if case["category"]=="web":
+                    payload["web_query"]=case["web_query"]
+                status,response=fetch("/api/neral/chat/three-tier",payload,csrf)
+                score=evaluate_case(case,response,status)
+                effective=response.get("tier")
+                tool=response.get("tool_used")
             except HTTPError as exc:
-                score = {"correct": False, "error": f"http_{exc.code}"}
-                effective,tool = None,None
-            except (URLError, TimeoutError, ValueError, OSError) as exc:
-                score = {"correct": False, "error": type(exc).__name__}
-                effective,tool = None,None
-            elapsed = round(time.monotonic()-started, 3)
-            row = {"id":case["id"], "category":case["category"],
-                   "requested_tier":tier, "effective_tier":effective,
-                   "tool":tool if isinstance(tool,str) else None,
-                   "correct":score["correct"], "error":score["error"],
-                   "latency_seconds":elapsed}
+                status=exc.code
+                score=evaluate_case(case,{},status)
+                effective,tool=None,None
+            except (URLError,TimeoutError,ValueError,OSError) as exc:
+                score={"answer_correct":False,"tool_verified":False,
+                       "strict_e2e_pass":False,"correct":False,
+                       "error":type(exc).__name__}
+                effective,tool=None,None
+            elapsed=round(time.monotonic()-started,3)
+            row={
+                "id":case["id"],"category":case["category"],
+                "requested_tier":tier,"effective_tier":effective,
+                "tool":tool if isinstance(tool,str) else None,
+                "answer_correct":score["answer_correct"],
+                "tool_verified":score["tool_verified"],
+                "strict_e2e_pass":score["strict_e2e_pass"],
+                "correct":score["strict_e2e_pass"],
+                "error":score["error"],"latency_seconds":elapsed,
+            }
             rows.append(row)
-            saved.write(json.dumps(row, ensure_ascii=False, separators=(",",":"))+"\n")
+            saved.write(json.dumps(row,ensure_ascii=False,sort_keys=True)+"\n")
             saved.flush()
             os.fsync(saved.fileno())
-            # Current WebSearch permits 6 outbound queries per minute.
-            # Comparisons call the search provider per entity, possibly again
-            # on evidence-retry. A conservative gap avoids self-induced 429s.
-            if case["category"] == "web":
+            # Every prompt is synthetic and generated by this script. Never
+            # publish browser session cookies, CSRF, private chats or source
+            # page_text. This record retains enough raw model/tool output to
+            # distinguish routing, validation, formatting and correctness.
+            response=response if isinstance(response,dict) else {}
+            allowed=("text","tool_used","tool_verified","agent_checked",
+                     "agent_steps","agent_attempts","error_code","verified",
+                     "verification_status","proof_backend","sources",
+                     "sandbox_executed","sandbox_attempts",
+                     "sandbox_failure_code","tool_calls_succeeded","tier","model")
+            observed={k:response[k] for k in allowed if k in response}
+            if isinstance(observed.get("text"),str):
+                observed["text"]=observed["text"][:12000]
+            if isinstance(observed.get("sources"),list):
+                observed["sources"]=[
+                    {k:v for k,v in entry.items() if k in
+                     ("url","page_read","entity_focus","title","retrieved_url")}
+                    for entry in observed["sources"] if isinstance(entry,dict)
+                ][:12]
+            detail={"case":case,"request_tier":tier,"http_status":status,
+                    "observed":observed,"grader":score,
+                    "elapsed_seconds":elapsed}
+            audit.write(json.dumps(detail,ensure_ascii=False,sort_keys=True)+"\n")
+            audit.flush()
+            os.fsync(audit.fileno())
+            # External web search enforces a provider rate limit. The pause is
+            # outside recorded inference latency and cannot inflate scores.
+            if case["category"]=="web":
                 time.sleep(35)
-    report = summarize(cases, rows)
-    report["sealed_manifest_sha256"] = seal_digest
-    report["source_sha"] = os.environ.get("GITHUB_SHA", "")
-    report["case_questions_or_answers_in_report"] = False
-    out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("x", encoding="utf8") as handle:
+    report=summarize(cases,rows)
+    report["sealed_manifest_sha256"]=seal_digest
+    report["details_sha256"]=hashlib.sha256(details.read_bytes()).hexdigest()
+    report["detail_count"]=len(rows)
+    report["source_sha"]=os.environ.get("GITHUB_SHA","")
+    report["synthetic_individual_rows_retained"]=True
+    report["baseline_v22"]="NOT_RUN_NO_SIDE_BY_SIDE_SERVICE"
+    out=Path(args.output)
+    out.parent.mkdir(parents=True,exist_ok=True)
+    with out.open("x",encoding="utf8") as handle:
         json.dump(report,handle,ensure_ascii=False,indent=2,sort_keys=True)
-    print("NERAL_V31_PROSPECTIVE100_SCALAR " +
-          json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+    print("NERAL_V32_PROSPECTIVE100_SCALAR "+
+          json.dumps(report,ensure_ascii=False,sort_keys=True),flush=True)
     return report
 
 
@@ -499,6 +537,7 @@ def main(argv=None) -> int:
     parser.add_argument("--sealed", required=True, type=Path)
     parser.add_argument("--progress", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--details", required=True, type=Path)
     args = parser.parse_args(argv)
     result = run_live(args)
     # Not meeting 90/100 is a measurement result, not a CI infrastructure
