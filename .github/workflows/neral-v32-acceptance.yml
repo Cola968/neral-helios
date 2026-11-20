@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'neral_evidence_agent.py'
+      - 'neral_page_reader.py'
       - 'neral_v32_verifier.py'
       - 'scripts/neral_v31_prospective100.py'
       - 'scripts/neral_v32_stage_and_benchmark.ps1'
@@ -19,6 +20,7 @@ on:
     branches: [codex/neral-v31-prospective100]
     paths:
       - 'neral_evidence_agent.py'
+      - 'neral_page_reader.py'
       - 'neral_v32_verifier.py'
       - 'scripts/neral_v31_prospective100.py'
       - 'scripts/neral_v32_stage_and_benchmark.ps1'
