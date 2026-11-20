@@ -440,7 +440,8 @@ def _property_type(topic: str) -> str | None:
     if not isinstance(topic,str):
         return None
     topic=topic.casefold()
-    if "browser-engine" in topic or "rendering engine" in topic:
+    if any(value in topic for value in ("browser-engine","browser engine",
+                                        "rendering engine","layout engine")):
         return "engine"
     if "entwickler" in topic or "schöpfer" in topic or "creator" in topic:
         return "creator"
