@@ -38,7 +38,7 @@ Fehlt eine erforderliche Zahl, beschreibe in missing konkret, welche Zahl, Einhe
 Verwende ASCII-Variablen und Ganzzahlen. And, Or, Not, Implies sind erlaubt. Bilde jede Bedingung ab, auch paarweise Verschiedenheit. objective ist find_one oder count_all. Erkläre in legend die Namen und Werte.
 """,
     "direct_reasoning": """Antwortformat: {"answer":"vollständige Antwort","citations":[{"source":"web1","quote":"wörtliches Zitat aus web1"}]}.
-Beantworte jede Teilfrage. Bei Web- oder Dateiantworten muss jede wesentliche Aussage belegt sein. Wenn keine externen Quellen verwendet werden, nutze citations=[]. Weisen Quellen Lücken auf oder sind sie gekürzt, benenne die Einschränkung.
+Beantworte jede Teilfrage. Bei Web- oder Dateiantworten muss jede wesentliche Aussage belegt sein. Wenn ausdrücklich der deutsche Name einer Hauptstadt verlangt wird, verwende den deutschen Ortsnamen (z.B. Athen statt Athens), keine englische Bezeichnung. Wenn keine externen Quellen verwendet werden, nutze citations=[]. Weisen Quellen Lücken auf oder sind sie gekürzt, benenne die Einschränkung.
 """,
 }
 CHECKER = """Du bist der kritische Helios-Prüfer. Prüfe Nutzerfrage gegen PLAN, tatsächliche EVIDENZ und ENTWURF.
@@ -853,6 +853,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         return _json_object(respond(system, json.dumps(data, ensure_ascii=False), budget, schema))
 
     def result(text, checked=False, attempts=0):
+        if checked:
+            from neral_knowledge_verifier import normalize_german_capital_name
+            text=normalize_german_capital_name(question,text)
         return {"text": text, "verified": False, "safe_to_promote": False, "proof_backend": None,
                 "verification_scope": "tool_execution_and_model_review" if checked else "none",
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
