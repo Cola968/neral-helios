@@ -64,7 +64,7 @@ class SimpleWebTest(unittest.TestCase):
         self.assertTrue(r["tool_verified"])
         self.assertFalse(r["verified"])
         self.assertFalse(r["safe_to_promote"])
-        self.assertIn("not_fact",r["verification_scope"])
+        self.assertIn("literal_property",r["verification_scope"])
         self.assertEqual(len(r["sources"]),2)
         self.assertNotIn("page_text",r["sources"][0])
         self.assertNotIn("Injected search snippet",json.dumps(self.calls))
@@ -113,7 +113,11 @@ class SimpleWebTest(unittest.TestCase):
             "Astra vs Boreal: Vergleiche Browser-Engine anhand gelesener Webseiten.",
             wrong,lambda s:None,web_query="Astra Boreal Browser-Engine",
             search=Search(self),page_reader=self.read)
-        self.assertFalse(r["tool_verified"])
+        self.assertTrue(r["tool_verified"])
+        self.assertEqual(r["text"].splitlines()[:2],
+                         ["Astra: Aurora","Boreal: Borealis"])
+        self.assertFalse(r["verified"])
+        self.assertIn("web_model_diagnostic",r)
         self.assertEqual(len(self.calls),1)
 
 
