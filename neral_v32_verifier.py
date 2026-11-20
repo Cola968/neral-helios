@@ -546,40 +546,105 @@ def verify_web_fact_proposal(proposal, page_text, entity, prop):
     return fact,sentence
 
 
-def _property_evidence(text: str, entity: str, prop: str) -> tuple[str,str] | None:
-    """Extract only grammatically attributable, complete source sentences."""
+
+def _property_evidence(text: str, entity: str, prop: str) -> tuple[str, str] | None:
+    """Extract a subject-property relation from the fetched page, not co-occurrence.
+
+    A page containing the subject name and a different product's engine or
+    creator is not evidence for the requested subject. Extract only explicit
+    grammatical relations or a labelled engine infobox on the subject page.
+    """
     from neral_page_reader import evidence_sentence_windows
-    windows=evidence_sentence_windows(text,entity,prop,max_windows=40)
-    for win in windows:
-        sentence=win["sentence"]
-        if prop=="engine":
-            if _HISTORICAL_ENGINE.search(sentence):
+    if not isinstance(text, str) or not isinstance(entity, str) or not entity.strip():
+        return None
+
+    subject = r"(?<!\w)" + re.escape(entity) + r"(?!\w)"
+    if re.search(subject, text, re.I) is None:
+        return None
+
+    # Parsed infobox cells are literal page text. In a result page they can be
+    # detached from the subject heading by newlines, unlike normal prose.
+    if prop == "engine":
+        for match in re.finditer(
+            r"(?im)^\s*\|\s*Engines?\s*\|\s*([A-Za-z][\w-]+)[^\n]*",
+            text):
+            token = match.group(1)
+            if token.casefold() not in {"the", "a", "unknown", "none", "javascript"}:
+                return token, match.group(0).strip()[:600]
+
+    # Keep the literal fetched source spans intact for quoted citations.
+    windows = [row["sentence"] for row in
+               evidence_sentence_windows(text, entity, prop, max_windows=60)]
+    fragments = []
+    for line in text.splitlines():
+        pieces = [part.strip() for part in re.findall(r"[^.!?]+[.!?]", line)]
+        for n in (1, 2, 3):
+            for j in range(len(pieces) - n + 1):
+                phrase = " ".join(pieces[j:j+n])
+                if len(phrase) <= 650:
+                    fragments.append(phrase)
+        if len(line.strip()) <= 650:
+            fragments.append(line.strip())
+    spans = list(dict.fromkeys(windows + fragments))
+    person = r"([A-ZÀ-Ý][a-zà-ÿ]{2,}(?:\s+(?:van|von|de|da|der|dos))?\s+[A-ZÀ-Ý][a-zà-ÿ]{2,}(?:\s+[A-ZÀ-Ý][a-zà-ÿ]{2,})?)"
+
+    def proper_name(value):
+        value = re.sub(r'\s*["“][^"”]{1,30}["”]\s*', " ", value)
+        return " ".join(value.split())
+
+    for span in spans:
+        if len(span) > 650 or len(span) < 18:
+            continue
+        if not span.rstrip().endswith((".", "!", "?")) and "the creator of" not in span.casefold():
+            continue
+        has_subject = bool(re.search(subject, span, re.I))
+        if not has_subject:
+            continue
+        if prop == "engine":
+            if _HISTORICAL_ENGINE.search(span):
                 continue
-            matches=list(_ENGINE_VALUE.finditer(sentence))
-            matches+=list(_ENGINE_VERB.finditer(sentence))
-            matches+=list(re.finditer(
-                r"\b(?:browser|rendering|layout)\s+engine\s+(?:is|was|:)\s+"
-                r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b",sentence,re.I))
-            candidates=[m.group(1) for m in matches]
-        elif prop=="creator":
-            candidates=[]
-            rel=_CREATOR_BY.search(sentence)
-            if rel is not None:
-                match=_PERSON.search(sentence[rel.end():])
+            patterns = (
+                subject + r".{0,130}?\b(?:uses|utilizes|runs on|nutzt|verwendet)\s+(?:the\s+|die\s+|der\s+|das\s+)?([A-Za-z][\w-]+)\s+(?:rendering|layout|browser)[ -]engine\b",
+                subject + r".{0,150}?\bbrowser\s+with\s+([A-Za-z][\w-]+)\s+and\s+[A-Za-z0-9-]+\s+engines\b",
+                subject + r".{0,90}?\b(?:rendering|layout|browser)[ -]engine\s+(?:is|:)\s+([A-Za-z][\w-]+)",
+                # An explicit product foundation described alongside a named
+                # fork engine, not a loose occurrence of "browser engine".
+                subject + r".{0,130}?\bbased\s+on(?:\[\d+\])?\s+([A-Za-z][\w-]+).{0,90}?\bfork\s+of\s+(?:the\s+)?[A-Za-z0-9-]+\s+browser\s+engine",
+            )
+            for pattern in patterns:
+                match = re.search(pattern, span, re.I)
                 if match:
-                    candidates.append(match.group(0))
-        elif prop=="kernel":
-            candidates=re.findall(
-                r"(?<!\w)([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]+[- ]Kernel)\b",
-                sentence,re.I)
-        else:
-            return None
-        for fact in candidates:
-            result=verify_web_fact_proposal(
-                {"entity":entity,"fact":fact,"evidence_sentence":sentence},
-                text,entity,prop)
-            if result is not None:
-                return result
+                    fact = match.group(1)
+                    if fact.casefold() not in {
+                        "the","a","an","die","der","das","den","dem","ein",
+                        "eine","einen","neu","new","proprietary","chrome",
+                        "engine","browser","rendering","javascript"} and fact.casefold() != entity.casefold():
+                        return fact, span
+        elif prop == "creator":
+            # Matching the creator of "language specifications" or a language
+            # mentioned only as an influence is a false attribution.
+            forms = (
+                subject + r"[^.;:!?]{0,90}?\b(?:was|is|has been)\s+(?:initially\s+)?(?:conceived|created|developed|designed|invented)\b.{0,85}?\bby\s+" + person,
+                person + r"\s+(?:created|developed|designed|invented)\s+" + subject,
+                r"\b(?:[Cc]reated|[Dd]eveloped|[Dd]esigned|[Ii]nvented)\s+by\s+" + person + r".{0,90}?" + subject,
+                person + r"\s*,\s*the\s+creator\s+of\s+" + subject,
+                subject + r".{0,160}?\b[Cc]reated\s+by\s+" + person,
+                subject + r".{0,160}?\bDevelopment\s+of\s+the\s+language\s+began\b.{0,90}?\bby\s+" +
+                r"([A-ZÀ-Ý][a-zà-ÿ]{2,}\s+(?:[\"“][^\"”]+[\"”]\s+)?[A-ZÀ-Ý][a-zà-ÿ]{2,})",
+            )
+            for pattern in forms:
+                match = re.search(pattern, span)
+                if match:
+                    fact = proper_name(match.group(1))
+                    if _PERSON.fullmatch(fact) is not None:
+                        return fact, span
+        elif prop == "kernel":
+            # The kernel name must be present literally next to this subject;
+            # generic phrases such as "in-kernel" are not a kernel identity.
+            match = re.search(subject + r"[- ]kernel\b", span, re.I)
+            if match:
+                fact = entity + "-Kernel"
+                return fact, span
     return None
 
 
