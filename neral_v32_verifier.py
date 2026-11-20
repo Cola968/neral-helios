@@ -520,7 +520,12 @@ def verify_web_fact_proposal(proposal, page_text, entity, prop):
         reverse=re.search(
             r"\b(?:browser|rendering|layout)\s+engine\s+(?:is|was|:)\s+"
             r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b",sentence,re.I)
-        candidates=[m.group(1) for m in (named,verbal,reverse) if m]
+        indirect=re.search(
+            r"\b(?:relies on|employs|features)\s+(?:the\s+)?"
+            r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\s+"
+            r"(?:layout|browser|rendering)\s+(?:implementation|technology)\b",
+            sentence,re.I)
+        candidates=[m.group(1) for m in (named,verbal,reverse,indirect) if m]
         if not any(candidate.casefold()==fact.casefold() for candidate in candidates):
             return None
     elif prop=="kernel":
