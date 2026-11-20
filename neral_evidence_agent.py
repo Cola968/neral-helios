@@ -521,13 +521,56 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     # V3.2: deterministically execute exact user-provided Python source and
     # independently certified four-person counting constraints before any
     # model-authored planner, worker or subjective LLM validation veto.
-    from neral_v32_verifier import (verified_python_question, verified_shift_count,
-                                    grounded_entity_facts)
+    from neral_v32_verifier import (
+        verified_python_question, verified_shift_count, verified_math_question,
+        grounded_entity_facts, property_grounded_web_answer, _property_type,
+        _property_evidence)
     if not files and not web_query:
-        for verify in (verified_python_question, verified_shift_count):
+        for verify in (verified_python_question, verified_shift_count, verified_math_question):
             certified = verify(question, execute)
             if certified is not None:
                 return {**certified, "agent_attempts": 1}
+    if not files and web_query and search is not None and _property_type(web_query):
+        compare_names = _comparison_entities(question)
+        if len(compare_names) >= 2 and not _FORMAL_INTENT.search(question):
+            # Always search by subject and property, not with memorized
+            # expected answers or benchmark gold. Require actual read pages.
+            typed = _property_type(web_query)
+            query_terms = {
+                "engine": ("browser rendering engine implementation",
+                           "browser engine technical documentation"),
+                "creator": ("programming language created by developer",
+                            "programming language creator designed by"),
+                "kernel": ("operating system kernel architecture",
+                           "operating system kernel software"),
+            }
+            verified_pages = []
+            collected_urls = set()
+            for name in compare_names:
+                for phrase in query_terms[typed]:
+                    query = f"{name} {phrase}"
+                    try:
+                        hits = search.search(query)
+                        pages = read_entity_pages(
+                            hits.get("results", []), query, name,
+                            reader=page_reader, max_pages=3,
+                            exclude_urls=tuple(collected_urls))
+                    except WebSearchError:
+                        pages = []
+                    for page in pages:
+                        if page.get("url") in collected_urls:
+                            continue
+                        if _property_evidence(page.get("page_text",""),name,typed) is None:
+                            continue
+                        verified_pages.append({**page, "entity_focus":name})
+                        collected_urls.add(page["url"])
+                        break
+                    if any(p.get("entity_focus") == name for p in verified_pages):
+                        break
+            direct = property_grounded_web_answer(
+                tuple(compare_names), verified_pages, web_query)
+            if direct is not None:
+                return direct
     sources = []
     evidence = {"user": question, **(files or {})}
     # Standalone task isolation: earlier chat turns remain in the UI but do
