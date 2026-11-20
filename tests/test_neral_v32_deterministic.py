@@ -120,6 +120,49 @@ class V32DeterministicContracts(unittest.TestCase):
         self.assertTrue(r["answer_correct"])
         self.assertTrue(r["strict_e2e_pass"])
 
+    def test_evidence_agent_bypasses_model_veto_for_executable_source(self):
+        from neral_evidence_agent import run_evidence_agent
+        q=("Welchen ganzzahligen Wert gibt dieses Python-Programm aus?\n"
+           "'''python\nx=10\nfor i in range(2):\n x+=7\nprint(x)\n'''")
+        calls=[]
+        def execute(code):
+            calls.append(code)
+            return {"status":"PASSED","exit_code":0,"output":"24"}
+        def forbidden_model(*args):
+            raise AssertionError("Deterministic source must not call LLM")
+        r=run_evidence_agent(q,forbidden_model,execute)
+        self.assertTrue(r["tool_verified"])
+        self.assertEqual(r["tool_used"],"python_sandbox")
+        self.assertEqual(len(calls),1)
+
+    def test_agent_web_facts_per_entity_before_llm_generation(self):
+        from neral_evidence_agent import run_evidence_agent
+        question=("Firefox vs Chrome: Vergleiche ihre Browser-Engine "
+                  "anhand tatsächlich gelesener Webseiten.")
+        class Search:
+            def __init__(self): self.requests=[]
+            def search(self,term):
+                self.requests.append(term)
+                return {"results":[{"url":"https://example.com/"+str(len(self.requests))}]}
+        source=[
+            {"page_read":True,"url":"https://example.com/1",
+             "page_text":"Firefox is a browser.\nFirefox uses Gecko for rendering web pages."},
+            {"page_read":True,"url":"https://example.com/2",
+             "page_text":"Chrome is a browser.\nChrome uses Blink for rendering web pages."},
+        ]
+        def reader(hits,query):
+            return [next(s for s in source if s["url"]==hits[0]["url"])]
+        def forbidden_model(*args): raise AssertionError("Web source extraction must not call LLM")
+        search=Search()
+        r=run_evidence_agent(question,forbidden_model,lambda code:None,
+                             search=search,web_query="Firefox Chrome Browser-Engine",
+                             page_reader=reader)
+        self.assertTrue(r["tool_verified"])
+        self.assertIn("Gecko",r["text"])
+        self.assertIn("Blink",r["text"])
+        self.assertEqual(len(search.requests),2)
+        self.assertEqual(len(r["sources"]),2)
+
     def test_summary_separates_both_metrics(self):
         cases=build_suite("00112233445566778899aabbccddeeff")
         rows=[{"id":x["id"],"category":x["category"],
