@@ -1,3 +1,4 @@
+# V3.6 native HF constrained JSON budget 768, normalized model response, German exonym holdout.
 # V3.5 one-shot paragraph comparison, 118-element lookup and source-math Docker retry test.
 # V3.4 source-window anti-truncation and Helios proposal verification holdout.
 # Approved independent RTX4070 benchmark: strict 90/100 gate with rollback.
