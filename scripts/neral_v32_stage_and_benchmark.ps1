@@ -1,4 +1,5 @@
 # Approved independent RTX4070 benchmark: strict 90/100 gate with rollback.
+# V3.3 regression: user-approved new 100 synthetic cases after V3.2 diagnosis.
 # Owner-approved V3.2 candidate evaluation on the exact NERAL service, followed
 # by unconditional restoration. No changes to main, model weights or task definition.
 param()
