@@ -8,6 +8,7 @@ on:
       - 'scripts/neral_v31_prospective100.py'
       - 'scripts/neral_v32_stage_and_benchmark.ps1'
       - 'tests/test_neral_v32_deterministic.py'
+      - 'tests/test_neral_v33_fixes.py'
       - '.github/workflows/neral-v32-acceptance.yml'
   push:
     branches: [codex/neral-v31-prospective100]
@@ -17,6 +18,7 @@ on:
       - 'scripts/neral_v31_prospective100.py'
       - 'scripts/neral_v32_stage_and_benchmark.ps1'
       - 'tests/test_neral_v32_deterministic.py'
+      - 'tests/test_neral_v33_fixes.py'
       - '.github/workflows/neral-v32-acceptance.yml'
 permissions:
   contents: read
@@ -40,6 +42,7 @@ jobs:
       - name: "Tests: deterministic source verifier and orthogonal grader"
         run: |
           python -m unittest discover -s tests -p test_neral_v32_deterministic.py -v
+          python -m unittest discover -s tests -p test_neral_v33_fixes.py -v
           python -m unittest discover -s tests -p test_neral_v31_prospective100.py -v
           python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
       - name: Verify syntax and Python import closure
