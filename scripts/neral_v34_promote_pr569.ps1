@@ -24,7 +24,7 @@ if($startup -notmatch 'NERAL_V3_AGENT_ENABLED' -or
    $startup -notmatch '--experimental-three-tier-hf'){
   throw 'Installed service is not pinned V3'
 }
-$paths=@('neral_evidence_agent.py','neral_v32_verifier.py','neral_page_reader.py')
+$paths=@('neral_evidence_agent.py','neral_v32_verifier.py','neral_page_reader.py','neral_knowledge_verifier.py')
 $backup=Join-Path $env:LOCALAPPDATA ('neral-v34-pre569-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
 $had=@{}
