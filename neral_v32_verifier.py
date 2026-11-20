@@ -36,7 +36,7 @@ _NODES = (
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
     ast.Pow, ast.UAdd, ast.USub, ast.And, ast.Or, ast.Not,
     ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.Is, ast.IsNot,
-    ast.In, ast.NotIn, ast.keyword,
+    ast.In, ast.NotIn, ast.keyword, ast.alias,
 )
 _SCRIPT = re.compile(r"(?:'''python|\x60{3}python)[ \t]*\r?\n([\s\S]*?)\r?\n(?:'''|\x60{3})", re.I)
 
