@@ -52,3 +52,47 @@ def verified_element_question(question):
         "agent_checked":True,"agent_steps":["periodic_table_lookup"],
         "agent_attempts":0,"error_code":None,"sources":[],
     }
+
+
+# Only response-language normalization, not a general geography solver.
+# The country context has to match and the model must already have produced
+# a single explicit foreign spelling (possibly with the "Antwort:" prefix).
+_GERMAN_CAPITAL_EXONYMS = {
+    "griechenland": {"athens": "Athen"},
+    "österreich": {"vienna": "Wien"},
+    "tschechien": {"prague": "Prag"},
+    "polen": {"warsaw": "Warschau"},
+    "italien": {"rome": "Rom"},
+    "portugal": {"lisbon": "Lissabon"},
+    "belgien": {"brussels": "Brüssel"},
+    "dänemark": {"copenhagen": "Kopenhagen"},
+    "ungarn": {"budapest": "Budapest"},
+    "rumänien": {"bucharest": "Bukarest"},
+}
+
+
+def normalize_german_capital_name(question, answer):
+    """Use German exonyms only for explicit, standalone capital-name tasks.
+
+    This corrects output language, not unknown facts, sentence paragraphs,
+    model origin or the scoring code.
+    """
+    if type(question) is not str or type(answer) is not str:
+        return answer
+    pattern = re.fullmatch(
+        r"Wie heißt die Hauptstadt von ([A-ZÄÖÜa-zäöüß]+)\? "
+        r"Nur den deutschen Namen\.",
+        question.strip(), flags=re.I)
+    if pattern is None:
+        return answer
+    entries=_GERMAN_CAPITAL_EXONYMS.get(pattern.group(1).casefold())
+    if not entries:
+        return answer
+    match=re.fullmatch(r"(\s*(?:(?:Antwort|Ergebnis)\s*:\s*)?)([A-Za-zÄÖÜäöüß]+)(\s*)",
+                       answer,re.I)
+    if match is None:
+        return answer
+    german=entries.get(match.group(2).casefold())
+    if german is None:
+        return answer
+    return match.group(1)+german+match.group(3)
