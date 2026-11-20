@@ -1,0 +1,156 @@
+name: NERAL V3.9 source recovery, sandbox resilience and owner RTX4070 95/100 gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_evidence_agent.py'
+      - 'neral_page_reader.py'
+      - 'neral_v32_verifier.py'
+      - 'scripts/neral_v31_prospective100.py'
+      - 'scripts/neral_v39_stage_and_benchmark.ps1'
+      - 'scripts/neral_v39_promote.ps1'
+      - '.github/workflows/neral-v39-promote.yml'
+      - 'scripts/neral_v34_promote_pr569.ps1'
+      - '.github/workflows/neral-v34-promote-pr569.yml'
+      - 'tests/test_neral_v32_deterministic.py'
+      - 'tests/test_neral_v33_fixes.py'
+      - 'tests/test_neral_v34_web_verification.py'
+      - 'tests/test_neral_v35_simple_web.py'
+      - 'tests/test_neral_v36_json_budget.py'
+      - 'tests/test_neral_v37_web_repair.py'
+      - 'tests/test_neral_v38_web_fact_precision.py'
+      - 'tests/test_neral_v39_recovery.py'
+      - 'tests/test_neral_evidence_agent.py'
+      - 'neral_knowledge_verifier.py'
+      - '.github/workflows/neral-v39-acceptance.yml'
+  push:
+    branches: [codex/neral-v39-web-sandbox-20261120]
+    paths:
+      - 'neral_evidence_agent.py'
+      - 'neral_page_reader.py'
+      - 'neral_v32_verifier.py'
+      - 'scripts/neral_v31_prospective100.py'
+      - 'scripts/neral_v39_stage_and_benchmark.ps1'
+      - 'scripts/neral_v39_promote.ps1'
+      - '.github/workflows/neral-v39-promote.yml'
+      - 'scripts/neral_v34_promote_pr569.ps1'
+      - '.github/workflows/neral-v34-promote-pr569.yml'
+      - 'tests/test_neral_v32_deterministic.py'
+      - 'tests/test_neral_v33_fixes.py'
+      - 'tests/test_neral_v34_web_verification.py'
+      - 'tests/test_neral_v35_simple_web.py'
+      - 'tests/test_neral_v36_json_budget.py'
+      - 'tests/test_neral_v37_web_repair.py'
+      - 'tests/test_neral_v38_web_fact_precision.py'
+      - 'tests/test_neral_v39_recovery.py'
+      - 'tests/test_neral_evidence_agent.py'
+      - 'neral_knowledge_verifier.py'
+      - '.github/workflows/neral-v39-acceptance.yml'
+permissions:
+  contents: read
+jobs:
+  v39-cpu-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing evidence-agent CPU dependencies
+        run: python -m pip install 'Flask>=3,<4' 'z3-solver==4.16.0.0' 'waitress==3.0.2' 'pypdf>=5,<7'
+      - name: "Tests: deterministic source verifier and orthogonal grader"
+        run: |
+          python -m unittest discover -s tests -p test_neral_v32_deterministic.py -v
+          python -m unittest discover -s tests -p test_neral_v33_fixes.py -v
+          python -m unittest discover -s tests -p test_neral_v34_web_verification.py -v
+          python -m unittest discover -s tests -p test_neral_v35_simple_web.py -v
+          python -m unittest discover -s tests -p test_neral_v36_json_budget.py -v
+          python -m unittest discover -s tests -p test_neral_v37_web_repair.py -v
+          python -m unittest discover -s tests -p test_neral_v38_web_fact_precision.py -v
+          python -m unittest discover -s tests -p test_neral_v39_recovery.py -v
+          python -m unittest discover -s tests -p test_neral_v31_prospective100.py -v
+          python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
+      - name: Verify syntax and Python import closure
+        run: python -m py_compile neral_v32_verifier.py neral_evidence_agent.py neral_knowledge_verifier.py neral_page_reader.py scripts/neral_v31_prospective100.py
+      - name: Parse approved local Windows staging script
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $pwd 'scripts/neral_v39_stage_and_benchmark.ps1'),
+            [ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw ('PowerShell syntax errors: '+($errors | Out-String))}
+          $tokens2=$null
+          $errors2=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $pwd 'scripts/neral_v34_promote_pr569.ps1'),
+            [ref]$tokens2,[ref]$errors2)
+          if(@($errors2).Count -ne 0){throw ('Promotion PowerShell syntax errors: '+($errors2 | Out-String))}
+          $tokens3=$null
+          $errors3=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $pwd 'scripts/neral_v39_promote.ps1'),
+            [ref]$tokens3,[ref]$errors3)
+          if(@($errors3).Count -ne 0){throw ('V3.9 promotion PowerShell syntax errors: '+($errors3 | Out-String))}
+  v39-prospective-real-rtx4070:
+    needs: [v39-cpu-contracts]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/codex/neral-v39-web-sandbox-20261120' &&
+      github.event.head_commit.message == 'ops(v3.9): owner-approved independent 100 on RTX4070'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check actual owner RTX4070 and Windows script syntax
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu=@(& nvidia-smi --query-gpu=name --format=csv,noheader)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch 'RTX 4070'){
+            throw 'Dedicated RTX4070 absent'
+          }
+          $t=$null;$e=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v39_stage_and_benchmark.ps1'),
+            [ref]$t,[ref]$e)
+          if(@($e).Count -ne 0){throw 'Staging script did not parse'}
+          Write-Host 'NERAL_V39_OWNER_GPU_PREFLIGHT'
+      - name: Run candidate 100-case benchmark with pinned main rollback
+        timeout-minutes: 287
+        run: |
+          & .\scripts\neral_v39_stage_and_benchmark.ps1
+          if($LASTEXITCODE -ne 0){throw 'Candidate test or main rollback failed'}
+      - name: Preserve complete synthetic case-by-case benchmark_details.jsonl
+        if: always() && env.V32_DETAILS_PATH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v39-benchmark-details-${{ github.run_id }}
+          path: ${{ env.V32_DETAILS_PATH }}
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Preserve measured summary and 90-percent promotion status
+        if: always() && env.V32_SUMMARY_PATH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v39-summary-${{ github.run_id }}
+          path: ${{ env.V32_SUMMARY_PATH }}
+          retention-days: 90
+          if-no-files-found: warn

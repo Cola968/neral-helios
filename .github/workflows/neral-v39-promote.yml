@@ -1,0 +1,64 @@
+name: NERAL V3.9 post-merge owner RTX4070 promotion (95-of-100 gated)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'neral_evidence_agent.py'
+      - 'neral_v32_verifier.py'
+      - 'neral_page_reader.py'
+      - 'scripts/neral_v39_promote.ps1'
+      - '.github/workflows/neral-v39-promote.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  promote-owner-pin:
+    if: >-
+      startsWith(github.event.head_commit.message,
+        'ops(v3.9): verified promote PR571')
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download independently sealed RTX4070 benchmark summary
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-v39-summary-44810676439
+          path: ${{ runner.temp }}/neral-v39-verified-gate/summary
+          github-token: ${{ github.token }}
+          run-id: 44810676439
+      - name: Download complete independent benchmark_details.jsonl
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-v39-benchmark-details-44810676439
+          path: ${{ runner.temp }}/neral-v39-verified-gate/details
+          github-token: ${{ github.token }}
+          run-id: 44810676439
+      - name: Validate exact owner RTX4070 and promotion script syntax
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu=@(& nvidia-smi --query-gpu=name --format=csv,noheader)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch 'RTX 4070'){
+            throw 'Exact owner RTX 4070 not available'
+          }
+          $t=$null;$e=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v39_promote.ps1'),[ref]$t,[ref]$e)
+          if(@($e).Count -ne 0){throw 'Promotion script syntax invalid'}
+      - name: Gated permanent NERAL V3.9 deployment and HTTP200 confirmation
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:V39_SUMMARY=Join-Path $env:RUNNER_TEMP 'neral-v39-verified-gate/summary/summary.json'
+          $env:V39_DETAILS=Join-Path $env:RUNNER_TEMP 'neral-v39-verified-gate/details/benchmark_details.jsonl'
+          & .\scripts\neral_v39_promote.ps1
+          if($LASTEXITCODE -ne 0){throw 'Pinned NERAL V3.9 promotion failed'}

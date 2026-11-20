@@ -752,10 +752,33 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
             eligible={**page,"paragraphs":paragraphs,"entity_focus":name}
             break
         if eligible is None:
-            # The search and reader *were* called. This is a source-coverage
-            # failure, not no_tool_called. Do not invent a citation or fact.
-            return _simple_web_failure(
-                "no_literal_property_page_for_"+name,sources)
+            # Search providers occasionally return unrelated hits (including
+            # advertisements). Try a reference article addressed by the exact
+            # user-supplied subject name, not by an oracle/gold answer.
+            # This is a CANDIDATE URL only: the hardened HTTPS reader must
+            # retrieve real page text and the same literal-property predicate
+            # must independently accept it. No search preview is evidence.
+            from urllib.parse import quote as quote_path
+            if re.fullmatch(r"[\w .+\-]{1,60}",name):
+                reference="https://en.wikipedia.org/wiki/"+quote_path(
+                    name.replace(" ","_"),safe="_()")
+                try:
+                    pages=read_entity_pages(
+                        [{"url":reference}],name+" "+kind,name,
+                        reader=page_reader,max_pages=1,
+                        predicate=lambda page: _property_evidence(
+                            page.get("page_text",""),name,prop) is not None)
+                except (WebSearchError,ValueError,TypeError,RuntimeError,OSError,KeyError):
+                    pages=[]
+                if pages:
+                    page=pages[0]
+                    paragraphs=select_web_paragraphs(
+                        page["page_text"],name,topic,limit=3)
+                    if paragraphs:
+                        eligible={**page,"paragraphs":paragraphs,"entity_focus":name}
+            if eligible is None:
+                return _simple_web_failure(
+                    "no_literal_property_page_for_"+name,sources)
         sources.append(eligible)
     independent=property_grounded_web_answer(tuple(names),sources,topic)
     if independent is None:

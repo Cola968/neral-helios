@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlsplit
 
 from neral_web_search import safe_result_url
 
-MAX_TEXT = 3000
+MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
 TIMEOUT = 4.0
 _executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="page-reader")
@@ -386,7 +386,7 @@ def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
         if url and url not in seen:
             seen.add(url)
             candidates.append(hit)
-        if len(candidates) == 9:
+        if len(candidates) == 16:
             break
     if predicate is not None:
         # Prefer published reference articles and technical documentation
@@ -396,10 +396,12 @@ def read_entity_pages(hits, query, entity, *, reader=read_top_pages,
             host = (urlsplit(url).hostname or "").casefold()
             if host=="developer.mozilla.org":
                 return 0
-            if host=="wikipedia.org" or host.endswith(".wikipedia.org"):
+            if host=="en.wikipedia.org":
                 return 1
-            if host.startswith(("docs.","developer.","documentation.")):
+            if host=="wikipedia.org" or host.endswith(".wikipedia.org"):
                 return 2
+            if host.startswith(("docs.","developer.","documentation.")):
+                return 3
             return 3
         candidates.sort(key=source_rank)
     for offset in range(0, len(candidates), 3):

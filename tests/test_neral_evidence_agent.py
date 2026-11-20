@@ -439,10 +439,11 @@ class PageReaderTest(unittest.TestCase):
     def test_uses_only_three_public_unique_results(self):
         urls = ["https://127.0.0.1/", "https://a.example.com/", "https://a.example.com/",
                 "https://b.example.com/", "https://c.example.com/", "https://d.example.com/"]
-        fetch = Mock(side_effect=lambda url, _: {"url": url, "text": "x" * 3100})
+        fetch = Mock(side_effect=lambda url, _: {"url": url, "text": "x" * 5100})
         pages = read_top_pages([{"url": url} for url in urls], "topic", fetch=fetch)
         self.assertEqual([page["url"] for page in pages], urls[1:2] + urls[3:5])
-        self.assertTrue(all(len(page["page_text"]) == 3000 for page in pages))
+        from neral_page_reader import MAX_TEXT
+        self.assertTrue(all(len(page["page_text"]) == MAX_TEXT for page in pages))
 
     def test_entity_page_reader_skips_irrelevant_ranked_hits(self):
         from neral_page_reader import read_entity_pages

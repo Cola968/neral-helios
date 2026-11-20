@@ -154,16 +154,35 @@ def _tool_failure(tool: str, code: str, *, detail: str | None = None) -> dict:
 
 
 def _sandbox_stdout(execute, code: str) -> tuple[str | None, str | None]:
-    try:
-        report = execute(code)
-    except (ValueError, TypeError, RuntimeError, OSError):
-        return None,"sandbox_error"
-    if not isinstance(report,dict) or report.get("status")!="PASSED" or report.get("exit_code",0)!=0:
-        return None,"sandbox_error"
-    output=report.get("output")
-    if not isinstance(output,str) or not output.strip() or len(output)>512:
-        return None,"format_mismatch"
-    return output.strip(),None
+    """Never infer execution. Retry at most once for known infrastructure faults.
+
+    A container may be starting after a Windows resume. Invalid source or
+    stdout always fails closed; only a second PASSED report with real stdout
+    can count as a verified answer.
+    """
+    recoverable={"docker_unavailable","image_unavailable","timeout",
+                 "runtime_error","docker_starting"}
+    for attempt in range(2):
+        try:
+            report=execute(code)
+        except (RuntimeError,OSError):
+            if attempt==0:
+                continue
+            return None,"sandbox_error"
+        except (ValueError,TypeError):
+            return None,"sandbox_error"
+        if not isinstance(report,dict):
+            return None,"sandbox_error"
+        if report.get("status")!="PASSED" or report.get("exit_code",0)!=0:
+            reason=report.get("error_code")
+            if attempt==0 and reason in recoverable:
+                continue
+            return None,"sandbox_error"
+        output=report.get("output")
+        if not isinstance(output,str) or not output.strip() or len(output)>512:
+            return None,"format_mismatch"
+        return output.strip(),None
+    return None,"sandbox_error"
 
 
 def verified_python_question(question: str, execute) -> dict | None:
