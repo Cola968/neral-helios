@@ -6,12 +6,16 @@ on:
     paths:
       - 'scripts/neral_v31_prospective100.py'
       - 'tests/test_neral_v31_prospective100.py'
+      - 'tests/test_neral_v32_deterministic.py'
+      - 'neral_v32_verifier.py'
       - '.github/workflows/neral-v31-prospective100.yml'
   push:
     branches: [codex/neral-v31-prospective100]
     paths:
       - 'scripts/neral_v31_prospective100.py'
       - 'tests/test_neral_v31_prospective100.py'
+      - 'tests/test_neral_v32_deterministic.py'
+      - 'neral_v32_verifier.py'
       - '.github/workflows/neral-v31-prospective100.yml'
 permissions:
   contents: read
@@ -32,9 +36,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Validate prospective suite and scoring contracts
-        run: python -m unittest discover -s tests -p test_neral_v31_prospective100.py -v
+        run: |
+          python -m unittest discover -s tests -p test_neral_v31_prospective100.py -v
+          python -m unittest discover -s tests -p test_neral_v32_deterministic.py -v
       - name: Verify script syntax and no external test dependencies
-        run: python -m py_compile scripts/neral_v31_prospective100.py
+        run: python -m py_compile scripts/neral_v31_prospective100.py neral_v32_verifier.py
   real-rtx4070:
     name: Owner-approved real V3 service 100-case benchmark
     needs: [cpu-contract]
