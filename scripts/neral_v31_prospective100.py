@@ -1,4 +1,4 @@
-"""Prospective, sealed, synthetic NERAL V3.1 100-case quality/latency gate.
+"""Prospective, sealed, synthetic NERAL V3.3 100-case quality/latency gate.
 
 Never modifies the installed service, personal files or model weights.
 The random seed and individual outcomes remain only in the runner temp folder.
@@ -30,35 +30,35 @@ MAX_RESPONSE_BYTES = 262_144
 
 # Stable reference answers, frozen before prospective inference.
 KNOWLEDGE = (
-    ("Wie heißt das chemische Element mit der Ordnungszahl 1? Nur den deutschen Namen.", "Wasserstoff"),
-    ("Wie heißt das chemische Element mit der Ordnungszahl 6? Nur den deutschen Namen.", "Kohlenstoff"),
-    ("Wie heißt das chemische Element mit der Ordnungszahl 14? Nur den deutschen Namen.", "Silizium"),
-    ("Wie heißt das chemische Element mit der Ordnungszahl 26? Nur den deutschen Namen.", "Eisen"),
-    ("Wie heißt das chemische Element mit der Ordnungszahl 47? Nur den deutschen Namen.", "Silber"),
-    ("Wie heißt die SI-Einheit der Energie? Nur den Namen.", "Joule"),
-    ("Wie heißt die SI-Einheit des elektrischen Leitwerts? Nur den Namen.", "Siemens"),
-    ("Wie heißt die SI-Einheit der Beleuchtungsstärke? Nur den Namen.", "Lux"),
-    ("Wie heißt die SI-Einheit der elektrischen Induktivität? Nur den Namen.", "Henry"),
-    ("Wie heißt die SI-Einheit des magnetischen Flusses? Nur den Namen.", "Weber"),
-    ("Wie heißt die SI-Einheit der Lichtstärke? Nur den Namen.", "Candela"),
-    ("Welcher Planet ist von der Sonne aus der siebte? Nur den Namen.", "Uranus"),
-    ("Welcher Planet ist der Sonne am weitesten entfernt? Nur den Namen.", "Neptun"),
-    ("Wie heißt der hellste Stern am Nachthimmel? Nur den Namen.", "Sirius"),
-    ("Wie heißt der Stern, der der Erde am nächsten ist? Nur den Namen.", "Sonne"),
-    ("Wie heißt die Hauptstadt von Lettland? Nur den Namen.", "Riga"),
-    ("Wie heißt die Hauptstadt von Litauen? Nur den Namen.", "Vilnius"),
-    ("Wie heißt die Hauptstadt von Österreich? Nur den Namen.", "Wien"),
-    ("Wie heißt die Hauptstadt von Slowenien? Nur den Namen.", "Ljubljana"),
-    ("Wie heißt die Hauptstadt von Schweden? Nur den Namen.", "Stockholm"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 2? Nur den deutschen Namen.", "Helium"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 7? Nur den deutschen Namen.", "Stickstoff"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 8? Nur den deutschen Namen.", "Sauerstoff"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 11? Nur den deutschen Namen.", "Natrium"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 13? Nur den deutschen Namen.", "Aluminium"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 17? Nur den deutschen Namen.", "Chlor"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 29? Nur den deutschen Namen.", "Kupfer"),
+    ("Wie heißt das chemische Element mit der Ordnungszahl 79? Nur den deutschen Namen.", "Gold"),
+    ("Wie heißt die SI-Einheit der Frequenz? Nur den Namen.", "Hertz"),
+    ("Wie heißt die SI-Einheit der Kraft? Nur den Namen.", "Newton"),
+    ("Wie heißt die SI-Einheit des Drucks? Nur den Namen.", "Pascal"),
+    ("Wie heißt die SI-Einheit der elektrischen Ladung? Nur den Namen.", "Coulomb"),
+    ("Wie heißt die SI-Einheit der elektrischen Kapazität? Nur den Namen.", "Farad"),
+    ("Wie heißt die SI-Einheit des elektrischen Widerstands? Nur den Namen.", "Ohm"),
+    ("Wie heißt die SI-Einheit der elektrischen Spannung? Nur den Namen.", "Volt"),
+    ("Wie heißt die SI-Einheit der magnetischen Flussdichte? Nur den Namen.", "Tesla"),
+    ("Wie heißt die SI-Einheit der Leistung? Nur den Namen.", "Watt"),
+    ("Wie heißt die Hauptstadt von Norwegen? Nur den Namen.", "Oslo"),
+    ("Wie heißt die Hauptstadt von Finnland? Nur den Namen.", "Helsinki"),
+    ("Wie heißt die Hauptstadt von Tschechien? Nur den Namen.", "Prag"),
 )
 # Four wordings for five entity pairs = 20 real opt-in web tasks.
 # These are factual expectations, not proof that a live page supports each claim.
 WEB_PAIRS = (
-    ("Firefox", "Edge", "Gecko", "Blink", "Browser-Engine"),
-    ("Chrome", "Safari", "Blink", "WebKit", "Browser-Engine"),
-    ("Python", "JavaScript", "Guido van Rossum", "Brendan Eich", "Entwickler und Schöpfer"),
-    ("Ruby", "Rust", "Yukihiro Matsumoto", "Graydon Hoare", "Entwickler und Schöpfer"),
-    ("Linux", "FreeBSD", "Linux-Kernel", "FreeBSD-Kernel", "Betriebssystem-Kernel"),
+    ("Firefox", "Safari", "Gecko", "WebKit", "Browser-Engine"),
+    ("Chrome", "Edge", "Blink", "Blink", "Browser-Engine"),
+    ("Python", "Ruby", "Guido van Rossum", "Yukihiro Matsumoto", "Entwickler und Schöpfer"),
+    ("JavaScript", "Rust", "Brendan Eich", "Graydon Hoare", "Entwickler und Schöpfer"),
+    ("FreeBSD", "OpenBSD", "FreeBSD-Kernel", "OpenBSD-Kernel", "Betriebssystem-Kernel"),
 )
 WEB_WORDINGS = (
     "Suche Webseiten und vergleiche {a} mit {b}: {topic}. Belege beide mit gelesenen Quellen.",
