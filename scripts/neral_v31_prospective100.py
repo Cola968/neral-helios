@@ -89,25 +89,32 @@ def build_suite(seed: str) -> list[dict]:
         raise ValueError("Private 128-bit or 256-bit seed required")
     rng = random.Random(int(seed, 16))
     cases = []
+    seen_math=set()
     for i in range(20):
-        f = i % 4
-        if f == 0:
-            a, b, c = rng.randint(11, 89), rng.randint(3, 12), rng.randint(1, 9)
-            q = f"Ein Lager besitzt {a} Kisten mit jeweils {b} Bauteilen. {c} Bauteile fehlen. Wie viele Bauteile bleiben? Nur das ganzzahlige Ergebnis."
-            gold = a*b-c
-        elif f == 1:
-            a, b = rng.randint(12, 42), rng.randint(13, 55)
-            q = f"Berechne die Summe aller ganzen Zahlen von {a} bis einschließlich {b+a}. Antworte mit der ganzen Zahl."
-            gold = sum(range(a, b+a+1))
-        elif f == 2:
-            a, b = rng.randint(4, 16), rng.randint(5, 15)
-            q = f"Ein Rechteckgitter ist {a} Felder breit und {b} Felder hoch. Wie viele achsenparallele Rechtecke beliebiger Größe enthält das Gitter? Nur das ganzzahlige Ergebnis."
-            gold = a*(a+1)*b*(b+1)//4
+        f=i % 4
+        for attempt in range(256):
+            if f == 0:
+                a,b,c=rng.randint(11,89),rng.randint(3,12),rng.randint(1,9)
+                q=f"Ein Lager besitzt {a} Kisten mit jeweils {b} Bauteilen. {c} Bauteile fehlen. Wie viele Bauteile bleiben? Nur das ganzzahlige Ergebnis."
+                gold=a*b-c
+            elif f == 1:
+                a,b=rng.randint(12,42),rng.randint(13,55)
+                q=f"Berechne die Summe aller ganzen Zahlen von {a} bis einschließlich {b+a}. Antworte mit der ganzen Zahl."
+                gold=sum(range(a,b+a+1))
+            elif f == 2:
+                a,b=rng.randint(4,16),rng.randint(5,15)
+                q=f"Ein Rechteckgitter ist {a} Felder breit und {b} Felder hoch. Wie viele achsenparallele Rechtecke beliebiger Größe enthält das Gitter? Nur das ganzzahlige Ergebnis."
+                gold=a*(a+1)*b*(b+1)//4
+            else:
+                a,b,c=rng.randint(18,90),rng.randint(3,12),rng.randint(4,9)
+                q=f"Eine Sonde sendet {a*b*c} Bits mit {b*c} Bits pro Sekunde. Wie viele Sekunden dauert die Übertragung? Nur das ganzzahlige Ergebnis."
+                gold=a
+            if q not in seen_math:
+                break
         else:
-            a, b, c = rng.randint(18, 90), rng.randint(3, 12), rng.randint(4, 9)
-            q = f"Eine Sonde sendet {a*b*c} Bits mit {b*c} Bits pro Sekunde. Wie viele Sekunden dauert die Übertragung? Nur das ganzzahlige Ergebnis."
-            gold = a
-        cases.append(_mk("mathematics", i+1, q, gold=gold, kind="integer", tool="python_sandbox"))
+            raise ValueError("Unable to generate unique arithmetic question")
+        seen_math.add(q)
+        cases.append(_mk("mathematics",i+1,q,gold=gold,kind="integer",tool="python_sandbox"))
 
     from itertools import permutations
     unique_constraints = set()
@@ -137,26 +144,34 @@ def build_suite(seed: str) -> list[dict]:
         cases.append(_mk("logic", i+1, q, gold=len(assignments),
                          kind="integer", tool="z3_solver"))
 
+    seen_programs=set()
     for i in range(20):
-        f = i % 4
-        a, b, c = rng.randint(7, 35), rng.randint(2, 11), rng.randint(3, 15)
-        if f == 0:
-            program = f"x={a}\ny={b}\nz={c}\nprint(x*y-z)"
-            gold = a*b-c
-        elif f == 1:
-            program = f"nums=[{a},{b},{c}]\nprint(sum(nums)*2)"
-            gold = 2*(a+b+c)
-        elif f == 2:
-            program = f"x={a}\ny={b}\nfor _ in range(3):\n x=x+y\nprint(x)"
-            gold = a+3*b
+        f=i % 4
+        for attempt in range(256):
+            a,b,c=rng.randint(7,35),rng.randint(2,11),rng.randint(3,15)
+            if f == 0:
+                program=f"x={a}\ny={b}\nz={c}\nprint(x*y-z)"
+                gold=a*b-c
+            elif f == 1:
+                program=f"nums=[{a},{b},{c}]\nprint(sum(nums)*2)"
+                gold=2*(a+b+c)
+            elif f == 2:
+                program=f"x={a}\ny={b}\nfor _ in range(3):\n x=x+y\nprint(x)"
+                gold=a+3*b
+            else:
+                program=f"n={a}\nm={b}\nk={c}\nprint((n+m)*k)"
+                gold=(a+b)*c
+            q=("Welchen ganzzahligen Wert gibt dieses Python-Programm aus? "
+               "Berechne das Ergebnis mit einem ausgeführten Werkzeug; "
+               "erfinde keine Ausführung.\n" + "'''python\n" + program + "\n'''")
+            if q not in seen_programs:
+                break
         else:
-            program = f"n={a}\nm={b}\nk={c}\nprint((n+m)*k)"
-            gold = (a+b)*c
-        q = ("Welchen ganzzahligen Wert gibt dieses Python-Programm aus? "
-             "Berechne das Ergebnis mit einem ausgeführten Werkzeug; "
-             "erfinde keine Ausführung.\n" + "'''python\n" + program + "\n'''")
-        cases.append(_mk("programming", i+1, q, gold=gold,
-                         kind="integer", tool="python_sandbox"))
+            raise ValueError("Unable to generate unique programming question")
+        seen_programs.add(q)
+        cases.append(_mk("programming",i+1,q,gold=gold,
+                         kind="integer",tool="python_sandbox"))
+
     for i, (q, answer) in enumerate(KNOWLEDGE, 1):
         cases.append(_mk("knowledge", i, q, gold=answer, kind="word"))
     for i, (a, b, fa, fb, topic) in enumerate(WEB_PAIRS):
