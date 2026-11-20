@@ -495,10 +495,20 @@ def run_live(args) -> dict:
                      "agent_steps","agent_attempts","error_code","verified",
                      "verification_status","proof_backend","sources",
                      "sandbox_executed","sandbox_attempts",
-                     "sandbox_failure_code","tool_calls_succeeded","tier","model")
+                     "sandbox_failure_code","tool_calls_succeeded","tier","model",
+                     "web_model_diagnostic")
             observed={k:response[k] for k in allowed if k in response}
             if isinstance(observed.get("text"),str):
                 observed["text"]=observed["text"][:12000]
+            # The user explicitly requested raw model-output diagnostics for
+            # synthetic test cases, with bounded size and no source page text.
+            diagnostic=observed.get("web_model_diagnostic")
+            if isinstance(diagnostic,dict):
+                observed["web_model_diagnostic"]={
+                    "raw_output":str(diagnostic.get("raw_output",""))[:800],
+                    "exception":str(diagnostic.get("exception",""))[:500]}
+            else:
+                observed.pop("web_model_diagnostic",None)
             if isinstance(observed.get("sources"),list):
                 observed["sources"]=[
                     {k:v for k,v in entry.items() if k in
