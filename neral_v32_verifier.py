@@ -396,6 +396,11 @@ def verified_math_question(question: str, execute) -> dict | None:
     except (ArithmeticError,ValueError):
         return None
     raw,error=_sandbox_stdout(execute,code)
+    # A one-off Docker daemon/worker startup error was observed on an
+    # immutable arithmetic expression. Retry the *same* idempotent script
+    # once; never retry user-supplied programs or fabricate stdout.
+    if error=="sandbox_error":
+        raw,error=_sandbox_stdout(execute,code)
     if error:
         return _tool_failure("python_sandbox",error)
     try:
