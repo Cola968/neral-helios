@@ -715,11 +715,20 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
     for name in names:
         # Different queries only broaden discovery; no expected benchmark
         # answers, model-generated snippets or known URLs are injected.
-        queries=(
-            f"{name} {kind} Wikipedia technical reference",
-            f"{name} {kind} history documentation",
-            f"{name} {kind} overview article reference",
-        )
+        # Search with the grammatical relation actually needed by the
+        # property extractor; generic homepages often omit it.
+        searches={
+            "engine": ("web browser engines rendering engine",
+                       "browser uses rendering engine reference",
+                       "browser engine architecture documentation"),
+            "creator": ("programming language created by developer",
+                        "language conceived designed developed by founder",
+                        "programming language creator history"),
+            "kernel": ("operating system kernel architecture",
+                       "kernel type operating system technical overview",
+                       "kernel reference documentation"),
+        }
+        queries=tuple(f"{name} {term}" for term in searches[prop])
         eligible=None
         for query in queries:
             try:
