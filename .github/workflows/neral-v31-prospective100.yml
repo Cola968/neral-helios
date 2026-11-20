@@ -85,7 +85,7 @@ jobs:
             }
             $source=[IO.File]::ReadAllText($service)
             if($source -notmatch 'NERAL_V3_AGENT_ENABLED' -or
-               $source -notmatch '(?i)-m\\s+neral_preview_server' -or
+               $source -notmatch '(?i)-m\s+neral_preview_server' -or
                $source -notmatch '--experimental-three-tier-hf'){
               throw 'Installed launch script not verified V3'
             }
