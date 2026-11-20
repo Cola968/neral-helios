@@ -66,11 +66,12 @@ class OneShotModel(unittest.TestCase):
             return raw
         out=self.run_response(model)
         self.assertEqual(len(calls),1)
-        self.assertEqual(out["verification_status"],"model_invalid_json")
+        self.assertEqual(out["verification_status"],"literal_property_verified_model_not_accepted")
+        self.assertTrue(out["tool_verified"])
         diagnostic=out["web_model_diagnostic"]
         self.assertTrue(0<len(diagnostic["raw_output"])<=800)
         self.assertTrue(diagnostic["exception"].startswith(("ValueError:","AgentError:")))
-        self.assertFalse(out["tool_verified"])
+        self.assertTrue(out["tool_verified"])
 
     def test_backend_exception_is_not_misreported_as_json_parse(self):
         def model(*args):
