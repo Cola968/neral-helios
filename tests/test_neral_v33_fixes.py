@@ -108,12 +108,17 @@ class GroundedComparisons(unittest.TestCase):
         sources=self.sources()
         def reader(hits,query):
             return [next(s for s in sources if s["url"]==hits[0]["url"])]
-        def no_model(*args,**kwargs):
-            raise AssertionError("Proof-bearing comparison must use literal page evidence")
+        calls=[]
+        def answer_once(system, raw, budget, schema):
+            calls.append(raw)
+            self.assertNotIn("example.org/a",system)
+            return '{"facts":[{"entity":"Aster","fact":"Aurora"},{"entity":"Boreal","fact":"Borealis"}]}'
         out=run_evidence_agent("Aster vs Boreal: Vergleiche Browser-Engine anhand gelesener Webseiten.",
-                               no_model,lambda s:None,search=Search(),
+                               answer_once,lambda s:None,search=Search(),
                                web_query="Aster Boreal Browser-Engine",page_reader=reader)
         self.assertTrue(out["tool_verified"])
+        self.assertEqual(len(calls),1)
+        self.assertFalse(out["verified"])
         self.assertIn("Aster: Aurora",out["text"])
         self.assertIn("Boreal: Borealis",out["text"])
 
