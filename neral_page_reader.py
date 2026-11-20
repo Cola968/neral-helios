@@ -269,7 +269,7 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract):
         result.append({"url": page["url"] if page else url,
                        "title": str(hit.get("title", ""))[:160],
                        "snippet": str(hit.get("snippet", ""))[:350],
-                       "page_text": _complete_text_clip(page["text"]) if page else "",
+                       "page_text": (_complete_text_clip(page["text"]) or page["text"][:MAX_TEXT]) if page else "",
                        "page_read": page is not None, "reachable": page is not None,
                        "discovered": True})
     return result
