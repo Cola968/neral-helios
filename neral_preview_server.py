@@ -165,7 +165,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
                        evidence_agent_enabled=bool(three_tier_runtime is not None and
                                                    three_tier_runtime.evidence_agent),
                        three_tier_enabled=three_tier_runtime is not None,
-                       three_tier_levels=(['Amber','Quartz','Obsidian']
+                       three_tier_levels=(['Luna','Terra','Helios']
+                                          if three_tier_runtime is not None else []),
+                       three_tier_public_levels=(['Amber','Quartz','Obsidian']
                                           if three_tier_runtime is not None else []))
 
     from neral_local_chat_api import register_neral_local_chat_api
