@@ -7,11 +7,11 @@ test("code execution status is explicit and cannot be presented as verification"
   assert.match(src,/result\.tool_used === "helios_code_sandbox"/);
   assert.match(src,/result\.sandbox_executed === true/);
   assert.match(src,/result\.verified === false/);
-  assert.match(src,/Werkzeug: Helios Code-Sandbox \(ausgeführt\)/);
+  assert.match(src,/Werkzeug: Obsidian Code-Sandbox \(ausgeführt\)/);
   assert.match(src,/neral-tool-status/);
 });
 test("Luna and Terra may escalate only via declared unverified Helios origin",()=>{
-  assert.match(src,/\["Luna","Terra"\]\.includes\(selectedTier\)/);
-  assert.match(src,/result\.auto_escalated_from===selectedTier/);
+  assert.match(src,/\["Luna","Terra"\]\.includes\(selectedTierLegacy\)/);
+  assert.match(src,/result\.auto_escalated_from===selectedTierLegacy/);
   assert.match(src,/result\.safe_to_promote===false/);
 });
