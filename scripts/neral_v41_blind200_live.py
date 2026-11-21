@@ -287,11 +287,20 @@ def run(sealed:Path,manifest_path:Path,private_details:Path,summary_path:Path,
         raise ValueError("Sealed SHA256 mismatch or invalid case limit")
     cases=[json.loads(x) for x in sealed.read_text(encoding="utf-8").splitlines() if x.strip()]
     # Fail BEFORE sending ANY prompt if the code-grade Docker image is missing.
+    from neral_docker_runtime import ensure_docker_ready
+    if not ensure_docker_ready():
+        raise RuntimeError("Local offline Docker daemon unavailable")
     check=subprocess.run(["docker","image","inspect",IMAGE],
                          capture_output=True,timeout=15,check=False)
     if check.returncode!=0:
         raise RuntimeError("Preinstalled offline code-grading Docker image unavailable")
     OwnerClient().get("/")
+    # Validate opt-out once, before reading any private case or mutating data.
+    preflight=OwnerClient()
+    preflight.connect()
+    probe_status,probe_result,_=preflight.post("Amber","Hallo!",[])
+    if probe_status!=200 or probe_result.get("benchmark_isolated") is not True:
+        raise RuntimeError("Three-tier service missing benchmark isolation; refuse live run")
     expected=3*min(limit_cases,len(cases))
     # Tier-major scheduling avoids unnecessary model unload/reload on 12GB VRAM.
     plan=[(tier,case) for tier in TIERS for case in cases[:limit_cases]]
