@@ -58,20 +58,20 @@ test("three-tier only after server-confirmed event, middle stop routes to Terra"
   assert.equal(map.modeDropdownLabel.textContent,"LOW");
   for(const fn of listeners["neral:three-tier-ready"]||[])fn();
   assert.equal(map.modeEffortSlider.max,"2");
-  assert.equal(endLabels.children.map(x=>x.textContent).join(","),"Luna,Terra,Helios");
+  assert.equal(endLabels.children.map(x=>x.textContent).join(","),"Amber,Quartz,Obsidian");
   map.modeEffortSlider.value="1";
   map.modeEffortSlider.dispatchEvent(new Event("input"));
   const middle=group.children[0].children[0];
   assert.equal(middle.value,"terra");
   assert.equal(middle.checked,true);
-  assert.equal(map.modeDropdownLabel.textContent,"Terra");
+  assert.equal(map.modeDropdownLabel.textContent,"Quartz");
   map.modeEffortSlider.value="2";
   map.modeEffortSlider.dispatchEvent(new Event("input"));
   assert.equal(think.checked,true);
-  assert.equal(map.modeDropdownLabel.textContent,"Helios");
+  assert.equal(map.modeDropdownLabel.textContent,"Obsidian");
   map.modeSliderReset.click();
   assert.equal(fast.checked,true);
-  assert.equal(map.modeDropdownLabel.textContent,"Luna");
+  assert.equal(map.modeDropdownLabel.textContent,"Amber");
 });
 
 test("HTTP chat changes only with pinned opt-in and never mislabels adapter output",()=>{
