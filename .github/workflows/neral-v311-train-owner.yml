@@ -1,0 +1,62 @@
+name: NERAL V3.11 pinned RTX4070 2-epoch candidate only (NO PROMOTION)
+on:
+  push:
+    branches: [codex/neral-v311-holdout-ab-20261121]
+    paths:
+      - 'scripts/neral_qlora_verified_v39.py'
+      - 'scripts/neral_v311_train_owner.ps1'
+      - 'tests/test_neral_v311_train_cpu.py'
+      - '.github/workflows/neral-v311-train-owner.yml'
+permissions:
+  contents: read
+jobs:
+  static-cpu-first:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Training contract and safety tests (no GPU)
+        run: |
+          python -m unittest discover -s tests -p test_neral_v311_train_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_verified_qlora_cpu.py -v
+          python -m py_compile scripts/neral_qlora_verified_v39.py
+      - name: Validate owner PowerShell source, without execution
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $t=$null; $e=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v311_train_owner.ps1'),[ref]$t,[ref]$e)
+          if(@($e).Count -gt 0){throw 'Owner train PowerShell syntax invalid'}
+  owner-train-only:
+    needs: [static-cpu-first]
+    if: >-
+      github.ref == 'refs/heads/codex/neral-v311-holdout-ab-20261121' &&
+      startsWith(github.event.head_commit.message, 'v311-train-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove frozen holdout hash, stop owner service, 2-epoch 97-row r16 QLoRA, finally restart HTTP200
+        timeout-minutes: 48
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v311_train_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'V3.11 candidate training proof or service restoration failed'}

@@ -96,14 +96,21 @@ def cpu_plan(rows: list[dict], context: int) -> dict:
     }
 
 
-def validate_smoke_proof(metrics: dict) -> bool:
+def training_schedule(rows: int, epochs: int, context: int) -> dict:
+    if type(rows) is not int or rows != 97 or epochs not in (2, 3) or context != 1024:
+        raise ValueError("V3.11 candidate training requires frozen 97 rows, 2/3 epochs and 1024 tokens")
+    return {"epochs":epochs, "expected_steps":math.ceil(rows/8)*epochs,
+            "max_context":context,"optimizer":"paged_adamw_8bit","rank":16}
+
+
+def validate_smoke_proof(metrics: dict, *, expected_steps: int = 1) -> bool:
     """Fail closed: a finite, positive actual gradient and weight update are mandatory."""
     finite = ("grad_norm", "training_loss", "peak_allocated_gib", "peak_reserved_gib", "nvidia_peak_mib")
     if any(type(metrics.get(k)) not in (int, float) or
            not math.isfinite(metrics[k]) for k in finite):
         raise ValueError("Missing, NaN or infinite optimizer/VRAM metric")
     if (metrics["grad_norm"] <= 0 or metrics["training_loss"] < 0 or
-            metrics.get("global_step") != 1 or
+            metrics.get("global_step") != expected_steps or
             not metrics.get("adapter_before") or
             not metrics.get("adapter_after") or
             metrics["adapter_before"] == metrics["adapter_after"]):
@@ -174,7 +181,7 @@ def gpu_train(rows, args):
         output_dir=str(args.out/"logs"),
         per_device_train_batch_size=BATCH_SIZE,
         gradient_accumulation_steps=ACCUMULATION,
-        num_train_epochs=1,max_steps=args.max_steps if args.max_steps else -1,
+        num_train_epochs=args.epochs,max_steps=args.max_steps if args.max_steps else -1,
         learning_rate=5e-5,optim="paged_adamw_8bit",
         bf16=bool(torch.cuda.is_bf16_supported()),
         fp16=not bool(torch.cuda.is_bf16_supported()),
@@ -210,7 +217,8 @@ def gpu_train(rows, args):
         "nvidia_peak_mib":nvidia_peak,
         "adapter_before":original, "adapter_after":adapter_fingerprint(model),
     }
-    validate_smoke_proof(metrics)
+    expected = args.max_steps or training_schedule(len(rows), args.epochs, args.context)["expected_steps"]
+    validate_smoke_proof(metrics, expected_steps=expected)
     model.save_pretrained(str(args.out/"adapter"),safe_serialization=True)
     tokenizer.save_pretrained(str(args.out/"adapter"))
     (args.out/"manifest.json").write_text(json.dumps({
@@ -221,6 +229,10 @@ def gpu_train(rows, args):
         "measured_gradient_norm":round(grad_norms[-1],6),
         "adapter_weights_changed":True,
         "completed_optimizer_steps":int(training.global_step),
+        "num_train_epochs":args.epochs,
+        "optimizer":"paged_adamw_8bit",
+        "max_seq_length":args.context,
+        "training_loss":float(training.training_loss),
         "source_dataset_sha256":hashlib.sha256(args.train.read_bytes()).hexdigest(),
         "holdout_used_in_training":False},indent=2),encoding="utf-8")
     print("NERAL_QLORA_R16_ADAPTER_SAVED_NOT_VALIDATED")
@@ -233,6 +245,7 @@ def main(argv=None):
     p.add_argument("--out",type=Path)
     p.add_argument("--checkpoint",type=Path)
     p.add_argument("--context",type=int,default=1024)
+    p.add_argument("--epochs",type=int,choices=(1,2,3),default=1)
     p.add_argument("--max-steps",type=int,default=0)
     p.add_argument("--nvidia-peak-file",type=Path)
     p.add_argument("--check-cpu",action="store_true")
@@ -249,8 +262,12 @@ def main(argv=None):
         return 0
     if args.out is None or args.checkpoint is None or (args.max_steps != 1 and args.holdout is None):
         p.error("--run-gpu requires --out, checkpoint and a holdout except for one-step smoke")
-    if not args.checkpoint.is_dir() or not 0<=args.max_steps<=2:
-        p.error("Use an installed local checkpoint and 0/1/2 training steps")
+    if not args.checkpoint.is_dir() or args.max_steps not in (0,1):
+        p.error("Use an installed local checkpoint and either full epochs or 1 smoke step")
+    if args.max_steps == 0:
+        training_schedule(len(rows),args.epochs,args.context)
+    elif args.epochs != 1:
+        p.error("A one-step smoke requires exactly one epoch setting")
     gpu_train(rows,args)
     return 0
 
