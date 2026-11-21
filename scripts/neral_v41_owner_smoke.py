@@ -32,6 +32,9 @@ CASES = [
      "Wie viele Menschen wohnen genau in dieser Sekunde in Berlin? Erkläre die Messgrenze.", []),
 ]
 ALIASES = ["luna", "terra", "helios"]
+# A greeting that stays on each historical model stop; elaborated requests
+# legitimately route through the evidence agent and may escalate tiers.
+ALIAS_PROMPT = "Hallo!"
 
 
 def main() -> None:
@@ -83,8 +86,14 @@ def main() -> None:
             raise RuntimeError("Public tier not canonical")
         accepted+=1
         print(f"V41_SMOKE_CATEGORY {category} {tier} HTTP200")
+    # A new independent topic in the same conversation must not inherit
+    # the earlier Berlin/Abu-Dhabi question or its unverified model replies.
+    topic_switch = post("Amber", "Wie viele positive Teiler hat die Zahl 120?", CASES[1][3])
+    if topic_switch.get("context_resolved") is True or (topic_switch.get("verification_scope") == "context_assisted_not_independent"):
+        raise RuntimeError("Independent topic incorrectly carried previous context")
+    print("V41_SMOKE_MULTITURN_TOPIC_SWITCH Amber HTTP200")
     for alias in ALIASES:
-        result=post(alias,"Hallo! Bitte antworte in einem Satz.",[])
+        result=post(alias,ALIAS_PROMPT,[])
         if result.get("tier") != alias.capitalize():
             raise RuntimeError(f"Legacy alias {alias} changed contract")
         print(f"V41_SMOKE_ALIAS {alias} HTTP200")
