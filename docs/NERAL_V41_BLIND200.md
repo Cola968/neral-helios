@@ -28,3 +28,10 @@ Anschließend wird ein separater Live-Runner mit Freigabe und Limits gestartet;
 die Validierung allein führt keine Web-, GPU- oder HTTP-Aufrufe aus. Eine
 statistische Nähe zur Spitze lässt sich aus 200 Aufgaben mit je kleinen
 Kategorien nicht zuverlässig für alle Domains behaupten.
+
+## Live-Abnahme
+
+Owner-Staging ist nur über den ausdrücklich freigegebenen, branchgebundenen
+Workflow `neral-v41-owner.yml` zulässig. Vor einem Merge müssen
+die echte 7-Kategorien-/3-Alias-HTTP-Abnahme sowie der HTTP-200-Nachtest
+auf Port 9690 bestätigt sein. Bei Fehlern gilt der vollständige Rollback.
