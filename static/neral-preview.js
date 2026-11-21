@@ -1055,7 +1055,8 @@
            (result.tier!==selectedTierLegacy && !autoProof && !autoEscalation))
           throw new Error("Modus oder Modellantwort nicht zugeordnet.");
         const luna=result.tier==="Luna";
-        if(result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
+        if(result.model_generated===true &&
+           result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
           throw new Error("Unzulässiger stiller Modellwechsel.");
         if(result.model_generated===true){
           if(luna && (result.model_origin!=="local_foundation_not_neral_adapter" ||
@@ -1064,6 +1065,18 @@
           if(!luna && (result.model_origin!=="local_neral_lora_experimental" ||
                        result.adapter_loaded!==true || !/^[0-9a-f]{64}$/.test(result.adapter_sha256||"")))
             throw new Error("Obsidian-v2-full-Adapter wurde nicht nachgewiesen.");
+        }else if(result.web_v4_fast_path===true){
+          // Source-only V4 cannot impersonate loaded 4B/9B model weights.
+          if(result.verified!==false || result.safe_to_promote!==false ||
+             result.model_generated!==false || result.adapter_loaded!==false ||
+             result.model_origin!=="local_source_unverified_tools_only" ||
+             result.proof_backend!==null ||
+             !["per_entity_url_and_literal_property_quote",
+               "context_assisted_not_independent"].includes(result.verification_scope) ||
+             !Array.isArray(result.sources) || result.sources.length<2 ||
+             !result.sources.every(src=>src.page_read===true &&
+               typeof src.url==="string" && src.url.startsWith("https://")))
+            throw new Error("Web-Antwort ohne belegte, frische Seitenherkunft.");
         }else if(result.verified===true){
           if(result.model_origin!=="local_source_verified_tools_only" ||
              result.safe_to_promote!==true || result.adapter_loaded!==false ||
