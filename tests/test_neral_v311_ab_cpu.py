@@ -52,3 +52,17 @@ class ABEvaluationContracts(unittest.TestCase):
         with self.assertRaises(ValueError):compare_reports(base,{**cand,'web':21})
 
 if __name__=='__main__':unittest.main()
+
+class ChatTokenizerRegression(unittest.TestCase):
+    def test_template_text_is_tokenized_to_checked_integer_ids(self):
+        from scripts.neral_v311_ab_holdout import template_token_ids
+        class Fake:
+            def apply_chat_template(self,messages,**kwargs):
+                assert kwargs['tokenize'] is False
+                assert kwargs['enable_thinking'] is False
+                return '<|im_start|>user\nHallo<|im_end|>'
+            def __call__(self,text,**kwargs):
+                assert kwargs['add_special_tokens'] is False
+                assert text.startswith('<|im_start|>')
+                return {'input_ids':[100,200,300]}
+        self.assertEqual(template_token_ids(Fake(),[{'role':'user','content':'Hallo'}]),[100,200,300])

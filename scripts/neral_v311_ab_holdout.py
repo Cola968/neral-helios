@@ -164,6 +164,19 @@ def _prompt(case:dict)->str:
     return base+'\nAntworte ausschließlich mit der einen ganzen Zahl, ohne Begründung.'
 
 
+def template_token_ids(tokenizer,messages:list[dict])->list[int]:
+    """Force actual integer token IDs; Qwen chat-template can return text."""
+    rendered=tokenizer.apply_chat_template(messages,tokenize=False,
+                            add_generation_prompt=True,enable_thinking=False)
+    if type(rendered) is not str or not rendered.strip():
+        raise ValueError('Chat template did not produce valid text')
+    encoded=tokenizer(rendered,add_special_tokens=False)['input_ids']
+    if (type(encoded) is not list or not 1<=len(encoded)<=1600 or
+            not all(type(t) is int and t>=0 for t in encoded)):
+        raise ValueError('Tokenizer failed to return a bounded integer list')
+    return encoded
+
+
 def run_model(args):
     cases=check_frozen_holdout(args.holdout,args.train)
     if args.out.exists() or args.out.is_symlink():
@@ -198,11 +211,7 @@ def run_model(args):
             prompt=_prompt(case)
             messages=[{'role':'system','content':'Antworte auf Deutsch korrekt und knapp. Keine verdeckte Denkspur. Halte dich an das Ausgabeformat.'},
                       {'role':'user','content':prompt}]
-            encoded=tokenizer.apply_chat_template(messages,tokenize=True,
-                            add_generation_prompt=True,enable_thinking=False)
-            if isinstance(encoded,dict):encoded=encoded['input_ids']
-            if not 1<=len(encoded)<=1600:
-                raise ValueError('A/B question/token input budget exceeded')
+            encoded=template_token_ids(tokenizer,messages)
             ids=torch.tensor([encoded],dtype=torch.long,device='cuda')
             max_new=160 if case['category']=='web' else 72
             with torch.inference_mode():
