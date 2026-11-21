@@ -1,0 +1,109 @@
+name: NERAL V4.1 manual sealed 200 x 3 blind quality benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      approval:
+        description: "Type NERAL-V41-BLIND200-APPROVED to permit isolated W39 run"
+        type: string
+        required: true
+      mode:
+        description: "full = 200 tasks x 3 tiers; smoke = one task x 3 tiers"
+        type: choice
+        options: [full, smoke]
+        default: full
+        required: true
+permissions:
+  contents: read
+jobs:
+  independent-preflight:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.approval == 'NERAL-V41-BLIND200-APPROVED' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: CPU contracts before owner PC is touched
+        run: |
+          python -m py_compile neral_three_tier_runtime.py scripts/neral_v41_blind200.py scripts/neral_v41_blind200_build.py scripts/neral_v41_blind200_live.py
+          python -m unittest discover -s tests -p test_neral_v41_blind_live_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_blind200_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+  owner-blind200:
+    needs: independent-preflight
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 360
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Owner-staged no-training runtime, pinned service and rollback
+        timeout-minutes: 27
+        env:
+          NERAL_V41_BLIND200_APPROVED: ${{ inputs.approval }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REF -ne 'refs/heads/main' -or
+             $env:NERAL_V41_BLIND200_APPROVED -ne 'NERAL-V41-BLIND200-APPROVED'){
+            throw 'Manual main-only owner approval missing'
+          }
+          & .\scripts\neral_v41_owner.ps1
+          if($LASTEXITCODE -ne 0){ throw 'Pinned deployment and live seven-category smoke failed' }
+      - name: Seal fresh gold outside repository, then run local 200 x 3 HTTP benchmark
+        timeout-minutes: 320
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not (Test-Path -LiteralPath $python)){ throw 'Pinned Python unavailable' }
+          $installed=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v41-blind200/'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $private){ throw 'Private benchmark directory already exists; refuse overwrite' }
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
+          $sealed=Join-Path $private 'sealed200.jsonl'
+          $manifest=Join-Path $private 'manifest.json'
+          $details=Join-Path $private 'private-details.jsonl'
+          $summary=Join-Path $private 'summary.json'
+          $archives=@(
+            (Join-Path $installed 'data'),
+            'D:/neral-private/v39',
+            'D:/neral-private/v310',
+            'D:/neral-qlora/data',
+            'D:/neral-qlora-v2/data'
+          ) | Where-Object { Test-Path -LiteralPath $_ }
+          if(@($archives).Count -lt 1){throw 'No trusted local historical V3.9/V3.10 data archives found'}
+          $args=@('-m','scripts.neral_v41_blind200_build','--sealed',$sealed,'--manifest-out',$manifest)
+          foreach($arc in $archives){$args+=@('--archive',$arc)}
+          & $python @args
+          if($LASTEXITCODE -ne 0){throw 'New blinded dataset could not be generated/validated'}
+          & $python -m scripts.neral_v41_blind200 --sealed $sealed
+          if($LASTEXITCODE -ne 0){throw 'Sealed checksum/schema validation failed'}
+          $limit=200
+          if('${{ inputs.mode }}' -eq 'smoke'){$limit=1}
+          & $python -m scripts.neral_v41_blind200_live --sealed $sealed --manifest $manifest --private-details $details --summary $summary --limit-cases $limit
+          if($LASTEXITCODE -ne 0){throw 'Live independent grading failed; private files retained locally'}
+          if(-not (Test-Path -LiteralPath $summary)){throw 'Benchmark completed without summary'}
+          $public=Join-Path $env:RUNNER_TEMP ('neral-blind200-report-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $public -Force | Out-Null
+          Copy-Item -LiteralPath $manifest -Destination (Join-Path $public 'manifest.json')
+          Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
+          $health=@(& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($health -join '').Trim() -ne '200'){throw 'Post-benchmark port 9690 not HTTP200'}
+          Write-Host 'NERAL_BLIND200_POST_HTTP200'
+      - name: Upload summary-only statistics, never test prompts or model replies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v41-blind200-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-blind200-report-${{ github.run_id }}/
+          if-no-files-found: warn
+          retention-days: 14
