@@ -457,6 +457,8 @@
     if(!response.ok) throw new Error(data.error||"Lokale NERAL-Anfrage fehlgeschlagen.");
     return data;
   }
+  let v41Names=false;
+  const legacyTier=name=>({Amber:"Luna",Quartz:"Terra",Obsidian:"Helios"}[name]||name);
   async function connect() {
     try {
       const session=await json("/api/neral/preview/session");
@@ -474,6 +476,8 @@
            !Array.isArray(pinned.tiers) ||
            pinned.tiers.join(",")!=="Luna,Terra,Helios")
           throw new Error("Drei-Modell-Profil nicht eindeutig verifiziert.");
+        v41Names=Array.isArray(pinned.public_tiers) &&
+          pinned.public_tiers.join(",")==="Amber,Quartz,Obsidian";
         threeTierEnabled=true;
         if(sandboxToggle)sandboxToggle.disabled=false;
         document.documentElement.dataset.neralThreeTier="true";
@@ -803,7 +807,8 @@
     }
     const modeRadio=form.querySelector('input[name="mode"]:checked')?.value;
     const selectedTier=threeTierEnabled
-      ? ({fast:"Luna",terra:"Terra",think:"Helios"}[modeRadio] || "Luna") : null;
+      ? (v41Names ? ({fast:"Amber",terra:"Quartz",think:"Obsidian"}[modeRadio] || "Amber") :
+          ({fast:"Luna",terra:"Terra",think:"Helios"}[modeRadio] || "Luna")) : null;
     const forceSandbox=threeTierEnabled && sandboxToggle?.checked===true;
     const mode=modeRadio==="think" ? "think":"generate";
     if(listening)cancelRecognition();
@@ -1023,10 +1028,17 @@
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
         throw new Error("Leere Modellantwort.");
+      const publicResultTier=result.tier;
+      if(v41Names && threeTierEnabled){
+        result.tier=legacyTier(result.tier);
+        if(result.auto_promoted_from)result.auto_promoted_from=legacyTier(result.auto_promoted_from);
+        if(result.auto_escalated_from)result.auto_escalated_from=legacyTier(result.auto_escalated_from);
+      }
+      const selectedTierLegacy=legacyTier(selectedTier);
       const tierResponse=threeTierEnabled && (!selectedAttachments.length ||
         result.runtime_tier_verified===true);
       const autoProof=tierResponse &&
-        result.auto_promoted_from===selectedTier && selectedTier==="Luna" &&
+        result.auto_promoted_from===selectedTierLegacy && selectedTierLegacy==="Luna" &&
         ["Terra","Helios"].includes(result.tier) &&
         result.model_generated===false && result.verified===true &&
         result.safe_to_promote===true &&
@@ -1034,13 +1046,13 @@
         ((result.tier==="Terra" && result.proof_backend==="trusted_source_arithmetic") ||
          (result.tier==="Helios" && result.proof_backend==="z3_sat_witness"));
       const autoEscalation=tierResponse &&
-        ["Luna","Terra"].includes(selectedTier) &&
-        result.tier==="Helios" && result.auto_escalated_from===selectedTier &&
+        ["Luna","Terra"].includes(selectedTierLegacy) &&
+        result.tier==="Helios" && result.auto_escalated_from===selectedTierLegacy &&
         result.verified===false && result.model_generated===true &&
         result.safe_to_promote===false && result.proof_backend===null;
       if(tierResponse){
         if(result.runtime_tier_verified!==true ||
-           (result.tier!==selectedTier && !autoProof && !autoEscalation))
+           (result.tier!==selectedTierLegacy && !autoProof && !autoEscalation))
           throw new Error("Modus oder Modellantwort nicht zugeordnet.");
         const luna=result.tier==="Luna";
         if(result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
@@ -1048,10 +1060,10 @@
         if(result.model_generated===true){
           if(luna && (result.model_origin!=="local_foundation_not_neral_adapter" ||
                       result.adapter_loaded!==false))
-            throw new Error("Luna benutzt nicht das unveränderte 4B-Modell.");
+            throw new Error("Amber benutzt nicht das unveränderte 4B-Modell.");
           if(!luna && (result.model_origin!=="local_neral_lora_experimental" ||
                        result.adapter_loaded!==true || !/^[0-9a-f]{64}$/.test(result.adapter_sha256||"")))
-            throw new Error("Helios-v2-full-Adapter wurde nicht nachgewiesen.");
+            throw new Error("Obsidian-v2-full-Adapter wurde nicht nachgewiesen.");
         }else if(result.verified===true){
           if(result.model_origin!=="local_source_verified_tools_only" ||
              result.safe_to_promote!==true || result.adapter_loaded!==false ||
@@ -1111,7 +1123,7 @@
         : result.tool_used === "helios_code_sandbox" &&
           result.sandbox_executed === true &&
           result.verified === false && result.safe_to_promote === false
-        ? "Werkzeug: Helios Code-Sandbox (ausgeführt)"
+        ? "Werkzeug: Obsidian Code-Sandbox (ausgeführt)"
         : tierResponse && result.tier==="Helios" &&
           result.sandbox_executed===false &&
           typeof result.sandbox_failure_code==="string" &&
@@ -1132,12 +1144,12 @@
             timeout:"Zeitlimit erreicht",
             source_mismatch:"Berechnetes Ergebnis widerspricht den Angaben"
           }[result.sandbox_failure_code])+
-          ") · Modus: Helios (Modellantwort ungeprüft)"
+          ") · Modus: Obsidian (Modellantwort ungeprüft)"
         : sources.length
         ? (sources.some(s=>s.page_read===true)?"Werkzeug: Web-Reader (":"Werkzeug: Websuche (")+
           sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
         : tierResponse
-        ? "Modus: "+result.tier+" ("+(result.tier === "Luna" ? "Direktantwort ohne Werkzeug" : "Modellantwort ungeprüft")+")"
+        ? "Modus: "+(v41Names ? publicResultTier : result.tier)+" ("+(result.tier === "Luna" ? "Direktantwort ohne Werkzeug" : "Modellantwort ungeprüft")+")"
         : (mode === "think" ? "Modus: HIGH (ungeprüft)" : "Modus: LOW (Direktantwort)");
       if(typeof result.model==="string" && !threeTierEnabled &&
          /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
