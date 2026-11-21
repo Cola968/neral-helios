@@ -43,7 +43,9 @@ jobs:
           Write-Host 'NERAL_V310_OWNER_SCRIPT_STATIC_SYNTAX_OK'
   owner-one-step:
     needs: [cpu-first]
-    if: github.ref == 'refs/heads/codex/neral-v310-verified-data-cpu-only-20261120'
+    if: >-
+      github.ref == 'refs/heads/codex/neral-v310-verified-data-cpu-only-20261120' &&
+      startsWith(github.event.head_commit.message, 'owner-smoke-v310-APPROVED:')
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     concurrency:
       group: neral-v32-exclusive-local-9690

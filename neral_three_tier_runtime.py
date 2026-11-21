@@ -1781,7 +1781,30 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            if web_query:
+            # Zero-model exact recall of independently checked local examples.
+            # Never treat past benchmark grades as a live verifier certificate.
+            note = None
+            if (not web_query and not web_stage and
+                    not payload.get("force_sandbox", False)):
+                from neral_verified_notes import exact_note_lookup
+                try:
+                    note = exact_note_lookup(turns[-1]["content"])
+                except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                    note = None
+            if note is not None:
+                result = {"text": note["text"], "tier": payload["tier"],
+                          "mode": payload["tier"].upper(),
+                          "verified": False, "safe_to_promote": False,
+                          "agent_checked": False, "tool_verified": False,
+                          "model_generated": False, "local_note_hit": True,
+                          "note_source": note["source"],
+                          "model": "local_verified_notes",
+                          "model_origin": "local_exact_note_retrieval_not_model_inference",
+                          "adapter_loaded": False, "adapter_sha256": None,
+                          "quality_improvement_proven": False,
+                          "verification_scope": "historical_source_not_live_proof",
+                          "proof_backend": None, "error_code": None}
+            elif web_query:
                 result = runtime.answer_with_evidence(
                     turns, payload["tier"], web_query=web_query, search=search_service,
                     force_sandbox=payload.get("force_sandbox", False))

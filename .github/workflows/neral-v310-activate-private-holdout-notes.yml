@@ -1,0 +1,72 @@
+name: NERAL V3.10 freeze private holdout100 and activate local exact notes (NO GPU)
+on:
+  push:
+    branches: [codex/neral-v310-verified-data-cpu-only-20261120]
+    paths:
+      - 'neral_verified_notes.py'
+      - 'neral_verified_training.py'
+      - 'neral_three_tier_runtime.py'
+      - 'scripts/neral_v310_activate_notes.ps1'
+      - 'scripts/neral_v310_freeze_holdout100.py'
+      - 'scripts/neral_v310_verify_notes_local.py'
+      - 'scripts/neral_v310_http_notes_smoke.py'
+      - 'tests/test_neral_verified_notes_cpu.py'
+      - 'tests/test_neral_v310_holdout_cpu.py'
+      - '.github/workflows/neral-v310-activate-private-holdout-notes.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-trust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify all V3.10 deterministic CPU contracts
+        run: |
+          python -m unittest discover -s tests -p test_neral_verified_training_data.py -v
+          python -m unittest discover -s tests -p test_neral_verified_qlora_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_verified_notes_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v310_holdout_cpu.py -v
+          python -m scripts.neral_v310_verify_notes_local --installed-root . --data datasets/neral_v39_seed97.jsonl
+          python -m py_compile neral_verified_training.py neral_verified_notes.py neral_three_tier_runtime.py scripts/neral_v310_freeze_holdout100.py scripts/neral_v310_verify_notes_local.py scripts/neral_v310_http_notes_smoke.py
+      - name: Windows static owner-protection syntax ONLY
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach($script in @('scripts/neral_v310_activate_notes.ps1','scripts/neral_v310_smoke_owner.ps1')){
+            $tokens=$null;$errors=$null
+            [void][Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $script),[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -ne 0){throw ('Unsafe PowerShell syntax: '+$script)}
+          }
+          Write-Host 'NERAL_V310_OWNER_ACTIVATION_SOURCE_PARSES_OK'
+  owner-activate:
+    needs: [cpu-trust]
+    if: github.ref == 'refs/heads/codex/neral-v310-verified-data-cpu-only-20261120'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Recheck 1-step proof, freeze holdout privately, activate local notes with rollback
+        timeout-minutes: 22
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v310_activate_notes.ps1
+          if($LASTEXITCODE -ne 0){throw 'NERAL owner notes activation not completed'}

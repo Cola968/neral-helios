@@ -101,7 +101,8 @@ def append_verified_example(instruction: str, result: dict,
         return False
     row = _make_row(instruction, response, source="live_verified",
                     verifier=True, verification_kind="independent_runtime_proof",
-                    tool_used=result.get("tool_used") or "unknown")
+                    tool_used=result.get("tool_used") or "unknown",
+                    category=("web_verified" if result.get("sources") else "offline_verified"))
     path = Path(path)
     serialized = json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
     with _LOCK:

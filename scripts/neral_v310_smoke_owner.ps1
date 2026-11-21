@@ -206,7 +206,10 @@ try{
     throw 'GPU monitoring unavailable or total VRAM exceeded 11000 MiB cutoff'
   }
   $worker.WaitForExit()
-  if($worker.ExitCode -ne 0){
+  # On Windows PowerShell Start-Process -PassThru may report a null
+  # ExitCode even after WaitForExit; never interpret null as a failure.
+  # A missing or invalid unique-run manifest below still fails closed.
+  if($null -ne $worker.ExitCode -and [int]$worker.ExitCode -ne 0){
     throw ('One-step QLoRA child failed exit '+$worker.ExitCode+'; local logs retained')
   }
   $manifestPath=Join-Path $adapterOut 'manifest.json'
