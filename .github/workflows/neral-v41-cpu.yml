@@ -1,0 +1,45 @@
+name: NERAL V4.1 canonical tiers, context and memory CPU gate
+on:
+  push:
+    branches: [codex/neral-v41-context-memory-tiers-20261121]
+    paths:
+      - 'neral_v41_context.py'
+      - 'neral_verified_notes.py'
+      - 'neral_three_tier_runtime.py'
+      - 'neral_preview_server.py'
+      - 'static/neral-preview.js'
+      - 'static/neral-reference-ui.js'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_v41_cpu.py'
+      - '.github/workflows/neral-v41-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  v41-cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install narrow CPU-only dependencies
+        run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: Python V4.1 and regression gates (NO GPU)
+        run: |
+          python -m py_compile neral_v41_context.py neral_verified_notes.py neral_three_tier_runtime.py neral_preview_server.py
+          python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
+          python -m unittest discover -s tests -p test_neral_verified_notes_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_web_v4_cpu.py -v
+      - name: Browser script syntax and UI fixture contract
+        run: |
+          node --check static/neral-preview.js
+          node --check static/neral-reference-ui.js
+          node --test tests/test_neral_reference_ui.cjs
