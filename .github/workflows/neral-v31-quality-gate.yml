@@ -1,0 +1,100 @@
+# Owner-authorized V3.1 real 100-case benchmark; no model or service mutation.
+name: NERAL V3.1 prospective 100-case integrity and RTX4070 benchmark
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v31_quality_gate.py'
+      - 'scripts/neral_v31_live_eval.py'
+      - 'tests/test_neral_v31_quality_gate.py'
+      - '.github/workflows/neral-v31-quality-gate.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-quality-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reject syntax problems or unverifiable corpus and score
+        run: |
+          python -m py_compile scripts/neral_v31_quality_gate.py scripts/neral_v31_live_eval.py
+          python -m unittest discover -s tests -p test_neral_v31_quality_gate.py -v
+  gpu-local-readonly-100:
+    needs: [cpu-quality-contracts]
+    if: github.event.pull_request.head.repo.full_name == 'Cola968/neral-helios' && github.head_ref == 'feat/neral-v31-quality-gate-20261119'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-pr567-local-9690-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require owner-approved exact 100-case bench commit
+        id: owner
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($subject -eq 'bench(v3.1): owner-approved 100-case local read-only evaluation'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V31_OWNER_APPROVED_REAL_100'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_V31_100_SAFE_SKIP'
+          }
+      - name: Preflight current original V3 localhost and source
+        if: steps.owner.outputs.run == 'true'
+        id: preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          $sha=(& git rev-parse HEAD).Trim()
+          if($sha -ne '${{ github.event.pull_request.head.sha }}'){throw 'Bench source SHA changed'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py)){throw 'Pinned Windows Python missing'}
+          & $py -B -m unittest discover -s tests -p test_neral_v31_quality_gate.py -q
+          if($LASTEXITCODE -ne 0){throw 'Local CPU quality cases did not pass'}
+          $http=@(& curl.exe --noproxy '*' --silent --connect-timeout 4 --max-time 12 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($http -join '').Trim() -ne '200'){
+            throw 'Original NERAL V3 service not HTTP200; no service start permitted'
+          }
+          $gpu=@(& nvidia-smi --query-gpu=name --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch 'RTX 4070'){
+            throw 'Expected original local RTX4070'
+          }
+          $out=Join-Path $env:RUNNER_TEMP ('neral-v31-prospective100-'+$env:GITHUB_RUN_ID+'.json')
+          "output=$out" >> $env:GITHUB_OUTPUT
+          Write-Host 'NERAL_V31_LIVE_PREFLIGHT_GREEN'
+      - name: Run all 100 real synthetic tasks without changing server or training
+        if: steps.owner.outputs.run == 'true'
+        timeout-minutes: 230
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $sha=(& git rev-parse HEAD).Trim()
+          & $py -B -m scripts.neral_v31_live_eval --authorize NERAL_V31_OWNER_APPROVED_READONLY100 --source-sha $sha --out '${{ steps.preflight.outputs.output }}' --web-delay 40
+          if($LASTEXITCODE -ne 0){throw 'V3.1 real 100-case evaluation incomplete or cleanup failed'}
+          Write-Host 'NERAL_V31_REAL_100_COMPLETE_NO_PROMOTION'
+      - name: Preserve only scalar scores and latency, never user chats
+        if: always() && steps.owner.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v31-scalar100-${{ github.run_id }}
+          path: ${{ steps.preflight.outputs.output }}
+          retention-days: 14
+          if-no-files-found: warn
