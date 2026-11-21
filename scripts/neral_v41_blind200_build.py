@@ -316,7 +316,7 @@ def build_suite(out: Path, *, archives: list[Path], web_facts: list[dict]) -> di
         setting=rng.choice(["Terminverschiebung","Missverständnis","Projektverzug",
                             "Rückfrage zu einer Rechnung","Bitte um eine Erklärung"])
         prompt=(f"Verfasse auf Deutsch eine sachliche, respektvolle Nachricht an {target} "
-                f"zum Thema {setting}. Nutze etwa {rng.randrange(60,121)} Wörter, "
+                f"zum Thema {setting} mit der fiktiven Aktennummer {secrets.token_hex(4).upper()}. Nutze etwa {rng.randrange(60,121)} Wörter, "
                 "keine erfundenen persönlichen Angaben und keine Floskeln.")
         cases.append(_case("writing",i,prompt))
     for i in range(15):
@@ -329,7 +329,7 @@ def build_suite(out: Path, *, archives: list[Path], web_facts: list[dict]) -> di
                                reference={"kind":"yesno","value":"Nein"}))
         else:
             prompt=(f"Wie viele unregistrierte Objekte der Sorte {rng.choice(WORDS)} "
-                    f"existieren genau in diesem Augenblick? Erkläre die Messgrenze "
+                    f"mit dem fiktiven Katalogcode {secrets.token_hex(4).upper()} existieren genau in diesem Augenblick? Erkläre die Messgrenze "
                     "ohne vorgetäuschte Echtzeitpräzision.")
             cases.append(_case("uncertainty",i,prompt))
     if Counter(c["category"] for c in cases)!=Counter(CATEGORIES):
@@ -341,7 +341,7 @@ def build_suite(out: Path, *, archives: list[Path], web_facts: list[dict]) -> di
     for case in cases:
         n=norm(case["prompt"])
         if n in prior or n in existing or (n and n in source_text):
-            raise ValueError("Duplicate against historical source or within sealed set")
+            raise ValueError(f"Duplicate with archive or within suite: {case['category']} / {case['id']}")
         existing.add(n)
     out.parent.mkdir(parents=True,exist_ok=True)
     body="".join(json.dumps(c,ensure_ascii=False,sort_keys=True)+"\n" for c in cases)
