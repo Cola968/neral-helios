@@ -8,7 +8,8 @@ from scripts.neral_v41_blind200 import CATEGORIES, validate_suite
 
 class PrivateBenchmarkContracts(unittest.TestCase):
     def test_generated_suite_is_sealed_and_counts_are_exact(self):
-        from scripts.neral_v41_blind200_build import build_suite
+        from scripts.neral_v41_blind200_build import build_suite, norm
+        from unittest.mock import patch
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
             old=root/"history.jsonl"
@@ -28,7 +29,10 @@ class PrivateBenchmarkContracts(unittest.TestCase):
                      "repo":f"project-{i}", "metric":"stargazers_count"}
                     for i in range(15)]
             path=root/"sealed200.jsonl"
-            info=build_suite(path, archives=[old], web_facts=web)
+            with patch('scripts.neral_v41_blind200_build._prior_rows', return_value=(
+                {norm('Frühere V3.9 Frage?'), norm('Andere V3.10 Frage?')},
+                {'v39_benchmark', 'v310_private_holdout'})):
+                info=build_suite(path, archives=[old], web_facts=web)
             self.assertEqual(info["cases"],200)
             self.assertEqual(info["categories"],CATEGORIES)
             self.assertEqual(info["sha256"],validate_suite(path)["sha256"])
