@@ -39,6 +39,27 @@ class PrivateBenchmarkContracts(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 build_suite(path, archives=[old], web_facts=web)
 
+    def test_benchmark_http_opt_out_does_not_read_or_capture_training(self):
+        from flask import Flask
+        from unittest.mock import patch
+        import threading
+        from test_neral_three_tier_api import make_runtime
+        from neral_three_tier_runtime import register_three_tier_api
+        runtime,low,high,_=make_runtime()
+        app=Flask("v41-benchmark-no-training")
+        register_three_tier_api(app,runtime,busy=threading.Lock())
+        client=app.test_client()
+        with patch("neral_verified_notes.exact_note_lookup",
+                   side_effect=AssertionError("recalled blind task")), \
+             patch("neral_verified_training.append_verified_example",
+                   side_effect=AssertionError("captured blind task")):
+            r=client.post("/api/neral/chat/three-tier",json={
+                "tier":"Amber","prompt":"Hallo!",
+                "history":[],"benchmark_isolated":True})
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertIs(r.json.get("benchmark_isolated"),True)
+        self.assertEqual(r.json["tier"],"Amber")
+
     def test_exact_grader_does_not_reward_numbers_buried_in_hallucination(self):
         from scripts.neral_v41_blind200_live import grade_response
         case={"category":"math_logic","grader":"independent_exact",
