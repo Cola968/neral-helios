@@ -4,7 +4,7 @@ import unittest
 from hashlib import sha256
 from pathlib import Path
 
-from tests.test_neral_three_tier_api import make_runtime
+from test_neral_three_tier_api import make_runtime
 from neral_v41_context import resolve_question
 from neral_verified_notes import SessionConversation, VerifiedStrategyStore
 from neral_cpu_foundation.memory import LocalMemory
