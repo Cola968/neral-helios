@@ -1,0 +1,66 @@
+name: NERAL V3.10 RTX4070 owner one-step r16 proof (isolated)
+on:
+  push:
+    branches: [codex/neral-v310-verified-data-cpu-only-20261120]
+    paths:
+      - 'neral_verified_training.py'
+      - 'scripts/neral_qlora_verified_v39.py'
+      - 'scripts/neral_v310_smoke_owner.ps1'
+      - 'tests/test_neral_verified_training_data.py'
+      - 'tests/test_neral_verified_qlora_cpu.py'
+      - '.github/workflows/neral-v310-owner-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-first:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Security and CPU-only QLoRA contract tests
+        run: |
+          python -m unittest discover -s tests -p test_neral_verified_training_data.py -v
+          python -m unittest discover -s tests -p test_neral_verified_qlora_cpu.py -v
+          python -m scripts.neral_qlora_verified_v39 --check-cpu --train datasets/neral_v39_seed97.jsonl
+          python -m py_compile neral_verified_training.py scripts/neral_qlora_verified_v39.py
+      - name: Windows owner service script syntax ONLY (no execution)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens=$null; $errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v310_smoke_owner.ps1'),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'One-step owner script PowerShell syntax errors'}
+          Write-Host 'NERAL_V310_OWNER_SCRIPT_STATIC_SYNTAX_OK'
+  owner-one-step:
+    needs: [cpu-first]
+    if: >-
+      github.ref == 'refs/heads/codex/neral-v310-verified-data-cpu-only-20261120' &&
+      startsWith(github.event.head_commit.message, 'owner-smoke-v310-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact owner guard and one optimizer update; finally restore HTTP200
+        timeout-minutes: 42
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v310_smoke_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Owner QLoRA smoke or service restoration failed'}
