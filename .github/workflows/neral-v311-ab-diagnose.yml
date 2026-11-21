@@ -1,0 +1,55 @@
+name: NERAL V3.11 owner read-only A/B forensic (NO GPU)
+on:
+  push:
+    branches: [codex/neral-v311-holdout-ab-20261121]
+    paths: ['.github/workflows/neral-v311-ab-diagnose.yml']
+permissions:
+  contents: read
+jobs:
+  owner-read-only:
+    if: >-
+      startsWith(github.event.head_commit.message, 'v311-diagnose-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read only error-class and sanitized traceback from private local A/B logs
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='D:/neral-qlora-v311-ab/44891291845-1'
+          if(-not(Test-Path -LiteralPath $root)){throw 'Expected local A/B folder missing'}
+          $stdout=Join-Path $root 'base-stdout.txt'
+          $stderr=Join-Path $root 'base-stderr.txt'
+          $outcomes=Join-Path $root 'base-outcomes.jsonl'
+          $summary=Join-Path $root 'base-outcomes.summary.json'
+          Write-Host ('NERAL_V311_FORENSIC_STDERR '+(Test-Path -LiteralPath $stderr))
+          Write-Host ('NERAL_V311_FORENSIC_SUMMARY '+(Test-Path -LiteralPath $summary))
+          if(Test-Path -LiteralPath $outcomes){
+            $count=@(Get-Content -LiteralPath $outcomes).Count
+            Write-Host ('NERAL_V311_FORENSIC_COMPLETED_CASE_RECORDS '+$count)
+          }
+          if(Test-Path -LiteralPath $stdout){
+            $matches=@(Get-Content -LiteralPath $stdout -Tail 120 | Where-Object { $_ -match '^NERAL_V311_AB_PROGRESS base (\d+)/100$' })
+            if($matches.Count){Write-Host ('NERAL_V311_FORENSIC_LAST_PROGRESS '+$matches[-1])}
+          }
+          if(Test-Path -LiteralPath $stderr){
+            $lines=@(Get-Content -LiteralPath $stderr -Tail 50)
+            foreach($line in $lines){
+              if($line -match '(?i)^(?:\w*(?:Error|Exception)|torch\.\w+Error|CUDA out of memory|AssertionError):'){
+                $safe=$line -replace '(?i)[A-Z]:[/\\][^ ]+','<LOCAL_PATH>'
+                $safe=$safe -replace '(?i)sk-[a-z0-9_-]{8,}','<SECRET>'
+                if($safe.Length -gt 240){$safe=$safe.Substring(0,240)}
+                Write-Host ('NERAL_V311_FORENSIC_ERROR '+$safe)
+              }
+            }
+            Write-Host ('NERAL_V311_FORENSIC_STDERR_LINE_COUNT '+$lines.Count)
+          }
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+          Write-Host ('NERAL_V311_FORENSIC_OWNER_TASK_STATE '+$task.State)
+          $http=@(& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          Write-Host ('NERAL_V311_FORENSIC_SERVICE_HTTP '+($http -join '').Trim())
