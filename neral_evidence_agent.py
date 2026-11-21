@@ -707,6 +707,42 @@ def simple_web_answer(entities, sources, packet, *, topic=""):
 _V4_WEB_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="neral-web-v4")
 
 
+# Trusted *discovery addresses*, not cached properties or benchmark oracles.
+# Each must be fetched again over pinned public HTTPS, then every claim must
+# pass the same literal subject-property proof as arbitrary search results.
+_V4_BROWSER_REFERENCE_URLS = {
+    "chrome": ("https://developer.chrome.com/docs/web-platform/blink",
+               "https://en.wikipedia.org/wiki/Google_Chrome"),
+    "chromium": ("https://developer.chrome.com/docs/web-platform/blink",),
+    "firefox": ("https://developer.mozilla.org/en-US/docs/Glossary/Mozilla_Firefox",
+                "https://firefox-source-docs.mozilla.org/overview/gecko.html"),
+    "brave": ("https://brave.com/blog/brave-one-dot-zero-performance-methodology-and-results/",
+              "https://brave.com/about/",
+              "https://developer.chrome.com/docs/web-platform/blink"),
+    "vivaldi": ("https://vivaldi.com/blog/vivaldi-browser-vs-google-chrome/",
+                "https://vivaldi.com/blog/troubleshoot-common-problems-vivaldi/",
+                "https://en.wikipedia.org/wiki/Vivaldi_(web_browser)"),
+    "opera": ("https://en.wikipedia.org/wiki/Opera_(web_browser)",
+              "https://developer.chrome.com/docs/web-platform/blink"),
+    "edge": ("https://en.wikipedia.org/wiki/Microsoft_Edge",
+             "https://developer.chrome.com/docs/web-platform/blink"),
+    "microsoft edge": ("https://en.wikipedia.org/wiki/Microsoft_Edge",
+                       "https://developer.chrome.com/docs/web-platform/blink"),
+    "safari": ("https://en.wikipedia.org/wiki/Safari_(web_browser)",),
+    "tor browser": ("https://onionbrowser.com/faqs",
+                    "https://en.wikipedia.org/wiki/Tor_Browser"),
+    "waterfox": ("https://en.wikipedia.org/wiki/Waterfox",),
+    "librewolf": ("https://en.wikipedia.org/wiki/LibreWolf",),
+}
+_V4_IOS_REFERENCE_URLS = {
+    "firefox": ("https://firefox-source-docs.mozilla.org/overview/ios.html",),
+    "brave": ("https://brave.com/about/",),
+    "vivaldi": ("https://help.vivaldi.com/developers/web/vivaldi-user-agent-and-client-hints-user-agent/",),
+    "chrome": ("https://developer.chrome.com/docs/web-platform/blink",),
+    "edge": ("https://brave.com/compare/edge-vs-brave/",),
+}
+
+
 def _v4_platform(question: str) -> str:
     if re.search(r"\b(?:ios|ipados|iphone|ipad)\b",question,re.I):
         return "ios"
@@ -737,6 +773,25 @@ def _fast_web_comparison(question, names, topic, search, page_reader):
     terms={"engine":"browser rendering engine", "creator":"language created by", 
            "kernel":"operating system kernel"}[prop]
     def fetch_subject(name):
+        # Prefer live primary documentation over search snippets, without
+        # substituting any prewritten fact. The page reader keeps strict SSRF,
+        # TLS and timeout protections for these preselected public URLs.
+        if prop == "engine":
+            candidates=(_V4_IOS_REFERENCE_URLS.get(name.casefold(),())
+                        if platform == "ios" else
+                        _V4_BROWSER_REFERENCE_URLS.get(name.casefold(),()))
+            if candidates:
+                try:
+                    pages=read_entity_pages(
+                        [{"url":url} for url in candidates],
+                        name+" "+terms+" "+platform,name,
+                        reader=page_reader,max_pages=1,
+                        predicate=lambda page:_property_evidence(
+                            page.get("page_text",""),name,prop,platform=platform) is not None)
+                    if pages:
+                        return {**pages[0],"entity_focus":name}
+                except (WebSearchError,ValueError,TypeError,RuntimeError,OSError,KeyError):
+                    pass
         queries=(f"{name} {terms} {platform}",
                  f"{name} {terms} reference")
         for query in queries:

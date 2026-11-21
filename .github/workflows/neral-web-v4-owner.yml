@@ -10,6 +10,7 @@ on:
       - 'scripts/neral_web_v4_owner.ps1'
       - 'scripts/neral_web_v4_benchmark.py'
       - 'tests/test_neral_web_v4_cpu.py'
+      - 'tests/test_neral_web_v4_source_relations_cpu.py'
       - 'tests/test_neral_web_v4_benchmark_cpu.py'
       - '.github/workflows/neral-web-v4-owner.yml'
 permissions:
@@ -32,6 +33,7 @@ jobs:
       - name: Regression tests for source security, platform and fast-path provenance (NO GPU)
         run: |
           python -m unittest discover -s tests -p test_neral_web_v4_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_web_v4_source_relations_cpu.py -v
           python -m unittest discover -s tests -p test_neral_web_v4_benchmark_cpu.py -v
           python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
           python -m unittest discover -s tests -p test_neral_v34_web_verification.py -v

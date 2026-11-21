@@ -17,26 +17,26 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor, ProxyHand
 BASE = 'http://127.0.0.1:9690'
 # New combinations/wording; none is a V3.11 frozen web-case pair.
 CASES = (
-    ('Chrome','Firefox','Blink','Gecko','desktop'),
-    ('Edge','Safari','Blink','WebKit','desktop'),
-    ('Firefox','Chrome','Gecko','Blink','desktop'),
-    ('Safari','Brave','WebKit','Blink','desktop'),
-    ('Opera','Firefox','Blink','Gecko','desktop'),
-    ('Tor Browser','Firefox','Gecko','Gecko','desktop'),
-    ('Chromium','Edge','Blink','Blink','desktop'),
-    ('Safari','Edge','WebKit','Blink','desktop'),
-    ('Firefox','Vivaldi','Gecko','Blink','desktop'),
-    ('Brave','Chrome','Blink','Blink','desktop'),
-    ('Vivaldi','Safari','Blink','WebKit','desktop'),
-    ('LibreWolf','Firefox','Gecko','Gecko','desktop'),
-    ('Waterfox','Firefox','Gecko','Gecko','desktop'),
-    ('Chromium','Safari','Blink','WebKit','desktop'),
-    ('Opera','Brave','Blink','Blink','desktop'),
-    ('Edge','Firefox','Blink','Gecko','desktop'),
-    ('Chrome','Tor Browser','Blink','Gecko','desktop'),
-    ('Firefox','Brave','WebKit','WebKit','ios'),
-    ('Vivaldi','Firefox','WebKit','WebKit','ios'),
-    ('Tor Browser','Edge','Gecko','Blink','desktop'),
+    ('Chrome','Safari','Blink','WebKit','desktop'),
+    ('Firefox','Safari','Gecko','WebKit','desktop'),
+    ('Chrome','Edge','Blink','Blink','desktop'),
+    ('Brave','Edge','Blink','Blink','desktop'),
+    ('Brave','Safari','Blink','WebKit','desktop'),
+    ('Edge','Opera','Blink','Blink','desktop'),
+    ('Firefox','Opera','Gecko','Blink','desktop'),
+    ('Edge','Vivaldi','Blink','Blink','desktop'),
+    ('Firefox','Chromium','Gecko','Blink','desktop'),
+    ('LibreWolf','Chrome','Gecko','Blink','desktop'),
+    ('Waterfox','Chrome','Gecko','Blink','desktop'),
+    ('LibreWolf','Safari','Gecko','WebKit','desktop'),
+    ('Opera','Waterfox','Blink','Gecko','desktop'),
+    ('Chromium','LibreWolf','Blink','Gecko','desktop'),
+    ('Safari','Tor Browser','WebKit','Gecko','desktop'),
+    ('Firefox','Edge','Gecko','Blink','desktop'),
+    ('Brave','LibreWolf','Blink','Gecko','desktop'),
+    ('Vivaldi','Waterfox','Blink','Gecko','desktop'),
+    ('Chrome','Brave','WebKit','WebKit','ios'),
+    ('Firefox','Vivaldi','WebKit','WebKit','ios'),
 )
 
 
@@ -64,7 +64,11 @@ def check_response(case,body):
             re.escape(name)+r':\s*([A-Za-z0-9-]+)\s*',line,re.I))),None)
         if found is None:return False
         values[name]=found.group(1).casefold()
-    if values[a]!=ea.casefold() or values[b]!=eb.casefold():
+    def equivalent(actual,expected):
+        if actual==expected.casefold():
+            return True
+        return platform=='ios' and expected.casefold()=='webkit' and actual=='wkwebkit'
+    if not equivalent(values[a],ea) or not equivalent(values[b],eb):
         return False
     if platform=='desktop' and 'iOS' not in answer:
         return False
@@ -129,7 +133,7 @@ def main(argv=None):
         'max_seconds':round(max(times),4),
         'target_mean_under_6':statistics.mean(times)<6,
         'target_at_least_19_pass':sum(r['passed'] for r in rows)>=19,
-        'dataset':'new_20_public_browser_engine_questions_not_v39_or_v311_holdout',
+        'dataset':'new_independent_second_20_browser_engine_questions_not_v39_or_v311_holdout',
         'cooldown_excluded_from_response_latency':True,
         'model_only_benchmark':False,'web_source_must_be_newly_read':True}
     report['acceptance']=report['target_mean_under_6'] and report['target_at_least_19_pass']

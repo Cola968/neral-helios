@@ -17,9 +17,9 @@ class WebV4BenchmarkContracts(unittest.TestCase):
         body={'tool_verified':True,'error_code':None,
               'sources':[{'url':'https://mozilla.org/a','page_read':True},
                          {'url':'https://chromium.org/b','page_read':True}],
-              'text':'Chrome: Blink\nFirefox: Gecko\nHinweis: Desktop; iOS kann abweichen.\n[web1] [web2]'}
+              'text':f'{case[0]}: {case[2]}\n{case[1]}: {case[3]}\nHinweis: Desktop; iOS kann abweichen.\n[web1] [web2]'}
         self.assertTrue(check_response(case,body))
-        self.assertFalse(check_response(case,{**body,'text':body['text'].replace('Gecko','WebKit')}))
+        self.assertFalse(check_response(case,{**body,'text':body['text'].replace('Blink','NotBlink',1)}))
         self.assertFalse(check_response(case,{**body,'sources':[body['sources'][0]]}))
         self.assertFalse(check_response(case,{**body,'sources':[{**body['sources'][0],'page_read':False},body['sources'][1]]}))
         self.assertFalse(check_response(case,{**body,'tool_verified':False}))

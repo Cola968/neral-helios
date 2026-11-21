@@ -628,6 +628,10 @@ def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "de
         if not has_subject:
             continue
         if prop == "engine":
+            # Never join an unrelated product in a following sentence with a
+            # subject in the preceding sentence (Firefox ... Chrome uses Blink).
+            if len(re.findall(r"[.!?](?=\s|$)",span)) > 1:
+                continue
             if _HISTORICAL_ENGINE.search(span):
                 continue
             # iOS-specific browser snippets must not override desktop Gecko/Blink.
@@ -654,6 +658,44 @@ def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "de
                         "eine","einen","neu","new","proprietary","chrome",
                         "engine","browser","rendering","javascript"} and fact.casefold() != entity.casefold():
                         return fact, span
+            # Reverse grammatical list: the engine is subject of the sentence,
+            # and the browser is an explicit list member. Never infer from
+            # mere co-occurrence in unrelated headings or separate sentences.
+            reverse = re.search(
+                r"\b([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]{2,})\s+serves\s+as\s+the\s+"
+                r"(?:browser\s+|layout\s+)?rendering\s+engine\s+for\b"
+                r"[^.!?]{0,230}",span,re.I)
+            if reverse:
+                subject_list=reverse.group(0)
+                if (re.search(r"\b(?:including|such as|like)\b[^.!?]*"+subject,subject_list,re.I)
+                        or (entity.casefold()=="chromium" and
+                            re.search(r"\bchromium-based\b",subject_list,re.I))):
+                    fact=reverse.group(1)
+                    if fact.casefold() not in {"the","browser","rendering","engine"}:
+                        return fact, span
+            # Single-sentence, explicit product foundation relation (not a
+            # loose third-party engine mentioned somewhere on the webpage).
+            attached=re.search(
+                subject+r"[^.!?;]{0,110}?\b(?:built\s+(?:on\s+top\s+of|on|upon)|"
+                r"based\s+on|powered\s+by)\b[^.!?;]{0,120}?\b"
+                r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\s+rendering\s+engine\b",span,re.I)
+            if attached:
+                return attached.group(1), span
+            # Domain-specific engine names appear as 'Firefox / Gecko'
+            # or 'WKWebKit' without the literal following word "engine".
+            special=re.search(
+                subject+r"[^.!?;]{0,110}?\b(?:built\s+(?:on\s+top\s+of|on|upon)|"
+                r"based\s+on|powered\s+by|uses?)\b[^.!?;]{0,120}?\b"
+                r"(WKWebKit|WebKit|Gecko|Blink)\b",span,re.I)
+            if special:
+                prefix=span[:special.start(1)]
+                # In 'Brave mentions that Safari uses WebKit' Safari is the
+                # grammatical engine subject. Such third-party quotations
+                # cannot establish an engine for Brave.
+                if re.search(r"\b(?:mentions|claims|reports|states|says|while|"
+                             r"whereas|unlike|compared\s+to)\b",prefix,re.I):
+                    continue
+                return special.group(1),span
         elif prop == "creator":
             # Matching the creator of "language specifications" or a language
             # mentioned only as an influence is a false attribution.
