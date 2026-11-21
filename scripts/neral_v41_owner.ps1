@@ -1,8 +1,15 @@
 # NERAL V4.1: pinned owner, validated staged files and automatic rollback.
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
-if($env:GITHUB_REF -ne 'refs/heads/codex/neral-v41-context-memory-tiers-20261121'){
-  throw 'V4.1 owner deployment requires approved isolated branch'
+# A manual, explicitly approved benchmark may also stage the updated
+# no-capture API implementation from main, preserving the pinned service and
+# the original rollback guarantees.
+$approvedFeature = $env:GITHUB_REF -eq 'refs/heads/codex/neral-v41-context-memory-tiers-20261121'
+$approvedBlind200 = $env:GITHUB_REF -eq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -and
+  $env:NERAL_V41_BLIND200_APPROVED -eq 'NERAL-V41-BLIND200-APPROVED'
+if(-not ($approvedFeature -or $approvedBlind200)){
+  throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
 $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'

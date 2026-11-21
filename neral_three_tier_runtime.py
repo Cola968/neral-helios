@@ -11,6 +11,7 @@ preview chat lock. Nothing is downloaded or executed on the host.
 from __future__ import annotations
 
 import ast
+from contextvars import ContextVar
 from decimal import Decimal, ROUND_HALF_UP
 import gc
 import hashlib
@@ -32,6 +33,9 @@ TIERS = {"Luna": 96, "Terra": 256, "Helios": 768,
 PUBLIC_TO_LEGACY = {"Amber": "Luna", "Quartz": "Terra", "Obsidian": "Helios"}
 LEGACY_TO_PUBLIC = {legacy: public for public, legacy in PUBLIC_TO_LEGACY.items()}
 PUBLIC_TIERS = ("Amber", "Quartz", "Obsidian")
+# Owner-only benchmark calls may opt out of ALL answer/memory ingestion.
+# Request-scoped to avoid leaking opt-out to later live user requests.
+_BENCHMARK_ISOLATED = ContextVar("neral_v41_benchmark_isolated", default=False)
 
 
 def _public_result(result: dict) -> dict:
@@ -1727,7 +1731,8 @@ class ThreeTierRuntime:
         self._switch(chosen)
         from neral_everyday_verified import tidy_unverified_model_text
         from neral_verified_notes import VerifiedStrategyStore
-        hint = VerifiedStrategyStore().hint(turns[-1]["content"])
+        hint = ("" if _BENCHMARK_ISOLATED.get() else
+                VerifiedStrategyStore().hint(turns[-1]["content"]))
         model_turns = turns
         if hint:
             # Historical strategy hint is not itself a fact or proof.
@@ -1808,11 +1813,13 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         if not request.is_json:
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
-        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_query"}
+        allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_query",
+                   "benchmark_isolated"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
                 type(payload.get("force_sandbox", False)) is not bool or
+                type(payload.get("benchmark_isolated", False)) is not bool or
                 payload.get("tier") not in TIERS and
                 payload.get("tier") not in ("luna", "terra", "helios")):
             return jsonify(error="Ungültiger Amber/Quartz/Obsidian-Modus."), 400
@@ -1844,6 +1851,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify(error="Ungültiger oder zu langer Chatverlauf."), 400
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
+        benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
         try:
             started = time.monotonic()
             # Zero-model exact recall of independently checked local examples.
@@ -1852,7 +1860,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             from neral_v41_context import resolve_question
             is_followup = resolve_question(turns).is_followup
             note = None
-            if (not is_followup and not web_query and not web_stage and
+            if (not _BENCHMARK_ISOLATED.get() and not is_followup and
+                    not web_query and not web_stage and
                     not payload.get("force_sandbox", False)):
                 from neral_verified_notes import exact_note_lookup
                 try:
@@ -1885,7 +1894,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
             proof_ok = verifier_ok(result)
-            if proof_ok and not is_followup:
+            if proof_ok and not is_followup and not _BENCHMARK_ISOLATED.get():
                 try:
                     append_verified_example(turns[-1]["content"], result)
                     from neral_verified_notes import VerifiedStrategyStore
@@ -1894,7 +1903,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     pass
             return jsonify({**result, "verifier_ok": proof_ok,
                             "seconds": round(time.monotonic()-started, 4),
-                            "runtime_tier_verified": True})
+                            "runtime_tier_verified": True,
+                            "benchmark_isolated": _BENCHMARK_ISOLATED.get()})
         except Exception as exc:
             # This is a bounded failure CLASSIFICATION only, not exception text.
             # User prompts, model completions and stack traces are never returned.
@@ -1902,4 +1912,5 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.",
                 error_code=_safe_runtime_error_code(exc)), 503
         finally:
+            _BENCHMARK_ISOLATED.reset(benchmark_token)
             busy.release()
