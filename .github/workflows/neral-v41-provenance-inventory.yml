@@ -12,7 +12,7 @@ jobs:
       cancel-in-progress: false
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - name: Inspect historical archives without disclosing rows
         run: |
