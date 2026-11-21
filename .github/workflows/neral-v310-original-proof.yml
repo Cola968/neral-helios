@@ -1,0 +1,39 @@
+name: NERAL V310 original holdout proof
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v310-original-proof.yml]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Verify frozen original and manifest without exposing tasks
+        run: |
+          $ErrorActionPreference='Stop'
+          $path='D:\neral-qlora-v310-smoke\v310-private-holdout100.jsonl'
+          $manifest='D:\neral-qlora-v310-smoke\v310-private-holdout100.manifest.json'
+          if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw 'V310_ORIGINAL_MISSING'}
+          if(-not (Test-Path -LiteralPath $manifest -PathType Leaf)){throw 'V310_MANIFEST_MISSING'}
+          $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          $m=Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($hash -ne ([string]$m.sha256).ToLowerInvariant()){throw 'V310_HASH_MISMATCH'}
+          if(-not $hash.StartsWith('6b2e7d24')){throw 'V310_EXPECTED_PREFIX_MISMATCH'}
+          $counts=@{};$rows=0
+          foreach($line in [IO.File]::ReadLines($path)){
+            if([string]::IsNullOrWhiteSpace($line)){throw 'V310_BLANK_LINE'}
+            $obj=ConvertFrom-Json -InputObject $line -ErrorAction Stop
+            $cat=[string]$obj.category
+            if($cat -notin @('mathematics','logic','programming','knowledge','web')){throw 'V310_UNKNOWN_CATEGORY'}
+            $counts[$cat]=1+[int]$counts[$cat];$rows++
+          }
+          if($rows -ne 100){throw 'V310_COUNT_MISMATCH'}
+          foreach($cat in @('mathematics','logic','programming','knowledge','web')){if($counts[$cat] -ne 20){throw 'V310_CATEGORY_MISMATCH'}}
+          Write-Host ('V310_VERIFIED path='+$path+' rows='+$rows+' sha256='+$hash+' manifest_sha256='+(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'V310_CATEGORIES mathematics=20 logic=20 programming=20 knowledge=20 web=20'
