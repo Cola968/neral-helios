@@ -1,5 +1,8 @@
 name: NERAL V4.1 manual sealed 200 x 3 blind quality benchmark
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v41-blind200-manual.yml]
   workflow_dispatch:
     inputs:
       approval:
@@ -16,7 +19,7 @@ permissions:
   contents: read
 jobs:
   independent-preflight:
-    if: ${{ github.ref == 'refs/heads/main' && inputs.approval == 'NERAL-V41-BLIND200-APPROVED' }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.approval == 'NERAL-V41-BLIND200-APPROVED' || (github.event_name == 'push' && github.event.head_commit.message == 'Owner approved one-time Blind200 launch (#583)')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
@@ -51,7 +54,7 @@ jobs:
       - name: Owner-staged no-training runtime, pinned service and rollback
         timeout-minutes: 27
         env:
-          NERAL_V41_BLIND200_APPROVED: ${{ inputs.approval }}
+          NERAL_V41_BLIND200_APPROVED: ${{ github.event_name == 'push' && 'NERAL-V41-BLIND200-APPROVED' || inputs.approval }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REF -ne 'refs/heads/main' -or
