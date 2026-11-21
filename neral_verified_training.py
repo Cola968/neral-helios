@@ -21,6 +21,21 @@ _SECRET = re.compile(
     r"\b(?:api[_-]?key|access[_-]?token|password|passwort|secret)\s*[:=]\s*\S+|"
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----)"
 )
+# Fail closed for local filesystem identities and common bearer credentials.
+# This filter prevents obvious leakage, but it cannot anonymize arbitrary PII.
+_LOCAL_PATH = re.compile(
+    r"(?i)(?:\b[a-z]:[\\/]|\\\\[a-z0-9_.-]+[\\/]|"
+    r"file:///?(?:[a-z]:[\\/]|/)|"
+    r"(?<![a-z0-9])/(?:home|users|mnt|root|private|documents|appdata|temp|tmp)/)"
+)
+_TOKEN = re.compile(
+    r"(?i)(?:\bAuthorization\s*:\s*Bearer\s+\S+|"
+    r"\bgh[pousr]_[a-z0-9]{16,}|"
+    r"\bxox[baprs]-[a-z0-9-]{12,}|"
+    r"\bAKIA[0-9A-Z]{16}\b|"
+    r"\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,})"
+)
+
 _WEB_PROOF = frozenset({
     "literal_property_verified_model_not_accepted",
     "read_page_literal_property_and_model_agreement",
@@ -54,8 +69,9 @@ def _safe_text(instruction: object, response: object) -> bool:
             and instruction.strip() and response.strip()
             and len(instruction.encode("utf-8")) <= _MAX_TEXT_BYTES
             and len(response.encode("utf-8")) <= _MAX_TEXT_BYTES
-            and not _SECRET.search(instruction)
-            and not _SECRET.search(response))
+            and not any(pattern.search(value)
+                        for pattern in (_SECRET, _LOCAL_PATH, _TOKEN)
+                        for value in (instruction, response)))
 
 
 def _make_row(instruction: str, response: str, *, source: str,

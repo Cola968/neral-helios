@@ -72,3 +72,26 @@ class VerifiedTrainingContracts(unittest.TestCase):
                                   expected_source='abc',expected_pass=2)
 
 if __name__=='__main__':unittest.main()
+
+class PrivacyRegression(unittest.TestCase):
+    def test_refuses_windows_drive_paths_and_unc(self):
+        from neral_verified_training import _safe_text
+        for value in (r'C:\Users\Alice\Documents\Budget.pdf',
+                      r'D:\neral-qlora\checkpoint',
+                      r'\\SERVER\share\confidential.docx',
+                      'D:/Private/Documents/data.csv',
+                      'file:///C:/Users/Alice/test.txt',
+                      '/home/alice/.ssh/id_rsa'):
+            with self.subTest(value=value):
+                self.assertFalse(_safe_text('Was ist das?', 'Pfad: '+value))
+                self.assertFalse(_safe_text('Analysiere '+value, 'Antwort'))
+
+    def test_refuses_sensitive_keys_tokens_and_authorization(self):
+        from neral_verified_training import _safe_text
+        for sample in ('Authorization: Bearer abcdefg0123456789',
+                       'ghp_'+'a'*36,
+                       'xoxb-'+'0123456789-abcdef',
+                       'AKIA'+'1234567890ABCDEF',
+                       'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'):
+            with self.subTest(sample=sample):
+                self.assertFalse(_safe_text('Frage '+sample,'Antwort'))

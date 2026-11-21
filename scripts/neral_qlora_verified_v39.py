@@ -96,6 +96,26 @@ def cpu_plan(rows: list[dict], context: int) -> dict:
     }
 
 
+def validate_smoke_proof(metrics: dict) -> bool:
+    """Fail closed: a finite, positive actual gradient and weight update are mandatory."""
+    finite = ("grad_norm", "training_loss", "peak_allocated_gib", "peak_reserved_gib", "nvidia_peak_mib")
+    if any(type(metrics.get(k)) not in (int, float) or
+           not math.isfinite(metrics[k]) for k in finite):
+        raise ValueError("Missing, NaN or infinite optimizer/VRAM metric")
+    if (metrics["grad_norm"] <= 0 or metrics["training_loss"] < 0 or
+            metrics.get("global_step") != 1 or
+            not metrics.get("adapter_before") or
+            not metrics.get("adapter_after") or
+            metrics["adapter_before"] == metrics["adapter_after"]):
+        raise ValueError("No independently observed optimizer update")
+    if (metrics["peak_allocated_gib"] <= 0 or
+            metrics["peak_reserved_gib"] < metrics["peak_allocated_gib"] or
+            metrics["peak_reserved_gib"] >= 10.75 or
+            metrics["nvidia_peak_mib"] >= 11264):
+        raise ValueError("VRAM outside strict safety envelope")
+    return True
+
+
 def gpu_train(rows, args):
     # Every heavyweight import and CUDA operation is isolated to this explicit mode.
     import torch
@@ -171,15 +191,36 @@ def gpu_train(rows, args):
     original=adapter_fingerprint(model)
     training=trainer.train()
     torch.cuda.synchronize()
-    peak=torch.cuda.max_memory_allocated(0)/gib
-    if (peak>=11 or original==adapter_fingerprint(model)
-            or not math.isfinite(training.training_loss)):
-        raise RuntimeError("Training failed strict VRAM/adapter update gate")
+    peak_reserved=torch.cuda.max_memory_reserved(0)/gib
+    peak_allocated=torch.cuda.max_memory_allocated(0)/gib
+    grad_norms=[float(event["grad_norm"]) for event in trainer.state.log_history
+                if type(event) is dict and type(event.get("grad_norm")) in (int,float)]
+    if not grad_norms:
+        raise RuntimeError("No logged optimizer gradient norm; fail closed")
+    # Parent owner runner captures system-wide nvidia-smi peak while the
+    # suspended 9690 service is offline; PyTorch allocator is only one metric.
+    peak_file=Path(args.nvidia_peak_file) if args.nvidia_peak_file else None
+    if peak_file is None or not peak_file.is_file():
+        raise RuntimeError("Owner GPU-wide VRAM monitor evidence missing")
+    nvidia_peak=int(peak_file.read_text(encoding="utf-8").strip())
+    metrics={
+        "grad_norm":grad_norms[-1], "training_loss":float(training.training_loss),
+        "global_step":int(training.global_step),
+        "peak_allocated_gib":peak_allocated, "peak_reserved_gib":peak_reserved,
+        "nvidia_peak_mib":nvidia_peak,
+        "adapter_before":original, "adapter_after":adapter_fingerprint(model),
+    }
+    validate_smoke_proof(metrics)
     model.save_pretrained(str(args.out/"adapter"),safe_serialization=True)
     tokenizer.save_pretrained(str(args.out/"adapter"))
     (args.out/"manifest.json").write_text(json.dumps({
         **cpu_plan(rows,args.context),"status":"adapter_saved_not_evaluated",
-        "measured_peak_allocated_gib":round(peak,3),
+        "measured_peak_allocated_gib":round(peak_allocated,3),
+        "measured_peak_reserved_gib":round(peak_reserved,3),
+        "measured_system_gpu_peak_mib":nvidia_peak,
+        "measured_gradient_norm":round(grad_norms[-1],6),
+        "adapter_weights_changed":True,
+        "completed_optimizer_steps":int(training.global_step),
         "source_dataset_sha256":hashlib.sha256(args.train.read_bytes()).hexdigest(),
         "holdout_used_in_training":False},indent=2),encoding="utf-8")
     print("NERAL_QLORA_R16_ADAPTER_SAVED_NOT_VALIDATED")
@@ -193,6 +234,7 @@ def main(argv=None):
     p.add_argument("--checkpoint",type=Path)
     p.add_argument("--context",type=int,default=1024)
     p.add_argument("--max-steps",type=int,default=0)
+    p.add_argument("--nvidia-peak-file",type=Path)
     p.add_argument("--check-cpu",action="store_true")
     p.add_argument("--run-gpu",action="store_true")
     args=p.parse_args(argv)
@@ -205,8 +247,8 @@ def main(argv=None):
     if args.check_cpu:
         print(json.dumps(report,ensure_ascii=False,sort_keys=True))
         return 0
-    if args.holdout is None or args.out is None or args.checkpoint is None:
-        p.error("--run-gpu needs --holdout, --out, and an existing local --checkpoint")
+    if args.out is None or args.checkpoint is None or (args.max_steps != 1 and args.holdout is None):
+        p.error("--run-gpu requires --out, checkpoint and a holdout except for one-step smoke")
     if not args.checkpoint.is_dir() or not 0<=args.max_steps<=2:
         p.error("Use an installed local checkpoint and 0/1/2 training steps")
     gpu_train(rows,args)
