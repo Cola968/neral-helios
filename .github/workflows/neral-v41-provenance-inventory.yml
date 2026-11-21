@@ -1,0 +1,74 @@
+name: NERAL V4.1 read-only provenance inventory
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  owner-inventory:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Inspect historical archives without disclosing rows
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $roots = @(
+            'D:\neral-private\v39',
+            'D:\neral-private\v310',
+            'D:\neral-qlora\data',
+            'D:\neral-qlora-v2\data',
+            (Join-Path $env:LOCALAPPDATA 'NERAL\three-tier-pr558-909d1419c9ff\NERAL-1.0-Local\data')
+          )
+          foreach ($root in $roots) {
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+              Write-Host ("MISSING_DIRECTORY " + $root)
+              continue
+            }
+            $files = @(Get-ChildItem -LiteralPath $root -Filter '*.jsonl' -Recurse -File -ErrorAction Stop)
+            Write-Host ("DIRECTORY " + $root + " jsonl_count=" + $files.Count)
+            foreach ($file in $files) {
+              $count = 0
+              $top = [System.Collections.Generic.HashSet[string]]::new()
+              $meta = [System.Collections.Generic.HashSet[string]]::new()
+              $sources = [System.Collections.Generic.HashSet[string]]::new()
+              $invalid = 0
+              $reader = [System.IO.File]::OpenText($file.FullName)
+              try {
+                while ($null -ne ($line = $reader.ReadLine())) {
+                  if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                  $count++
+                  try {
+                    $row = ConvertFrom-Json -InputObject $line -ErrorAction Stop
+                    foreach ($p in $row.PSObject.Properties) { [void]$top.Add($p.Name) }
+                    if ($null -ne $row.meta) {
+                      foreach ($p in $row.meta.PSObject.Properties) { [void]$meta.Add($p.Name) }
+                      if ($null -ne $row.meta.source) { [void]$sources.Add([string]$row.meta.source) }
+                    }
+                  } catch { $invalid++ }
+                }
+              } finally { $reader.Dispose() }
+              $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              $record = [ordered]@{
+                path=$file.FullName; lines=$count; top_keys=@($top | Sort-Object);
+                meta_keys=@($meta | Sort-Object); meta_sources=@($sources | Sort-Object);
+                invalid_json_lines=$invalid; sha256=$hash
+              }
+              Write-Host ("ARCHIVE " + ($record | ConvertTo-Json -Compress -Depth 4))
+            }
+          }
+          $notes = Join-Path $env:GITHUB_WORKSPACE 'neral_verified_notes.py'
+          if (Test-Path -LiteralPath $notes -PathType Leaf) {
+            Write-Host ("VERIFIED_NOTES path=" + $notes + " sha256=" + (Get-FileHash -LiteralPath $notes -Algorithm SHA256).Hash.ToLowerInvariant())
+          } else { Write-Host ("MISSING_VERIFIED_NOTES " + $notes) }
+      - name: Fresh localhost 9690 HTTP healthcheck
+        run: |
+          $status = & curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/'
+          if ($LASTEXITCODE -ne 0 -or ($status -join '').Trim() -ne '200') {
+            throw ("NERAL_PORT9690_HEALTH_FAILED status=" + ($status -join '').Trim())
+          }
+          Write-Host 'NERAL_PORT9690_HTTP200'
