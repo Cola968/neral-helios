@@ -737,7 +737,8 @@ _V4_BROWSER_REFERENCE_URLS = {
 _V4_IOS_REFERENCE_URLS = {
     "firefox": ("https://firefox-source-docs.mozilla.org/overview/ios.html",),
     "brave": ("https://brave.com/about/",),
-    "vivaldi": ("https://help.vivaldi.com/developers/web/vivaldi-user-agent-and-client-hints-user-agent/",),
+    "vivaldi": ("https://vivaldi.com/blog/ios/happy-3rd-birthday-vivaldi-on-ios/",
+                "https://help.vivaldi.com/developers/web/vivaldi-user-agent-and-client-hints-user-agent/"),
     "chrome": ("https://developer.chrome.com/docs/web-platform/blink",),
     "edge": ("https://brave.com/compare/edge-vs-brave/",),
 }

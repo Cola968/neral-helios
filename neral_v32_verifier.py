@@ -583,6 +583,66 @@ def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "de
     if re.search(subject, text, re.I) is None:
         return None
 
+    # Firefox's primary iOS documentation explicitly says it does NOT use
+    # Gecko, followed immediately by why WKWebKit renders the web. Bind both
+    # contiguous source lines, never the negated Gecko mentioned first.
+    if prop == "engine" and platform == "ios":
+        relation = re.search(
+            subject + r"[^\n]{0,110}\bios\b[^\n]{0,130}\n"
+            r"(?=[^\n]{0,145}\b(?:Apple|restrictions|browser)\b)"
+            r"[^\n]{0,200}\bWKWebKit\b[^\n]{0,140}",text,re.I)
+        if relation and len(relation.group(0)) <= 650:
+            return "WKWebKit", relation.group(0)
+
+    # German-language original Chromium documentation attributes the same
+    # named rendering engine to the explicit list of affected browsers.
+    # An item outside the quoted list is NEVER inferred from Chromium alone.
+    if prop == "engine" and platform != "ios":
+        named_list = re.search(
+            r"\b([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\s+dient\s+als\s+"
+            r"Rendering[- ]Engine\s+für\s+Chromium-basierte\s+Browser\s+wie\s+"
+            r"([^.!?\n]{4,245})",text,re.I)
+        if named_list and (entity.casefold()=="chromium" or re.search(
+                subject,named_list.group(2),re.I)):
+            token=named_list.group(1)
+            if token.casefold() not in {"the","also","new","some","other","browser","engine"}:
+                return token,named_list.group(0)
+
+    # A directly attributed localized Chrome/other browser claim: the
+    # platform qualifies the *same grammatical sentence*, not another entity.
+    if prop == "engine" and platform == "ios":
+        german_ios = re.search(
+            r"\b(?:unter|auf)\s+iOS(?:\s+und\s+iPadOS)?[^.!?\n]{0,110}"
+            r"\b(?:verwendet|nutzt)\s+" + subject +
+            r"\s+(WKWebKit|WebKit)\s+als\s+Rendering[- ]Engine\b[^.!?\n]*[.]",
+            text, re.I)
+        if german_ios:
+            return german_ios.group(1), german_ios.group(0)
+        # Two *adjacent literal paragraphs* in an official company iOS
+        # article can establish its currently shipped engine: the first
+        # identifies the released product, the second explicitly says that
+        # browser apps distributed on iOS use Apple WebKit. The raw combined
+        # excerpt is emitted without editing and has a strict quote limit.
+        company_ios = re.search(
+            r"(?im)^([^\n]{0,280}\b" + re.escape(entity) +
+            r"\s+(?:for|on)\s+iOS[^\n]{0,280})\n"
+            r"([^\n]{0,525}\bevery\s+app\s+that\s+browses\s+the\s+web"
+            r"\s+uses\s+Apple\s+WebKit[^\n]{0,320})",
+            text, re.I)
+        if company_ios and len(company_ios.group(0))<=650:
+            return "WebKit", company_ios.group(0)
+
+    if prop == "engine" and platform == "desktop":
+        german_desktop = re.search(
+            r"\b(?:unter|auf)\s+Desktop[^.!?\n]{0,75}\b"
+            r"(?:verwendet|nutzt)\s+" + subject +
+            r"\s+([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\b[^.!?\n]*[.]",
+            text, re.I)
+        if german_desktop:
+            candidate = german_desktop.group(1)
+            if candidate.casefold() not in {"also", "browser", "engine", "the", "same"}:
+                return candidate, german_desktop.group(0)
+
     # Parsed infobox cells are literal page text. In a result page they can be
     # detached from the subject heading by newlines, unlike normal prose.
     if prop == "engine":
@@ -656,7 +716,9 @@ def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "de
                     if fact.casefold() not in {
                         "the","a","an","die","der","das","den","dem","ein",
                         "eine","einen","neu","new","proprietary","chrome",
-                        "engine","browser","rendering","javascript"} and fact.casefold() != entity.casefold():
+                        "engine","browser","rendering","javascript","also", "own",
+                        "always","currently","original","modern", "its", "their",
+                        "another", "different", "same", "other"} and fact.casefold() != entity.casefold():
                         return fact, span
             # Reverse grammatical list: the engine is subject of the sentence,
             # and the browser is an explicit list member. Never infer from
@@ -680,7 +742,10 @@ def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "de
                 r"based\s+on|powered\s+by)\b[^.!?;]{0,120}?\b"
                 r"([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9-]+)\s+rendering\s+engine\b",span,re.I)
             if attached:
-                return attached.group(1), span
+                fact=attached.group(1)
+                if fact.casefold() not in {"also","own","another","same","other","the"}:
+                    if platform!="ios" or fact.casefold() in {"webkit","wkwebkit"}:
+                        return fact, span
             # Domain-specific engine names appear as 'Firefox / Gecko'
             # or 'WKWebKit' without the literal following word "engine".
             special=re.search(
@@ -695,7 +760,13 @@ def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "de
                 if re.search(r"\b(?:mentions|claims|reports|states|says|while|"
                              r"whereas|unlike|compared\s+to)\b",prefix,re.I):
                     continue
-                return special.group(1),span
+                if re.search(r"\b(?:doesn[`’']?t|don[`’']?t|does\s+not|do\s+not|"
+                             r"not|never|without)\s+(?:use|uses|using)\s*$",prefix,re.I):
+                    continue
+                fact=special.group(1)
+                if platform == "ios" and fact.casefold() not in {"webkit","wkwebkit"}:
+                    continue
+                return fact,span
         elif prop == "creator":
             # Matching the creator of "language specifications" or a language
             # mentioned only as an influence is a false attribution.
@@ -739,6 +810,14 @@ def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], 
             if (not isinstance(page,dict) or page.get("page_read") is not True
                     or not isinstance(page.get("url"),str)
                     or not page["url"].startswith("https://")):
+                continue
+            focus=page.get("entity_focus")
+            # Fast-path V4 downloads one *fresh* primary page per subject.
+            # Never borrow another subject's page even if it incidentally
+            # mentions this browser and a different rendering engine.
+            # The older unfocused comparison path remains unchanged.
+            if focus is not None and (not isinstance(focus,str) or
+                                      focus.casefold()!=entity.casefold()):
                 continue
             page_text=page.get("page_text","")
             parsed=_property_evidence(page_text,entity,prop,platform=platform)
