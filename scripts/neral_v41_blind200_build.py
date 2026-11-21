@@ -284,23 +284,30 @@ def build_suite(out: Path, *, archives: list[Path], web_facts: list[dict]) -> di
             ref={"kind":"web_integer","value":web["value"],"url":url,"source":source}
         cases.append(_case("live_web",i,prompt,grader="source_freshness",reference=ref,
                            web_query=url[:160]))
+    seen_math=set()
     for i in range(30):
-        a=rng.randrange(11,650); b=rng.randrange(7,250);c=rng.randrange(3,77)
-        if i<10:
-            prompt=f"Berechne exakt ({a} * {b}) + {c}. Gib ausschließlich die Zahl an."
-            value=a*b+c
-        elif i<20:
-            mod=rng.choice([7,11,13,17,19,23])
-            prompt=f"Welchen Rest hat {a*b+c} bei Division durch {mod}? Antworte nur mit dem Rest."
-            value=(a*b+c)%mod
+        for attempt in range(150):
+            a=rng.randrange(11,650); b=rng.randrange(7,250);c=rng.randrange(3,77)
+            if i<10:
+                prompt=f"Berechne exakt ({a} * {b}) + {c}. Gib ausschließlich die Zahl an."
+                value=a*b+c
+            elif i<20:
+                mod=rng.choice([7,11,13,17,19,23])
+                prompt=f"Welchen Rest hat {a*b+c} bei Division durch {mod}? Antworte nur mit dem Rest."
+                value=(a*b+c)%mod
+            else:
+                x=rng.randrange(11,70)
+                m=rng.choice([7,11,13])
+                n=rng.choice([5,9,17])
+                prompt=(f"Finde die kleinste positive ganze Zahl unter {m*n} mit "
+                        f"Rest {x%m} modulo {m} und Rest {x%n} modulo {n}. "
+                        "Antworte nur mit der Zahl.")
+                value=next(z for z in range(1,m*n+1) if z%m==x%m and z%n==x%n)
+            if norm(prompt) not in seen_math:
+                seen_math.add(norm(prompt))
+                break
         else:
-            x=rng.randrange(11,70)
-            m=rng.choice([7,11,13])
-            n=rng.choice([5,9,17])
-            prompt=(f"Finde die kleinste positive ganze Zahl unter {m*n} mit "
-                    f"Rest {x%m} modulo {m} und Rest {x%n} modulo {n}. "
-                    "Antworte nur mit der Zahl.")
-            value=next(z for z in range(1,m*n+1) if z%m==x%m and z%n==x%n)
+            raise RuntimeError("Could not generate unique independent math case")
         cases.append(_case("math_logic",i,prompt,grader="independent_exact",
                            reference={"kind":"integer","value":str(value)}))
     for i in range(25):
