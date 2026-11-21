@@ -83,7 +83,8 @@ def _code_only(text):
 
 # Runs only inside Docker; the remote model's Python is never executed on Windows.
 _CONTAINER_GRADER = r'''
-import json,sys,traceback
+import json,sys,traceback,signal
+signal.alarm(8)
 data=json.load(sys.stdin)
 scope={}
 try:
@@ -265,6 +266,11 @@ def _summary(rows,manifest,*,expected):
                                         if graded else None),
                 "mean_latency_s":round(statistics.mean(rates),3) if rates else None,
                 "max_latency_s":round(max(rates),3) if rates else None,
+                "model_generated_count":sum(x.get("model_generated") is True for x in rs),
+                "model_origins":dict(sorted(__import__("collections").Counter(
+                    str(x.get("model_origin") or "unknown") for x in rs).items())),
+                "tool_routes":dict(sorted(__import__("collections").Counter(
+                    str(x.get("tool_used") or "none") for x in rs).items())),
                 "errors":dict(sorted(__import__("collections").Counter(
                     x["reason"] for x in rs if x["grade"]!="pass").items())),
             })
@@ -331,6 +337,8 @@ def run(sealed:Path,manifest_path:Path,private_details:Path,summary_path:Path,
                 "grade":grade,"reason":reason,
                 "model_text":str(response.get("text",""))[:16000],
                 "model_origin":response.get("model_origin"),
+                "model":response.get("model"),
+                "effective_tier":response.get("tier"),
                 "model_generated":response.get("model_generated"),
                 "tool_used":response.get("tool_used"),
                 "verification_scope":response.get("verification_scope"),
