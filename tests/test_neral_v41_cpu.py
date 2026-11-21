@@ -53,6 +53,33 @@ class V41TierTests(unittest.TestCase):
         self.assertEqual(answer["model_origin"], "local_source_unverified_tools_only")
         self.assertFalse(high.calls)
 
+    def test_owner_alias_probe_exercises_legacy_model_instead_of_evidence_escalation(self):
+        # A multi-sentence greeting was routed through the evidence agent and
+        # auto-escalated to Helios, making the owner smoke falsely reject luna.
+        from flask import Flask
+        import threading
+        from neral_evidence_agent import SIMPLE
+        from neral_three_tier_runtime import register_three_tier_api
+        from scripts.neral_v41_owner_smoke import ALIAS_PROMPT, ALIASES
+
+        self.assertEqual(ALIASES, ["luna", "terra", "helios"])
+        self.assertIsNotNone(SIMPLE.fullmatch(ALIAS_PROMPT))
+        runtime, low, high, _ = make_runtime()
+        runtime.evidence_agent = object()
+        app = Flask("v41-owner-alias-probe")
+        register_three_tier_api(app, runtime, busy=threading.Lock())
+        client = app.test_client()
+        for alias, expected, model in (
+                ("luna", "Luna", "qwen3.5:4b"),
+                ("terra", "Terra", "qwen3.5:9b+neral-v2-full"),
+                ("helios", "Helios", "qwen3.5:9b+neral-v2-full")):
+            response = client.post("/api/neral/chat/three-tier",
+                                   json={"tier": alias, "prompt": ALIAS_PROMPT,
+                                         "history": []})
+            self.assertEqual(response.status_code, 200, alias)
+            self.assertEqual(response.json["tier"], expected, alias)
+            self.assertEqual(response.json["model"], model, alias)
+
     def test_legacy_aliases_keep_original_behavior(self):
         runtime, low, high, _ = make_runtime()
         turns = [{"role": "system", "content": "test"},
