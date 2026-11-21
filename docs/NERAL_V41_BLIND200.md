@@ -35,3 +35,50 @@ Owner-Staging ist nur über den ausdrücklich freigegebenen, branchgebundenen
 Workflow `neral-v41-owner.yml` zulässig. Vor einem Merge müssen
 die echte 7-Kategorien-/3-Alias-HTTP-Abnahme sowie der HTTP-200-Nachtest
 auf Port 9690 bestätigt sein. Bei Fehlern gilt der vollständige Rollback.
+
+## Implementierter manueller Blindtest (21.11.2026)
+
+Pipeline: `.github/workflows/neral-v41-blind200-manual.yml`. Ausschließlich
+`workflow_dispatch` auf `main` mit
+`approval=NERAL-V41-BLIND200-APPROVED` und `mode=full` führt die echte
+200×3-Abnahme auf `W39-GAMINGPC-Neral` aus. Ein separater CPU-Preflight
+muss bestehen. Anschließend wird die gepinnte App mit Backup/Rollback auf
+den isolierten Benchmark-API-Pfad gebracht; der Owner-Smoke prüft sieben
+Chatkategorien und die drei Legacy-Aliase.
+
+Der Generator `scripts/neral_v41_blind200_build.py` erzeugt den versiegelten,
+mit SHA-256 attestierten privaten JSONL auf dem **lokalen Windows-Rechner**.
+Das Archiv wird mit historischen v39_benchmark/live_verified-Fragen verglichen;
+fehlen überprüfbare Archiv-Provenienzen, scheitert die Versiegelung. Die
+20 aktuellen Meldungs- und 15 Repo-Zahlenreferenzen stammen vor dem ersten
+Modellaufruf aus eigenständig gelesenen RSS/API-Antworten. Fehlende
+aktuelle Quellendaten führen zum Abbruch, nicht zu ausgedachten Goldwerten.
+Historische Dubletten werden normalisiert ausgeschlossen; eine vollständige
+semantische Garantie für „noch nie thematisch gesehen“ kann diese Prüfung
+nicht leisten.
+
+Der Runner `scripts/neral_v41_blind200_live.py` verwendet für jeden Fall eine
+frische HTTP-/CSRF-Sitzung. Multi-Turn-Vorläufe spielen tatsächlich generierte
+Assistenznachrichten in die Folgefrage zurück. `benchmark_isolated=true`
+muss vom Server bestätigt sein; damit entfallen historische Antwortwiederholung,
+Speicher-Hints und die automatische Sammlung verifizierter Trainingsbeispiele.
+Bei fehlender Bestätigung wird **vor** dem Lesen der privaten Prompts abgebrochen.
+
+Zahlen und Logik werden exakt mit unabhängigen Referenzen bewertet, Code in
+dem bestehenden, netzlosen und schreibgeschützten Docker-Image
+`python:3.11-alpine` ausgeführt, Webtitel/Zahlen gegen vorab unabhängige
+Live-Snapshots **und** tatsächlich gelesene passende Seiten geprüft.
+Die Auswertung enthält Treffer, Fehler, unbewertete Fälle, mittlere sowie
+maximale Latenz je Stufe/Kategorie. Für freie Erklärung und Schreiben wird
+bewusst keine vorgetäuschte automatische Qualitätsnote vergeben; diese
+Antworten sind für eine externe verblindete Prüfung zu übernehmen.
+
+Der komplette Datensatz, Referenzwerte und Modellantworten bleiben unter
+`%LOCALAPPDATA%/NERAL-private/v41-blind200/<run_id>`; GitHub-Artefakte
+enthalten ausschließlich Manifest, SHA-256 und aggregierte Kennzahlen.
+Ein regulärer Deployment- oder Merge-Push startet **keinen** privaten
+600-Antworten-Benchmark automatisch.
+
+**Status:** Pipeline implementiert. Ein erfolgreiches Ende-zu-Ende-Ergebnis
+wird erst durch einen abgeschlossenen manuellen Workflow mit
+`NERAL_BLIND200_COMPLETE` und erneutem HTTP 200 auf Port 9690 belegt.
