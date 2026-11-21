@@ -19,7 +19,7 @@ permissions:
   contents: read
 jobs:
   independent-preflight:
-    if: ${{ github.ref == 'refs/heads/main' && (inputs.approval == 'NERAL-V41-BLIND200-APPROVED' || (github.event_name == 'push' && github.event.head_commit.message == 'Owner approved one-time Blind200 launch (#583)')) }}
+    if: ${{ github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.approval == 'NERAL-V41-BLIND200-APPROVED') || (github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.1 owner-approved Blind200 final launch 20261121')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
@@ -37,6 +37,9 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v41_blind200_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v41_provenance_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+      - name: Verify owner approval matrix without deployment
+        shell: pwsh
+        run: ./tests/test_neral_v41_owner_approval.ps1
   owner-blind200:
     needs: independent-preflight
     runs-on: [self-hosted, Windows, X64, neral-gpu]
@@ -54,11 +57,14 @@ jobs:
       - name: Owner-staged no-training runtime, pinned service and rollback
         timeout-minutes: 27
         env:
-          NERAL_V41_BLIND200_APPROVED: ${{ github.event_name == 'push' && 'NERAL-V41-BLIND200-APPROVED' || inputs.approval }}
+          NERAL_V41_BLIND200_APPROVED: ${{ github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.1 owner-approved Blind200 final launch 20261121' && 'NERAL-V41-BLIND200-APPROVED' || inputs.approval }}
+          NERAL_V41_BLIND200_MERGE_TITLE: ${{ github.event.head_commit.message }}
+          NERAL_V41_BLIND200_PREFLIGHT: ${{ needs.independent-preflight.result }}
         run: |
           $ErrorActionPreference='Stop'
-          if($env:GITHUB_REF -ne 'refs/heads/main' -or
-             $env:NERAL_V41_BLIND200_APPROVED -ne 'NERAL-V41-BLIND200-APPROVED'){
+          if($env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:NERAL_V41_BLIND200_APPROVED -cne 'NERAL-V41-BLIND200-APPROVED' -or
+             $env:NERAL_V41_BLIND200_PREFLIGHT -cne 'success'){
             throw 'Manual main-only owner approval missing'
           }
           & .\scripts\neral_v41_owner.ps1
