@@ -32,6 +32,7 @@ jobs:
           python -m py_compile neral_three_tier_runtime.py scripts/neral_v41_blind200.py scripts/neral_v41_blind200_build.py scripts/neral_v41_blind200_live.py
           python -m unittest discover -s tests -p test_neral_v41_blind_live_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v41_blind200_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_provenance_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
   owner-blind200:
     needs: independent-preflight
@@ -78,7 +79,8 @@ jobs:
             'D:/neral-private/v39',
             'D:/neral-private/v310',
             'D:/neral-qlora/data',
-            'D:/neral-qlora-v2/data'
+            'D:/neral-qlora-v2/data',
+            'D:/neral-qlora-v310-smoke/v310-private-holdout100.jsonl'
           ) | Where-Object { Test-Path -LiteralPath $_ }
           if(@($archives).Count -lt 1){throw 'No trusted local historical V3.9/V3.10 data archives found'}
           $args=@('-m','scripts.neral_v41_blind200_build','--sealed',$sealed,'--manifest-out',$manifest)
