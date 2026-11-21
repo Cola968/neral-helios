@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from hashlib import sha256
+from unittest.mock import patch
 from pathlib import Path
 
 from test_neral_three_tier_api import make_runtime
@@ -23,6 +24,34 @@ class V41TierTests(unittest.TestCase):
         self.assertEqual(amber.calls[0]["max_tokens"], 768)
         self.assertEqual([c["max_tokens"] for c in nine_b.calls], [256, 768])
         self.assertFalse(a["verified"])
+
+
+    def test_v4_source_only_web_does_not_impersonate_9b_model(self):
+        runtime, low, high, _ = make_runtime()
+        result = {
+            "text": "Astra: Aurora\nBoreal: Borealis",
+            "tool_used": "direct_reasoning",
+            "tool_verified": True, "agent_checked": True,
+            "verified": False, "safe_to_promote": False, "error_code": None,
+            "verification_scope": "per_entity_url_and_literal_property_quote",
+            "verification_status": "read_page_literal_property_extracted",
+            "proof_backend": None, "web_v4_fast_path": True,
+            "agent_steps": ["web_search", "page_reader"],
+            "sources": [
+                {"url": "https://example.org/a", "page_read": True},
+                {"url": "https://example.org/b", "page_read": True},
+            ],
+        }
+        turns = [{"role":"system","content":"safe"},
+                 {"role":"user","content":"Astra vs Boreal: Vergleiche die Browser-Engine."}]
+        with patch("neral_evidence_agent.run_evidence_agent", return_value=result):
+            answer = runtime.answer_with_evidence(
+                turns, "Amber", web_query="Astra Boreal engines", search=object())
+        self.assertEqual(answer["tier"], "Amber")
+        self.assertFalse(answer["model_generated"])
+        self.assertFalse(answer["adapter_loaded"])
+        self.assertEqual(answer["model_origin"], "local_source_unverified_tools_only")
+        self.assertFalse(high.calls)
 
     def test_legacy_aliases_keep_original_behavior(self):
         runtime, low, high, _ = make_runtime()
