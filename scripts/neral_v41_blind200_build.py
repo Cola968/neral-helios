@@ -252,20 +252,21 @@ def build_suite(out: Path, *, archives: list[Path], web_facts: list[dict]) -> di
             old=rng.randrange(20,250)
             hist=[{"role":"user","content":f"Bei Molliair gab es {old} Flüge. Gib eine vorsichtige Einordnung."},
                   {"role":"assistant","content":"Das ist eine ältere Gesprächsnotiz, keine geprüfte Zahl."}]
-            prompt=f"Neues Thema: Wie viel ist {left} plus {right}? Antworte ausschließlich mit der Ergebniszahl."
+            prompt=f"Neues Thema (Fall {secrets.token_hex(4).upper()}): Wie viel ist {left} plus {right}? Antworte ausschließlich mit der Ergebniszahl."
             ref={"kind":"integer","value":str(left+right),"topic_switch":True,
                  "forbidden_terms":["Molliair"]}
         elif i<30:
             code=secrets.token_hex(4).upper()
-            hist=[{"role":"user","content":f"Meine selbst erfundene Kennung lautet K-{code}. Bitte merke sie nur für diesen Dialog."},
+            label=secrets.token_hex(4).upper()
+            hist=[{"role":"user","content":f"Für Auftrag B-{label} lautet meine selbst erfundene Kennung K-{code}. Bitte merke sie nur für diesen Dialog."},
                   {"role":"assistant","content":"Verstanden; die Kennung gilt nur in diesem Gespräch."}]
-            prompt="Und wie lautet die Kennung, die ich eben genannt habe? Antworte nur mit der Kennung."
+            prompt=f"Und wie lautet die Kennung für Auftrag B-{label}? Antworte nur mit der Kennung."
             ref={"kind":"string","value":"K-"+code,"context_required":True}
         else:
             a=rng.randrange(7,100);b=rng.randrange(7,100);c=rng.randrange(1,70)
             hist=[{"role":"user","content":f"Ein Zug lädt {a} Pakete und später weitere {b}. Was ist die Gesamtsumme?"},
                   {"role":"assistant","content":f"Das wären {a+b} Pakete."}]
-            prompt=f"Und wenn danach noch {c} Pakete hinzukommen, wie viele sind es insgesamt? Gib nur die Zahl an."
+            prompt=f"Und wenn danach noch {c} Pakete beim Fall {secrets.token_hex(4).upper()} hinzukommen, wie viele sind es insgesamt? Gib nur die Zahl an."
             ref={"kind":"integer","value":str(a+b+c),"context_required":True}
         cases.append(_case("multiturn",i,prompt,history=hist,grader="independent_exact",reference=ref))
     for i,web in enumerate(web_facts):
