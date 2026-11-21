@@ -1,0 +1,75 @@
+name: NERAL V3.10 candidate metadata audit (read only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/neral-v310-candidate-audit.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 20
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Inspect exactly 100-line candidates without exposing prompts
+        run: |
+          $ErrorActionPreference='Stop'
+          $roots=@((Join-Path $env:LOCALAPPDATA 'NERAL'),'C:\actions-runner\_work')
+          $expected=@('math','mathematics','mathematik','logic','logik','coding','programming','programmierung','general','general_knowledge','allgemeinwissen','web','web_search','websuche')
+          $found=0
+          foreach($root in $roots){
+            if(-not (Test-Path -LiteralPath $root -PathType Container)){continue}
+            foreach($file in @(Get-ChildItem -LiteralPath $root -Filter '*.jsonl' -File -Recurse -ErrorAction SilentlyContinue)){
+              if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $file.Length -gt 67108864){continue}
+              $lines=[System.IO.File]::ReadAllLines($file.FullName)
+              if($lines.Count -ne 100){continue}
+              $found++
+              $raw=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              $bytes=[System.IO.File]::ReadAllBytes($file.FullName)
+              $str=[System.Text.Encoding]::UTF8.GetString($bytes)
+              $lf=$str.Replace("`r`n","`n").Replace("`r","`n")
+              $sha=[System.Security.Cryptography.SHA256]::Create()
+              try{$normalized=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($lf)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+              $keys=[Collections.Generic.HashSet[string]]::new()
+              $metakeys=[Collections.Generic.HashSet[string]]::new()
+              $cats=@{}
+              $invalid=0
+              foreach($line in $lines){
+                try{
+                  $obj=ConvertFrom-Json -InputObject $line -ErrorAction Stop
+                  foreach($p in $obj.PSObject.Properties){[void]$keys.Add($p.Name)}
+                  if($null -ne $obj.meta){foreach($p in $obj.meta.PSObject.Properties){[void]$metakeys.Add($p.Name)}}
+                  $category=$null
+                  foreach($field in @('category','domain','type')){
+                    if($null -ne $obj.PSObject.Properties[$field]){$category=$obj.$field;break}
+                    if($null -ne $obj.meta -and $null -ne $obj.meta.PSObject.Properties[$field]){$category=$obj.meta.$field;break}
+                  }
+                  $safe=([string]$category).ToLowerInvariant()
+                  if($expected -contains $safe){$cats[$safe]=1+[int]$cats[$safe]}else{$cats['other_or_missing']=1+[int]$cats['other_or_missing']}
+                }catch{$invalid++}
+              }
+              $record=[ordered]@{path=$file.FullName;lines=$lines.Count;sha256=$raw;lf_sha256=$normalized;top_keys=@($keys|Sort-Object);meta_keys=@($metakeys|Sort-Object);category_counts=$cats;invalid_json_lines=$invalid}
+              Write-Host ('CANDIDATE '+($record|ConvertTo-Json -Compress -Depth 5))
+            }
+          }
+          Write-Host ("AUDIT_CANDIDATES count="+$found)
+          if($found -eq 0){throw 'No 100-line candidates'}
+      - name: Locate named holdout files in user profile excluding AppData
+        run: |
+          $root='C:\Users\astad'
+          if(-not (Test-Path -LiteralPath $root -PathType Container)){Write-Host 'PROFILE_ROOT_MISSING';exit 0}
+          $files=Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+            $_.FullName -notmatch '[\\/]AppData[\\/]' -and $_.Name -match '(holdout|v310)' -and $_.Extension -in @('.jsonl','.json')
+          }
+          foreach($file in $files){
+            if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $file.Length -gt 67108864){continue}
+            $hash=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('PROFILE_CANDIDATE path='+$file.FullName+' bytes='+$file.Length+' sha256='+$hash)
+          }
