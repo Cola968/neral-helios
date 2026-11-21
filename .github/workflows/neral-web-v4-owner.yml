@@ -1,0 +1,77 @@
+name: NERAL Web V4 source-only parallel reader and 20 live-web owner acceptance
+on:
+  push:
+    branches: [codex/neral-web-v4-20261121]
+    paths:
+      - 'neral_page_reader.py'
+      - 'neral_evidence_agent.py'
+      - 'neral_v32_verifier.py'
+      - 'neral_three_tier_runtime.py'
+      - 'scripts/neral_web_v4_owner.ps1'
+      - 'scripts/neral_web_v4_benchmark.py'
+      - 'tests/test_neral_web_v4_cpu.py'
+      - 'tests/test_neral_web_v4_source_relations_cpu.py'
+      - 'tests/test_neral_web_v4_benchmark_cpu.py'
+      - '.github/workflows/neral-web-v4-owner.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-first:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regression tests for source security, platform and fast-path provenance (NO GPU)
+        run: |
+          python -m unittest discover -s tests -p test_neral_web_v4_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_web_v4_source_relations_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_web_v4_benchmark_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
+          python -m unittest discover -s tests -p test_neral_v34_web_verification.py -v
+          python -m unittest discover -s tests -p test_neral_v35_simple_web.py -v
+          python -m unittest discover -s tests -p test_neral_v37_web_repair.py -v
+          python -m unittest discover -s tests -p test_neral_v38_web_fact_precision.py -v
+          python -m unittest discover -s tests -p test_neral_v39_recovery.py -v
+          python -m unittest discover -s tests -p test_neral_verified_notes_cpu.py -v
+          python -m py_compile neral_page_reader.py neral_evidence_agent.py neral_v32_verifier.py neral_three_tier_runtime.py scripts/neral_web_v4_benchmark.py
+      - name: Parse exact owner service script only (Windows hosted, no mutation)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $t=$null;$e=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+             (Join-Path $PWD 'scripts/neral_web_v4_owner.ps1'),[ref]$t,[ref]$e)
+          if(@($e).Count -ne 0){throw 'NERAL V4 owner deployment script syntax invalid'}
+          Write-Host 'NERAL_WEB_V4_OWNER_POWERSHELL_PARSE_OK'
+  owner-20-live-web:
+    needs: [cpu-first]
+    if: >-
+      github.ref == 'refs/heads/codex/neral-web-v4-20261121' &&
+      startsWith(github.event.head_commit.message, 'web-v4-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 28
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage four source-only V4 modules, measure 20 live web HTTP calls, keep if 19/20 and mean <6 seconds, otherwise restore V3.10
+        timeout-minutes: 27
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_web_v4_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'NERAL V4 was not accepted or rollback failed'}

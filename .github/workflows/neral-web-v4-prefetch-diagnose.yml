@@ -1,0 +1,33 @@
+name: NERAL Web V4 pinned primary-page proof diagnostic (no service changes)
+on:
+  push:
+    branches: [codex/neral-web-v4-20261121]
+    paths:
+      - 'scripts/neral_web_v4_prefetch_diagnose.py'
+      - '.github/workflows/neral-web-v4-prefetch-diagnose.yml'
+permissions:
+  contents: read
+jobs:
+  diagnose-owner-sources:
+    if: >-
+      startsWith(github.event.head_commit.message, 'web-v4-prefetch-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public pinned HTTPS URL proof only; no model calls and no live service mutation
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_web_v4_prefetch_diagnose
+          if($LASTEXITCODE -ne 0){throw 'Source proof probe failed'}
+          $http=@(& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          Write-Host ('NERAL_V4_PREFETCH_SERVICE_HTTP '+($http -join '').Trim())

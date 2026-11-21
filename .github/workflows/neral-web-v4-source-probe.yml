@@ -1,0 +1,33 @@
+name: NERAL V4 pinned owner source reachability diagnosis (READ ONLY)
+on:
+  push:
+    branches: [codex/neral-web-v4-20261121]
+    paths:
+      - 'scripts/neral_web_v4_source_probe.py'
+      - '.github/workflows/neral-web-v4-source-probe.yml'
+permissions:
+  contents: read
+jobs:
+  owner-source-probe:
+    if: >-
+      startsWith(github.event.head_commit.message, 'web-v4-probe-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bounded public HTTPS source-only probe; no modifications to live NERAL
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_web_v4_source_probe
+          if($LASTEXITCODE -ne 0){throw 'Source probe failed'}
+          $http=@(& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          Write-Host ('NERAL_V4_PROBE_LIVE_SERVICE_HTTP '+($http -join '').Trim())
