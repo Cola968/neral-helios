@@ -1,6 +1,7 @@
 """V4.1 migration contracts. CPU-only, no GPU, network, or user files."""
 import tempfile
 import unittest
+from hashlib import sha256
 from pathlib import Path
 
 from tests.test_neral_three_tier_api import make_runtime
@@ -83,7 +84,8 @@ class V41TierTests(unittest.TestCase):
             proof={"agent_checked": True, "tool_verified": True, "verified": True,
                    "error_code": None, "text": "42",
                    "proof_backend": "trusted_source_arithmetic",
-                   "tool_used": "python_sandbox"}
+                   "tool_used": "python_sandbox",
+                   "verified_question_sha256": sha256(b"Berechne 6*7").hexdigest()}
             self.assertFalse(store.learn("Wie ist der aktuelle Aktienkurs?",proof))
             self.assertFalse(store.learn("Berechne 6*7", {**proof,"verified":False}))
             self.assertTrue(store.learn("Berechne 6*7",proof))
@@ -93,6 +95,7 @@ class V41TierTests(unittest.TestCase):
             self.assertFalse(store.accept_correction("Berechne 6*7","42",{
                 **proof,"verified":False}))
             self.assertTrue(store.accept_correction("Berechne 6*7","42",proof))
+            self.assertFalse(store.accept_correction("Berechne 7*7","42",proof))
 
 
 if __name__ == "__main__":
