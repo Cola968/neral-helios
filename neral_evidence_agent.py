@@ -3,6 +3,7 @@
 import ast
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, wait
 from decimal import Decimal, InvalidOperation
 
 from neral_page_reader import (read_top_pages, read_entity_pages,
@@ -390,12 +391,18 @@ def _comparison_entities(question):
                      fragment, flags=re.I)
     names = []
     for part in parts:
-        words = re.findall(r"[\w.+-]+", part.strip())
+        # The leading imperative is not part of the product name, but
+        # compounds such as Tor Browser and Microsoft Edge must be preserved.
+        clean = re.sub(r"(?i)^(?:vergleiche|compare|vergleich|gegenüberstellung)\s+",
+                       "", part.strip())
+        words = re.findall(r"[\w.+-]+", clean)
         if not words or len(words) > 6:
             return ()
-        name = (words[-1] if len(words) > 1 and
-                len(words[-1]) >= 3 and
-                any(char.isalpha() for char in words[-1]) else " ".join(words))
+        name = " ".join(words)
+        # Preserve established pre-V4 legacy semantics for vendor-prefixed
+        # Firefox/Chrome references while retaining Tor Browser as a product.
+        if name.casefold() in {"mozilla firefox", "google chrome"}:
+            name = name.split()[-1]
         if not 1 <= len(name) <= 60:
             return ()
         names.append(name)
@@ -694,6 +701,100 @@ def simple_web_answer(entities, sources, packet, *, topic=""):
     }
 
 
+# Shared bounded workers; no waiting for a hung remote domain after the
+# aggregate fast-response deadline. The hardened TLS page reader still owns
+# redirect checks, public-IP DNS pinning and quote provenance.
+_V4_WEB_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="neral-web-v4")
+
+
+def _v4_platform(question: str) -> str:
+    if re.search(r"\b(?:ios|ipados|iphone|ipad)\b",question,re.I):
+        return "ios"
+    if re.search(r"\bandroid\b",question,re.I):
+        return "android"
+    return "desktop"
+
+
+def _fast_web_comparison(question, names, topic, search, page_reader):
+    """Source-first V4: concurrent entity retrieval, no slow optional LLM.
+
+    Never construct the expected engine from cached model knowledge, search
+    snippets or a benchmark answer. Both subject facts must occur literally
+    on newly fetched public HTTPS pages. Unknown proof fails closed.
+    """
+    from neral_page_reader import read_entity_pages
+    from neral_v32_verifier import (_property_type, _property_evidence,
+                                    property_grounded_web_answer)
+    from urllib.parse import quote as quote_path
+    prop=_property_type(topic) or _property_type(question)
+    if prop is None or len(names)!=2:
+        return _simple_web_failure("unsupported_web_property",[])
+    platform=_v4_platform(question)
+    if prop == "engine" and platform == "ios" and any(
+            name.casefold() == "tor browser" for name in names):
+        # Tor Project does not ship an iOS Tor Browser; never say it uses WebKit.
+        return _simple_web_failure("source_property_not_verifiable",[])
+    terms={"engine":"browser rendering engine", "creator":"language created by", 
+           "kernel":"operating system kernel"}[prop]
+    def fetch_subject(name):
+        queries=(f"{name} {terms} {platform}",
+                 f"{name} {terms} reference")
+        for query in queries:
+            try:
+                found=search.search(query[:150])
+                hits=found.get("results",[]) if isinstance(found,dict) else []
+                if not isinstance(hits,list):
+                    continue
+                # Three actual HTTPS pages are fetched in parallel by reader.
+                eligible=read_entity_pages(hits[:3],query,name,
+                    reader=page_reader,max_pages=1,
+                    predicate=lambda page:_property_evidence(
+                        page.get("page_text",""),name,prop,platform=platform) is not None)
+                if eligible:
+                    return {**eligible[0],"entity_focus":name}
+            except (WebSearchError,ValueError,TypeError,RuntimeError,OSError,KeyError):
+                continue
+        # The reference URL is only a fetch candidate, NOT a factual oracle.
+        if re.fullmatch(r"[\w .+\-]{1,60}",name):
+            url="https://en.wikipedia.org/wiki/"+quote_path(name.replace(" ","_"),safe="_()")
+            try:
+                pages=read_entity_pages([{"url":url}],name+" "+terms,name,
+                    reader=page_reader,max_pages=1,
+                    predicate=lambda page:_property_evidence(
+                        page.get("page_text",""),name,prop,platform=platform) is not None)
+                if pages:
+                    return {**pages[0],"entity_focus":name}
+            except (WebSearchError,ValueError,TypeError,RuntimeError,OSError,KeyError):
+                pass
+        return None
+    tasks=[_V4_WEB_POOL.submit(fetch_subject,name) for name in names]
+    done,pending=wait(tasks,timeout=5.5)
+    for future in pending:
+        future.cancel()
+    if pending:
+        return _simple_web_failure("source_property_not_verifiable",[])
+    sources=[]
+    for task in tasks:
+        try:
+            page=task.result()
+        except (WebSearchError,ValueError,TypeError,RuntimeError,OSError,KeyError):
+            page=None
+        if page is None:
+            return _simple_web_failure("source_property_not_verifiable",sources)
+        sources.append(page)
+    # Re-verify source text and each subject-property relationship independently.
+    result=property_grounded_web_answer(tuple(names),sources,topic,platform=platform)
+    if result is None:
+        return _simple_web_failure("source_property_not_verifiable",sources)
+    if prop == "engine" and platform == "desktop":
+        result["text"] += ("\nHinweis: Diese Angaben beziehen sich auf Desktop-Versionen; "
+                           "auf iOS kann die verwendete Engine abweichen.")
+    result["agent_steps"].append("v4_parallel_entity_read")
+    result["agent_attempts"]=0
+    result["web_v4_fast_path"]=True
+    return result
+
+
 def _one_shot_web_comparison(question, names, topic, respond, search, page_reader):
     """Search for each requested *property*, not merely an entity homepage.
 
@@ -837,7 +938,8 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
 
 
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
-                       page_reader=read_top_pages, history=(), force_sandbox=False):
+                       page_reader=read_top_pages, history=(), force_sandbox=False,
+                       fast_web=False):
     """Only the user-authorized search query can leave the machine."""
     # V3.2: deterministically execute exact user-provided Python source and
     # independently certified four-person counting constraints before any
@@ -860,6 +962,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         names=_comparison_entities(question)
         topic=_property_type(question)
         if 2<=len(names)<=4 and topic and not _FORMAL_INTENT.search(question):
+            if fast_web and len(names)==2:
+                return _fast_web_comparison(question,names,web_query,search,page_reader)
             return _one_shot_web_comparison(
                 question,names,web_query,respond,search,page_reader)
     sources = []

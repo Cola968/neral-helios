@@ -566,7 +566,7 @@ def verify_web_fact_proposal(proposal, page_text, entity, prop):
 
 
 
-def _property_evidence(text: str, entity: str, prop: str) -> tuple[str, str] | None:
+def _property_evidence(text: str, entity: str, prop: str, *, platform: str = "desktop") -> tuple[str, str] | None:
     """Extract a subject-property relation from the fetched page, not co-occurrence.
 
     A page containing the subject name and a different product's engine or
@@ -574,6 +574,8 @@ def _property_evidence(text: str, entity: str, prop: str) -> tuple[str, str] | N
     grammatical relations or a labelled engine infobox on the subject page.
     """
     from neral_page_reader import evidence_sentence_windows
+    if platform not in ("desktop", "ios", "android"):
+        return None
     if not isinstance(text, str) or not isinstance(entity, str) or not entity.strip():
         return None
 
@@ -588,8 +590,14 @@ def _property_evidence(text: str, entity: str, prop: str) -> tuple[str, str] | N
             r"(?im)^\s*\|\s*Engines?\s*\|\s*([A-Za-z][\w-]+)[^\n]*",
             text):
             token = match.group(1)
+            raw = match.group(0)
+            if platform == "ios":
+                scope = re.search(r"\b(?:WKWebKit|WebKit)\b[^\n]{0,40}\bios\b",raw,re.I)
+                if scope:
+                    return re.search(r"(?:WKWebKit|WebKit)",scope.group(0),re.I).group(0),raw.strip()[:600]
+                continue
             if token.casefold() not in {"the", "a", "unknown", "none", "javascript"}:
-                return token, match.group(0).strip()[:600]
+                return token, raw.strip()[:600]
 
     # Keep the literal fetched source spans intact for quoted citations.
     windows = [row["sentence"] for row in
@@ -621,6 +629,13 @@ def _property_evidence(text: str, entity: str, prop: str) -> tuple[str, str] | N
             continue
         if prop == "engine":
             if _HISTORICAL_ENGINE.search(span):
+                continue
+            # iOS-specific browser snippets must not override desktop Gecko/Blink.
+            ios_marked = re.search(r"\b(?:ios|ipados|iphone|ipad|wkwebkit)\b",span,re.I)
+            desktop_marked = re.search(r"\b(?:desktop|windows|macos|linux)\b",span,re.I)
+            if platform != "ios" and ios_marked and not desktop_marked:
+                continue
+            if platform == "ios" and not ios_marked:
                 continue
             patterns = (
                 subject + r".{0,130}?\b(?:uses|utilizes|runs on|nutzt|verwendet)\s+(?:the\s+|die\s+|der\s+|das\s+)?([A-Za-z][\w-]+)\s+(?:rendering|layout|browser)[ -]engine\b",
@@ -667,7 +682,7 @@ def _property_evidence(text: str, entity: str, prop: str) -> tuple[str, str] | N
     return None
 
 
-def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], topic: str, *, proposer=None) -> dict | None:
+def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], topic: str, *, proposer=None, platform="desktop") -> dict | None:
     """Build property-specific comparison text only from actually read pages.
 
     One literal HTTPS quote and URL for each entity, plus an independently
@@ -684,7 +699,7 @@ def property_grounded_web_answer(entities: tuple[str,...], sources: list[dict], 
                     or not page["url"].startswith("https://")):
                 continue
             page_text=page.get("page_text","")
-            parsed=_property_evidence(page_text,entity,prop)
+            parsed=_property_evidence(page_text,entity,prop,platform=platform)
             if parsed is None and callable(proposer):
                 from neral_page_reader import evidence_sentence_windows
                 windows=evidence_sentence_windows(page_text,entity,prop)

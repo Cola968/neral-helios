@@ -15,6 +15,7 @@ from neral_web_search import safe_result_url
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
 TIMEOUT = 4.0
+CONNECT_TIMEOUT = 2.5
 _executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="page-reader")
 _blocks = {"p", "div", "section", "li", "tr", "br", "h1", "h2", "h3", "dt", "dd"}
 _ignored = {"nav", "aside", "footer", "script", "style", "noscript", "svg", "template",
@@ -267,7 +268,7 @@ def fetch_and_extract(url, query=""):
             left = deadline - time.monotonic()
             if left <= 0:
                 return None
-            connection = _PinnedConnection(target.hostname, address, left)
+            connection = _PinnedConnection(target.hostname, address, min(CONNECT_TIMEOUT, left))
             path = (target.path or "/") + ("?" + target.query if target.query else "")
             connection.request("GET", path, headers={
                 "User-Agent": "Mozilla/5.0 (compatible; NERAL-PageReader/3.0)",

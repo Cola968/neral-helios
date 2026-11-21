@@ -1105,7 +1105,8 @@ class ThreeTierRuntime:
 
         result = run_evidence_agent(turns[-1]["content"], respond, self.execute_python,
                                     web_query=web_query, search=search, files=files,
-                                    history=turns[1:-1][-2:], force_sandbox=force_sandbox)
+                                    history=turns[1:-1][-2:], force_sandbox=force_sandbox,
+                                    fast_web=True)
         return {**result, "tier": "Helios", "mode": "HELIOS", "model": self.helios.model,
                 "model_generated": True, "adapter_loaded": self.helios.loaded,
                 "adapter_sha256": self.helios.adapter_sha256 if self.helios.loaded else None,
