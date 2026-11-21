@@ -111,9 +111,29 @@ function StartOwned {
 }
 
 # GPU and local-service preflight: never stop an unidentified process.
-if([string](Get-ScheduledTask -TaskName $taskName).State -ne 'Running' -or
-   -not(HttpReady) -or $null -eq (ReadOwnedListener)){
-  throw 'Pinned NERAL service not online/owned; do not stop any process'
+# The owner PC can be online while the approved scheduled task is Ready
+# (e.g. a previous safety test left the app stopped). Only that exact
+# pinned task is allowed to be started; no unknown port/process is touched.
+$state=[string](Get-ScheduledTask -TaskName $taskName -ErrorAction Stop).State
+$connections=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+Write-Host ('NERAL_V310_OWNER_SERVICE_TASK_STATE '+$state)
+Write-Host ('NERAL_V310_LOCAL_9690_LISTENER_COUNT '+$connections.Count)
+if($state -eq 'Ready'){
+  if($connections.Count -ne 0){throw 'Port 9690 already occupied while owner task stopped'}
+  StartOwned
+  Write-Host 'NERAL_V310_PINNED_TASK_SAFELY_STARTED_FROM_READY'
+}elseif($state -eq 'Running'){
+  $ready=$false
+  for($n=0;$n -lt 15;$n++){
+    if(HttpReady){$ready=$true;break}
+    Start-Sleep -Seconds 2
+  }
+  if(-not $ready){throw 'Owner service still not HTTP-ready; preserve running task'}
+}else{
+  throw 'Pinned owner task neither Ready nor Running'
+}
+if(-not(HttpReady) -or $null -eq (ReadOwnedListener)){
+  throw 'Pinned NERAL service cannot be proven as owned and healthy'
 }
 $gpuRows=@(& nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits)
 if($LASTEXITCODE -ne 0 -or $gpuRows.Count -ne 1 -or
