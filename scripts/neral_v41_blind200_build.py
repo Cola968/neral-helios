@@ -59,44 +59,79 @@ def norm(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.casefold(), flags=re.UNICODE))
 
 
-def _prior_rows(paths: list[Path]) -> tuple[set[str], set[str]]:
-    seen, provenance = set(), set()
-    if not paths:
-        raise ValueError("No historical local V3.9/V3.10 archive paths supplied")
-    files = []
+V39_SHA256 = "cb2a41605ad5df2f7b2715337aa41402ca6755784a69b8be429c92d09096a3e2"
+V310_SHA256 = "6b2e7d2412c950deb8fda3f8ad843a7adab2a3e0f428c580b5d4d909234f0e04"
+V310_CATEGORIES = {"mathematics", "logic", "programming", "knowledge", "web"}
+
+
+def _required_historical_files() -> tuple[Path, Path]:
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        raise ValueError("LOCALAPPDATA missing; cannot verify pinned V3.9 provenance")
+    v39 = (Path(local) / "NERAL" / "three-tier-pr558-909d1419c9ff"
+           / "NERAL-1.0-Local" / "data" / "verified_training_dataset.jsonl")
+    v310 = Path("D:/neral-qlora-v310-smoke/v310-private-holdout100.jsonl")
+    return v39, v310
+
+
+def _prior_rows(paths: list[Path], *, required: tuple[Path, Path] | None = None) -> tuple[set[str], set[str]]:
+    """Refuse to seal without the two byte-identical historical datasets."""
+    v39, v310 = required if required is not None else _required_historical_files()
+    seen: set[str] = set()
+    for file, digest, count in ((v39, V39_SHA256, 97), (v310, V310_SHA256, 100)):
+        if file.is_symlink() or not file.is_file():
+            raise ValueError(f"Required historical archive missing or symlink: {file}")
+        if file.stat().st_size > 64 * 1024 * 1024:
+            raise ValueError(f"Historical archive too large: {file}")
+        if sha256(file.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"Historical archive SHA256 mismatch: {file}")
+        try:
+            rows = [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines()]
+        except (ValueError, UnicodeError, OSError) as exc:
+            raise ValueError(f"Cannot parse historical archive: {file}") from exc
+        if len(rows) != count or any(type(row) is not dict for row in rows):
+            raise ValueError(f"Historical archive row count/schema mismatch: {file}")
+        if file == v39:
+            if any(row.get("meta", {}).get("source") != "v39_benchmark"
+                   for row in rows):
+                raise ValueError("V3.9 source provenance mismatch")
+        else:
+            categories = Counter(row.get("category") for row in rows)
+            if categories != {name: 20 for name in V310_CATEGORIES}:
+                raise ValueError("V3.10 category provenance mismatch")
+        for row in rows:
+            for key in ("instruction", "question", "prompt"):
+                if type(row.get(key)) is str:
+                    seen.add(norm(row[key]))
+            nested = row.get("case")
+            if type(nested) is dict:
+                for key in ("question", "prompt"):
+                    if type(nested.get(key)) is str:
+                        seen.add(norm(nested[key]))
+    # Optional archives expand the exclusion set; they never replace pinned proof.
     for root in paths:
         if not root.exists() or root.is_symlink():
             continue
-        files.extend(sorted(root.rglob("*.jsonl")) if root.is_dir() else [root])
-    for file in files[:500]:
-        if file.is_symlink() or not file.is_file() or file.stat().st_size > 64*1024*1024:
-            continue
-        try:
-            with file.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if not line.strip():
-                        continue
-                    row=json.loads(line)
-                    if type(row) is not dict:
-                        continue
-                    meta=row.get("meta") if type(row.get("meta")) is dict else {}
-                    source=meta.get("source")
-                    if source in ("v39_benchmark", "live_verified"):
-                        provenance.add(source)
-                    for key in ("instruction","question","prompt"):
-                        value=row.get(key)
-                        if type(value) is str:
-                            seen.add(norm(value))
-                    nested=row.get("case")
-                    if type(nested) is dict:
-                        for key in ("question","prompt"):
-                            if type(nested.get(key)) is str:
-                                seen.add(norm(nested[key]))
-        except (OSError, UnicodeError, ValueError):
-            raise ValueError(f"Cannot audit archive {file.name}")
-    if not {"v39_benchmark", "live_verified"} <= provenance:
-        raise ValueError("V3.9/V3.10 provenance missing; refuse blind seal")
-    return seen, provenance
+        files = sorted(root.rglob("*.jsonl")) if root.is_dir() else [root]
+        for file in files[:500]:
+            if file in (v39, v310) or file.is_symlink() or not file.is_file():
+                continue
+            if file.stat().st_size > 64 * 1024 * 1024:
+                continue
+            try:
+                with file.open(encoding="utf-8") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        row = json.loads(line)
+                        if type(row) is not dict:
+                            continue
+                        for key in ("instruction", "question", "prompt"):
+                            if type(row.get(key)) is str:
+                                seen.add(norm(row[key]))
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise ValueError(f"Cannot audit archive {file.name}") from exc
+    return seen, {"v39_benchmark", "v310_private_holdout"}
 
 
 def _fetch_bytes(url: str, *, timeout: int = 16) -> bytes:
