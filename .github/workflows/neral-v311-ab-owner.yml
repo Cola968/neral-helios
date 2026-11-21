@@ -1,0 +1,62 @@
+name: NERAL V3.11 frozen 100-case base-versus-r16 LoRA A/B (NO MODEL PROMOTION)
+on:
+  push:
+    branches: [codex/neral-v311-holdout-ab-20261121]
+    paths:
+      - 'scripts/neral_v311_ab_holdout.py'
+      - 'scripts/neral_v311_ab_owner.ps1'
+      - 'tests/test_neral_v311_ab_cpu.py'
+      - '.github/workflows/neral-v311-ab-owner.yml'
+permissions:
+  contents: read
+jobs:
+  safe-static-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source-audited 100-case A/B scorer CPU regression tests
+        run: |
+          python -m unittest discover -s tests -p test_neral_v311_ab_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v311_train_cpu.py -v
+          python -m py_compile scripts/neral_v311_ab_holdout.py
+      - name: Owner PowerShell syntax only, no GPU or service calls
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $t=$null; $e=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v311_ab_owner.ps1'),[ref]$t,[ref]$e)
+          if(@($e).Count -gt 0){throw 'V3.11 owner A/B script syntax invalid'}
+  owner-ab:
+    needs: [safe-static-contracts]
+    if: >-
+      github.ref == 'refs/heads/codex/neral-v311-holdout-ab-20261121' &&
+      startsWith(github.event.head_commit.message, 'v311-ab-APPROVED:')
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 165
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compare exact base/adapter with identical frozen source context and greedy decoding; restore port9690
+        timeout-minutes: 160
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v311_ab_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Frozen 100-task owner A/B or original service restoration failed'}
