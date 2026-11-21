@@ -26,7 +26,24 @@ from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
 
 LUNA = "qwen3.5:4b"
 HELIOS = "qwen3.5:9b+neral-v2-full"
-TIERS = {"Luna": 96, "Terra": 256, "Helios": 768}
+# Public tier names are canonical; historical API inputs remain supported.
+TIERS = {"Luna": 96, "Terra": 256, "Helios": 768,
+         "Amber": 768, "Quartz": 256, "Obsidian": 768}
+PUBLIC_TO_LEGACY = {"Amber": "Luna", "Quartz": "Terra", "Obsidian": "Helios"}
+LEGACY_TO_PUBLIC = {legacy: public for public, legacy in PUBLIC_TO_LEGACY.items()}
+PUBLIC_TIERS = ("Amber", "Quartz", "Obsidian")
+
+
+def _public_result(result: dict) -> dict:
+    """Translate public mode names without breaking legacy callers."""
+    output = dict(result)
+    for key in ("tier", "auto_promoted_from", "auto_escalated_from"):
+        if type(output.get(key)) is str:
+            output[key] = LEGACY_TO_PUBLIC.get(output[key], output[key])
+    if type(output.get("tier")) is str:
+        output["mode"] = output["tier"].upper()
+    return output
+
 
 
 def _offline():
@@ -178,8 +195,8 @@ class FrozenQwen35HF:
                 and self.model == HELIOS and max_new_tokens == 768
                 and temperature == 0.0):
             raise ValueError("Unapproved V2 code-generation time budget")
-        if self.model == LUNA and max_new_tokens != 96:
-            raise ValueError("Luna is explicitly bounded to 96 tokens")
+        if self.model == LUNA and max_new_tokens not in (96, 768):
+            raise ValueError("Amber supports 768 tokens; legacy Luna stays at 96")
         if self.model == HELIOS and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         self._load()
@@ -1094,7 +1111,13 @@ class ThreeTierRuntime:
 
     def answer_with_evidence(self, turns, tier, *, web_query=None, search=None, files=None,
                              force_sandbox=False):
+        if tier in PUBLIC_TO_LEGACY:
+            return _public_result(self.answer_with_evidence(
+                turns, PUBLIC_TO_LEGACY[tier], web_query=web_query, search=search,
+                files=files, force_sandbox=force_sandbox))
         from neral_evidence_agent import run_evidence_agent
+        from neral_v41_context import resolve_question
+        resolution = resolve_question(turns)
 
         def respond(instruction, payload, budget, schema):
             self._switch(self.helios)
@@ -1103,10 +1126,25 @@ class ThreeTierRuntime:
                  {"role": "user", "content": payload}], max_new_tokens=budget,
                 response_schema=schema)
 
-        result = run_evidence_agent(turns[-1]["content"], respond, self.execute_python,
+        result = run_evidence_agent(resolution.work_question, respond, self.execute_python,
                                     web_query=web_query, search=search, files=files,
                                     history=turns[1:-1][-2:], force_sandbox=force_sandbox,
                                     fast_web=True)
+        if resolution.is_followup:
+            # User-context reconstruction is never independent proof.
+            result = {**result, "verified": False, "safe_to_promote": False,
+                      "agent_checked": False, "tool_verified": False,
+                      "verification_scope": "context_assisted_not_independent",
+                      "context_resolved": True}
+        if result.get("web_v4_fast_path") is True:
+            # V4 source-only proof never loaded 9B. Do not falsely claim
+            # inference, adapter identity or an automatic tier escalation.
+            return {**result, "tier": tier, "mode": tier.upper(),
+                    "model": "local_source_only_no_model",
+                    "model_generated": False, "adapter_loaded": False,
+                    "adapter_sha256": None,
+                    "model_origin": "local_source_unverified_tools_only",
+                    "quality_improvement_proven": False}
         return {**result, "tier": "Helios", "mode": "HELIOS", "model": self.helios.model,
                 "model_generated": True, "adapter_loaded": self.helios.loaded,
                 "adapter_sha256": self.helios.adapter_sha256 if self.helios.loaded else None,
@@ -1617,7 +1655,12 @@ class ThreeTierRuntime:
 
     def answer(self, turns: list[dict], tier: str, *,
                force_sandbox: bool = False,
-               sandbox_files: dict[str, bytes] | None = None) -> dict:
+               sandbox_files: dict[str, bytes] | None = None,
+               _amber_public: bool = False) -> dict:
+        if tier in PUBLIC_TO_LEGACY:
+            return _public_result(self.answer(
+                turns, PUBLIC_TO_LEGACY[tier], force_sandbox=force_sandbox,
+                sandbox_files=sandbox_files, _amber_public=tier == "Amber"))
         if type(force_sandbox) is not bool:
             raise ValueError("force_sandbox must be a JSON boolean")
         if sandbox_files is not None and (type(sandbox_files) is not dict or
@@ -1628,10 +1671,16 @@ class ThreeTierRuntime:
         if (type(turns) is not list or len(turns) < 2 or
                 turns[-1].get("role") != "user"):
             raise ValueError("Invalid local chat turns")
+        from neral_v41_context import resolve_question
+        resolution = resolve_question(turns)
+        contextual = resolution.is_followup
         if self.evidence_agent and not sandbox_files:
             from neral_evidence_agent import SIMPLE
             if force_sandbox or not SIMPLE.fullmatch(turns[-1]["content"]):
                 return self.answer_with_evidence(turns, tier, force_sandbox=force_sandbox)
+        if contextual:
+            turns = [*turns[:-1], {"role": "user",
+                                  "content": resolution.work_question}]
         # Explicit user control bypasses source-only shortcuts. Never
         # fabricate an execution: even greetings must attempt Docker.
         if force_sandbox or sandbox_files:
@@ -1642,7 +1691,8 @@ class ThreeTierRuntime:
         # Luna stop is automatically upgraded to a real independent Python
         # or Z3 tool result; no model-generated reasoning is called a proof.
         from neral_everyday_verified import verify_everyday_source
-        everyday = verify_everyday_source(turns[-1]["content"], self.execute_python)
+        everyday = (None if contextual else
+                   verify_everyday_source(turns[-1]["content"], self.execute_python))
         if everyday is not None:
             preferred = everyday.pop("preferred_tier")
             proven = everyday.get("verified") is True
@@ -1659,7 +1709,7 @@ class ThreeTierRuntime:
             if proven and effective != tier:
                 result["auto_promoted_from"] = tier
             return result
-        if tier in ("Terra", "Helios"):
+        if tier in ("Terra", "Helios") and not contextual:
             checked = self._verified_source(turns)
             if checked is not None:
                 return {
@@ -1676,8 +1726,16 @@ class ThreeTierRuntime:
         chosen = self.luna if tier == "Luna" else self.helios
         self._switch(chosen)
         from neral_everyday_verified import tidy_unverified_model_text
+        from neral_verified_notes import VerifiedStrategyStore
+        hint = VerifiedStrategyStore().hint(turns[-1]["content"])
+        model_turns = turns
+        if hint:
+            # Historical strategy hint is not itself a fact or proof.
+            model_turns = [dict(turns[0], content=turns[0]["content"] +
+                "\nWerkzeugstrategie (kein Faktenbeleg): " + hint), *turns[1:]]
         response = tidy_unverified_model_text(
-            chosen.respond_chat(turns, max_new_tokens=TIERS[tier]))
+            chosen.respond_chat(model_turns, max_new_tokens=(
+                768 if _amber_public and tier == "Luna" else TIERS[tier])))
         if type(response) is not str or not response.strip():
             raise RuntimeError("Selected local HF model returned empty result")
         if chosen is self.helios and not chosen.loaded:
@@ -1734,7 +1792,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
 
     @app.get("/api/neral/chat/three-tier/status")
     def three_tier_status():
-        return jsonify(enabled=True, tiers=list(TIERS),
+        return jsonify(enabled=True, tiers=["Luna", "Terra", "Helios"],
+                       public_tiers=list(PUBLIC_TIERS),
+                       aliases=PUBLIC_TO_LEGACY,
+                       amber=runtime.luna.model, quartz=runtime.helios.model,
+                       obsidian=runtime.helios.model,
                        luna=runtime.luna.model, helios=runtime.helios.model,
                        adapter_loaded=runtime.helios.loaded,
                        adapter_sha256=(runtime.helios.adapter_sha256
@@ -1751,8 +1813,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
                 type(payload.get("force_sandbox", False)) is not bool or
-                payload.get("tier") not in TIERS):
-            return jsonify(error="Ungültiger Luna/Terra/Helios-Modus."), 400
+                payload.get("tier") not in TIERS and
+                payload.get("tier") not in ("luna", "terra", "helios")):
+            return jsonify(error="Ungültiger Amber/Quartz/Obsidian-Modus."), 400
+        requested_tier = payload["tier"].capitalize() if payload["tier"] in ("luna", "terra", "helios") else payload["tier"]
         try:
             web_stage = None
             web_query = payload.get("web_query")
@@ -1784,8 +1848,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             started = time.monotonic()
             # Zero-model exact recall of independently checked local examples.
             # Never treat past benchmark grades as a live verifier certificate.
+            # Exact historical answers cannot answer elliptical follow-ups.
+            from neral_v41_context import resolve_question
+            is_followup = resolve_question(turns).is_followup
             note = None
-            if (not web_query and not web_stage and
+            if (not is_followup and not web_query and not web_stage and
                     not payload.get("force_sandbox", False)):
                 from neral_verified_notes import exact_note_lookup
                 try:
@@ -1793,8 +1860,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     note = None
             if note is not None:
-                result = {"text": note["text"], "tier": payload["tier"],
-                          "mode": payload["tier"].upper(),
+                result = {"text": note["text"], "tier": requested_tier,
+                          "mode": requested_tier.upper(),
                           "verified": False, "safe_to_promote": False,
                           "agent_checked": False, "tool_verified": False,
                           "model_generated": False, "local_note_hit": True,
@@ -1807,21 +1874,23 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                           "proof_backend": None, "error_code": None}
             elif web_query:
                 result = runtime.answer_with_evidence(
-                    turns, payload["tier"], web_query=web_query, search=search_service,
+                    turns, requested_tier, web_query=web_query, search=search_service,
                     force_sandbox=payload.get("force_sandbox", False))
             else:
                 result = runtime.answer(
-                    turns, payload["tier"],
+                    turns, requested_tier,
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
             # V3.10: local-only training capture after an independent verifier.
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
             proof_ok = verifier_ok(result)
-            if proof_ok:
+            if proof_ok and not is_followup:
                 try:
                     append_verified_example(turns[-1]["content"], result)
-                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    from neral_verified_notes import VerifiedStrategyStore
+                    VerifiedStrategyStore().learn(turns[-1]["content"], result)
+                except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     pass
             return jsonify({**result, "verifier_ok": proof_ok,
                             "seconds": round(time.monotonic()-started, 4),

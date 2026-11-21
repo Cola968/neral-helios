@@ -71,17 +71,17 @@
     const label=document.createElement("label");
     const middle=document.createElement("input");
     middle.type="radio";middle.name="mode";middle.value="terra";
-    const text=document.createTextNode(" Terra");
+    const text=document.createTextNode(" Quartz");
     label.append(middle,text);group.append(label);
     radios.terra=middle;
     middle.addEventListener("change",refresh);
-    labels.fast="Luna";labels.terra="Terra";labels.think="Helios";
-    titles.fast="Schnell";titles.terra="Ausgewogen";titles.think="Mit Verifikation";
+    labels.fast="Amber";labels.terra="Quartz";labels.think="Obsidian";
+    titles.fast="Schnell und natürlich";titles.terra="Verifiziert";titles.think="Deep / Codex";
     slider.max="2";
-    sliderReset.setAttribute("aria-label","Modus auf Luna zurücksetzen");
+    sliderReset.setAttribute("aria-label","Modus auf Amber zurücksetzen");
     const ends=menu.querySelector(".mode-slider-ends");
     if(ends && typeof ends.replaceChildren==="function"){
-      const nodes=["Luna","Terra","Helios"].map(name=>{
+      const nodes=["Amber","Quartz","Obsidian"].map(name=>{
         const node=document.createElement("span");node.textContent=name;return node;
       });
       ends.replaceChildren(...nodes);

@@ -166,6 +166,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
                                                    three_tier_runtime.evidence_agent),
                        three_tier_enabled=three_tier_runtime is not None,
                        three_tier_levels=(['Luna','Terra','Helios']
+                                          if three_tier_runtime is not None else []),
+                       three_tier_public_levels=(['Amber','Quartz','Obsidian']
                                           if three_tier_runtime is not None else []))
 
     from neral_local_chat_api import register_neral_local_chat_api
@@ -276,7 +278,7 @@ def main(argv=None):
     parser.add_argument("--experimental-high-qwen35",action="store_true",
                         help="Opt-in HIGH with installed Qwen3.5:9b; defaults off.")
     parser.add_argument("--experimental-three-tier-hf",action="store_true",
-                        help="Explicit local 4B Luna + frozen Helios-v2-full HF; default off.")
+                        help="Explicit local 4B Amber + 9B Obsidian adapter HF; default off.")
     parser.add_argument("--evidence-agent", action="store_true",
                         help="Enable the NERAL V3.0 evidence agent on the local HF runtime.")
     parser.add_argument("--port", type=int, choices=(PORT, 9691), default=PORT,
