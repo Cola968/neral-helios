@@ -5,9 +5,13 @@ Set-StrictMode -Version Latest
 # no-capture API implementation from main, preserving the pinned service and
 # the original rollback guarantees.
 $approvedFeature = $env:GITHUB_REF -eq 'refs/heads/codex/neral-v41-context-memory-tiers-20261121'
-$approvedBlind200 = $env:GITHUB_REF -eq 'refs/heads/main' -and
-  $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -and
-  $env:NERAL_V41_BLIND200_APPROVED -eq 'NERAL-V41-BLIND200-APPROVED'
+$approvedMerge = $env:GITHUB_EVENT_NAME -ceq 'push' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V41_BLIND200_MERGE_TITLE -ceq 'NERAL V4.1 owner-approved Blind200 final launch 20261121'
+$approvedBlind200 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:NERAL_V41_BLIND200_APPROVED -ceq 'NERAL-V41-BLIND200-APPROVED' -and
+  $env:NERAL_V41_BLIND200_PREFLIGHT -ceq 'success' -and
+  ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -or $approvedMerge)
 if(-not ($approvedFeature -or $approvedBlind200)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
