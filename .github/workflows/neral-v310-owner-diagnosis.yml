@@ -1,0 +1,56 @@
+name: NERAL V3.10 owner read-only smoke diagnosis (NO GPU)
+on:
+  push:
+    branches: [codex/neral-v310-verified-data-cpu-only-20261120]
+    paths:
+      - '.github/workflows/neral-v310-owner-diagnosis.yml'
+permissions:
+  contents: read
+jobs:
+  inspect-local-smoke:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read previous one-step result and safe traceback type only
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder='D:/neral-qlora-v310-smoke/44889263214-1'
+          if(-not(Test-Path -LiteralPath $folder)){throw 'Smoke folder missing'}
+          $manifest=Join-Path $folder 'one-step-adapter/manifest.json'
+          $peak=Join-Path $folder 'peak-nvidia-mib.txt'
+          Write-Host ('NERAL_V310_MANIFEST_EXISTS '+(Test-Path -LiteralPath $manifest))
+          if(Test-Path -LiteralPath $manifest){
+            $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            Write-Host ('NERAL_V310_LOCAL_MANIFEST_STEP '+$m.completed_optimizer_steps)
+            Write-Host ('NERAL_V310_LOCAL_MANIFEST_GRAD '+$m.measured_gradient_norm)
+            Write-Host ('NERAL_V310_LOCAL_MANIFEST_PYTORCH_PEAK_GIB '+$m.measured_peak_reserved_gib)
+            Write-Host ('NERAL_V310_LOCAL_MANIFEST_ADAPTER_CHANGED '+$m.adapter_weights_changed)
+          }
+          if(Test-Path -LiteralPath $peak){
+            $v=(Get-Content -LiteralPath $peak -Raw).Trim()
+            if($v -match '^[0-9]{1,5}$'){Write-Host ('NERAL_V310_OWNER_NVIDIA_PEAK_MIB '+$v)}
+          }
+          foreach($logName in @('trainer-stderr.txt','trainer-stdout.txt')){
+            $source=Join-Path $folder $logName
+            if(Test-Path -LiteralPath $source){
+              $tail=@(Get-Content -LiteralPath $source -Tail 10 -ErrorAction Stop)
+              Write-Host ('NERAL_V310_DIAG '+$logName+' LAST_LINES '+$tail.Count)
+              foreach($line in $tail){
+                $safe=($line -replace '(?i)[a-z]:[\\/][^\s"'']+','<LOCAL_PATH>')
+                $safe=($safe -replace '(?i)(?:sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9]{16,}|eyJ[a-z0-9_-]{12,}\.[a-z0-9_-]{12,}\.[a-z0-9_-]{12,})','<REDACTED>')
+                $safe=$safe -replace '(?i)\\\\[^\s]+','<UNC_PATH>'
+                if($safe.Length -gt 220){$safe=$safe.Substring(0,220)}
+                Write-Host ('NERAL_V310_SAFE_DIAG '+$safe)
+              }
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+          Write-Host ('NERAL_V310_TASK_STATE '+$task.State)
+          $http=@(& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          Write-Host ('NERAL_V310_SERVICE_HTTP '+($http -join '').Trim())
