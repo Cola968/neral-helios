@@ -299,7 +299,7 @@ def build_suite(out: Path, *, archives: list[Path], web_facts: list[dict]) -> di
             prompt=(f"Finde die kleinste positive ganze Zahl unter {m*n} mit "
                     f"Rest {x%m} modulo {m} und Rest {x%n} modulo {n}. "
                     "Antworte nur mit der Zahl.")
-            value=next(z for z in range(1,m*n) if z%m==x%m and z%n==x%n)
+            value=next(z for z in range(1,m*n+1) if z%m==x%m and z%n==x%n)
         cases.append(_case("math_logic",i,prompt,grader="independent_exact",
                            reference={"kind":"integer","value":str(value)}))
     for i in range(25):
