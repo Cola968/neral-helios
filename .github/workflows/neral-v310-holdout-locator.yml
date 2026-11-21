@@ -1,0 +1,60 @@
+name: NERAL V3.10 holdout hash locator (read only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/neral-v310-holdout-locator.yml
+permissions:
+  contents: read
+jobs:
+  locate:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 20
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Hash-search 100-line JSONL candidates without logging contents
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $roots = @(
+            (Join-Path $env:LOCALAPPDATA 'NERAL'),
+            'C:\actions-runner\_work'
+          )
+          $found = 0
+          $candidates = 0
+          $scanned = 0
+          foreach ($root in $roots) {
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+              Write-Host ("MISSING_ROOT " + $root)
+              continue
+            }
+            Write-Host ("SEARCH_ROOT " + $root)
+            $files = @(Get-ChildItem -LiteralPath $root -Filter '*.jsonl' -File -Recurse -ErrorAction SilentlyContinue)
+            foreach ($file in $files) {
+              if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+              $scanned++
+              if ($file.Length -gt 67108864) { continue }
+              $lines = 0
+              $reader = [System.IO.File]::OpenText($file.FullName)
+              try {
+                while ($null -ne $reader.ReadLine()) {
+                  $lines++
+                  if ($lines -gt 100) { break }
+                }
+              } finally { $reader.Dispose() }
+              if ($lines -ne 100) { continue }
+              $candidates++
+              $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($hash.StartsWith('6b2e7d24')) {
+                $found++
+                Write-Host ("V310_HOLDOUT_MATCH path=" + $file.FullName + " lines=100 sha256=" + $hash)
+              }
+            }
+          }
+          Write-Host ("V310_HASH_SEARCH scanned_jsonl=" + $scanned + " candidates_100_lines=" + $candidates + " matches=" + $found)
+          if ($found -ne 1) { throw ("Expected exactly one 100-line holdout with SHA256 prefix 6b2e7d24; found " + $found) }
