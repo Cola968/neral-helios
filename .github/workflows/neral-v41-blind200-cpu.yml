@@ -7,6 +7,9 @@ on:
       - 'scripts/neral_v41_blind200*.py'
       - 'tests/test_neral_v41_blind_live_cpu.py'
       - '.github/workflows/neral-v41-blind200-cpu.yml'
+      - '.github/workflows/neral-v41-blind200-manual.yml'
+      - 'scripts/neral_v41_owner.ps1'
+      - 'docs/NERAL_V41_BLIND200.md'
 permissions:
   contents: read
 jobs:
@@ -32,3 +35,12 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v41_blind200_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
           python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
+      - name: Parse pinned Windows owner staging script (no execution)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v41_owner.ps1'),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'PowerShell owner staging parse error'}
+          Write-Host 'NERAL_BLIND200_OWNER_PS_SYNTAX_OK'
