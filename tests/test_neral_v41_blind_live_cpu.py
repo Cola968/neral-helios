@@ -24,7 +24,8 @@ class PrivateBenchmarkContracts(unittest.TestCase):
                  for i in range(20)]
             web += [{"title":f"project-{i}", "url":f"https://example.org/api/{i}",
                      "source":"example", "published":"2026-11-21",
-                     "category":"number", "value":str(i*127+11)}
+                     "category":"number", "value":str(i*127+11),
+                     "repo":f"project-{i}", "metric":"stargazers_count"}
                     for i in range(15)]
             path=root/"sealed200.jsonl"
             info=build_suite(path, archives=[old], web_facts=web)
