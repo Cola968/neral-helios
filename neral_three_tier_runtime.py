@@ -1136,6 +1136,15 @@ class ThreeTierRuntime:
                       "agent_checked": False, "tool_verified": False,
                       "verification_scope": "context_assisted_not_independent",
                       "context_resolved": True}
+        if result.get("web_v4_fast_path") is True:
+            # V4 source-only proof never loaded 9B. Do not falsely claim
+            # inference, adapter identity or an automatic tier escalation.
+            return {**result, "tier": tier, "mode": tier.upper(),
+                    "model": "local_source_only_no_model",
+                    "model_generated": False, "adapter_loaded": False,
+                    "adapter_sha256": None,
+                    "model_origin": "local_source_unverified_tools_only",
+                    "quality_improvement_proven": False}
         return {**result, "tier": "Helios", "mode": "HELIOS", "model": self.helios.model,
                 "model_generated": True, "adapter_loaded": self.helios.loaded,
                 "adapter_sha256": self.helios.adapter_sha256 if self.helios.loaded else None,
