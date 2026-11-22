@@ -92,6 +92,23 @@ def run(tier, summary_path):
                     "unsupported_year_answer", "unsupported_year_quote_conflict",
                     "unsupported_year_missing_event", "unsupported_year_no_passage")
                 else "not_available"),
+            "math_stdout_diagnostic_code": (
+                result.get("math_stdout_diagnostic_code")
+                if result.get("math_stdout_diagnostic_code") in (
+                    "accepted", "execution_failed", "not_stock_task",
+                    "empty_stdout", "wrong_value", "extra_lines", "unsupported_shape")
+                else "not_available"),
+            "math_sandbox_attempts": (
+                result.get("sandbox_attempts")
+                if type(result.get("sandbox_attempts")) is int
+                and 0 <= result["sandbox_attempts"] <= 3 else None),
+            "year_source_pipeline_code": (
+                result.get("year_source_pipeline_code")
+                if result.get("year_source_pipeline_code") in (
+                    "no_read_page", "year_lost_in_clip", "year_missing_in_extract",
+                    "year_event_not_contiguous", "quote_missing_from_evidence",
+                    "candidate_available")
+                else "not_available"),
             "vram_peak_mib":max(peaks) if peaks else None,
             "telemetry":diagnostics,
         }
