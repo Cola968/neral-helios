@@ -61,6 +61,22 @@ def code_syntax_class(row):
         return "syntax_invalid"
 
 
+def safe_checker_trace_class(row):
+    """Classify old failure message locally; never return its raw content."""
+    if row.get("error_code") != "checker_veto":
+        return "not_applicable"
+    text = row.get("model_text") or ""
+    if not isinstance(text, str):
+        return "unavailable"
+    marker = "Ich konnte die Aufgabe nicht vollständig absichern. "
+    if text.startswith(marker):
+        from neral_v42_quality import checker_veto_class
+        return checker_veto_class(
+            text[len(marker):],
+            executed=row.get("tool_used"))
+    return "unavailable_from_legacy_checkpoint"
+
+
 def audit(root: Path):
     sealed_path = (Path(os.environ["LOCALAPPDATA"]) / "NERAL-private" /
                    "artifacts" / "blind200-partial-run44935727057" / "sealed200.jsonl")
@@ -104,6 +120,7 @@ def audit(root: Path):
                 raise RuntimeError("Local sealed task identity mismatch")
             exact_class = classify_exact_format(row, case) if reason == "exact_mismatch" else "not_applicable"
             code_class = code_syntax_class(row) if reason == "private_docker_tests_fail" else "not_applicable"
+            checker_trace = safe_checker_trace_class(row)
             error_code = safe_enum(row.get("error_code"), {
                 "runtime_error", "request_deadline", "hf_time_budget", "hf_token_budget",
                 "hf_invalid_final", "hf_reasoning_unclosed", "checker_veto",
@@ -116,6 +133,7 @@ def audit(root: Path):
                   f"grade={grade} reason={reason} error={error} "
                   f"error_code={error_code} chars={length} code_fence={int(code_fence)} "
                   f"json_start={int(json_start)} exact_parse={exact_class} code_syntax={code_class} "
+                  f"checker_issue_class={checker_trace} "
                   f"generated={int(row.get('model_generated') is True)} "
                   f"adapter={int(row.get('adapter_loaded') is True)} "
                   f"repair_attempts={min(max(int(row.get('repair_attempts') or 0), 0), 9)} "
