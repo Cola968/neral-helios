@@ -1,0 +1,28 @@
+name: NERAL V4.2 offline RAG CPU and API gates
+on:
+  pull_request:
+    paths:
+      - neral_local_wiki.py
+      - neral_three_tier_runtime.py
+      - tests/test_neral_v42_offline_rag.py
+      - .github/workflows/neral-v42-offline-rag-cpu.yml
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: Verify bounded local RAG and unchanged runtime APIs
+        run: |
+          python -m py_compile neral_local_wiki.py neral_three_tier_runtime.py
+          python -m unittest discover -s tests -p test_neral_v42_offline_rag.py -v
+          python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
