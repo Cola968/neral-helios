@@ -1,0 +1,150 @@
+name: NERAL V4.2 approved Quartz vs Obsidian Deep 50-case A/B
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v42-ab50-once.yml]
+permissions:
+  contents: read
+jobs:
+  cpu-preflight:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 owner-approved A/B50 Quartz Obsidian 20261122' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: Run CPU source, privacy, deep, RAG, checkpoint and API tests
+        run: |
+          python -m py_compile neral_evidence_agent.py neral_local_wiki.py neral_obsidian_deep.py neral_three_tier_runtime.py scripts/neral_v42_resumable.py
+          python -m unittest discover -s tests -p test_neral_v42_offline_rag.py -v
+          python -m unittest discover -s tests -p test_neral_v42_obsidian_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_resumable_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_blind_live_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_provenance_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
+      - name: Check V4.2 exact merge approval and denied replay
+        shell: pwsh
+        run: ./tests/test_neral_v41_owner_approval.ps1
+  owner-deploy:
+    needs: cpu-preflight
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 40
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage pinned V4.2 runtime, Kiwix integration, Deep and rollback with seven-category smoke
+        timeout-minutes: 35
+        env:
+          NERAL_V42_AB50_APPROVED: NERAL-V42-AB50-APPROVED
+          NERAL_V42_AB50_MERGE_TITLE: ${{ github.event.head_commit.message }}
+          NERAL_V42_AB50_PREFLIGHT: ${{ needs.cpu-preflight.result }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:NERAL_V42_AB50_APPROVED -cne 'NERAL-V42-AB50-APPROVED' -or
+             $env:NERAL_V42_AB50_PREFLIGHT -cne 'success'){
+            throw 'V4.2 authorized main-only preflight approval missing'
+          }
+          & .\scripts\neral_v41_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Owner runtime deployment and smoke failed'}
+          Write-Host 'NERAL_V42_OWNER_ACTIVATED'
+  quartz:
+    needs: owner-deploy
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 115
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compare 50 balanced sealed cases under Quartz single-pass, checkpoint every result
+        timeout-minutes: 105
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          $archive=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057'
+          $sealed=Join-Path $archive 'sealed200.jsonl'
+          $manifest=Join-Path $archive 'manifest.json'
+          if(-not(Test-Path -LiteralPath $sealed) -or -not(Test-Path -LiteralPath $manifest)){throw 'Pinned private sealed snapshot absent'}
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-ab50/'+$env:GITHUB_RUN_ID+'/Quartz')
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
+          $details=Join-Path $private 'private-details.jsonl'
+          $summary=Join-Path $private 'summary.json'
+          & $python -m scripts.neral_v42_resumable --sealed $sealed --manifest $manifest --tier Quartz --count 50 --balanced-50 --private-details $details --summary $summary
+          if($LASTEXITCODE -ne 0){throw 'Quartz A/B run failed; private checkpoints retained'}
+          $public=Join-Path $env:RUNNER_TEMP ('neral-ab50-'+$env:GITHUB_RUN_ID+'-Quartz')
+          New-Item -ItemType Directory -Path $public -Force | Out-Null
+          Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
+          $code=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){throw 'Quartz post-run 9690 not HTTP200'}
+          Write-Host 'QUARTZ_AB50_COMPLETE_HTTP200'
+      - name: Upload Quartz safe aggregates only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v42-ab50-quartz-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-ab50-${{ github.run_id }}-Quartz/
+          if-no-files-found: warn
+          retention-days: 14
+  obsidian:
+    needs: [owner-deploy, quartz]
+    if: ${{ always() && needs.owner-deploy.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 115
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compare the exact same 50 sealed cases under Obsidian three-round Deep, checkpoint every result
+        timeout-minutes: 105
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          $archive=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057'
+          $sealed=Join-Path $archive 'sealed200.jsonl'
+          $manifest=Join-Path $archive 'manifest.json'
+          if(-not(Test-Path -LiteralPath $sealed) -or -not(Test-Path -LiteralPath $manifest)){throw 'Pinned private sealed snapshot absent'}
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-ab50/'+$env:GITHUB_RUN_ID+'/Obsidian')
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
+          $details=Join-Path $private 'private-details.jsonl'
+          $summary=Join-Path $private 'summary.json'
+          & $python -m scripts.neral_v42_resumable --sealed $sealed --manifest $manifest --tier Obsidian --count 50 --balanced-50 --private-details $details --summary $summary
+          if($LASTEXITCODE -ne 0){throw 'Obsidian A/B failed; private checkpoints retained'}
+          $public=Join-Path $env:RUNNER_TEMP ('neral-ab50-'+$env:GITHUB_RUN_ID+'-Obsidian')
+          New-Item -ItemType Directory -Path $public -Force | Out-Null
+          Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
+          $code=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){throw 'Obsidian post-run 9690 not HTTP200'}
+          Write-Host 'OBSIDIAN_AB50_COMPLETE_HTTP200'
+      - name: Upload Obsidian safe aggregates only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v42-ab50-obsidian-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-ab50-${{ github.run_id }}-Obsidian/
+          if-no-files-found: warn
+          retention-days: 14
