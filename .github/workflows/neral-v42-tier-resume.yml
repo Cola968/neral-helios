@@ -1,0 +1,101 @@
+name: NERAL V4.2 sealed resumable per-tier GPU benchmark
+on:
+  pull_request:
+    paths:
+      - scripts/neral_v42_resumable.py
+      - tests/test_neral_v42_resumable_cpu.py
+      - .github/workflows/neral-v42-tier-resume.yml
+  workflow_dispatch:
+    inputs:
+      approval:
+        description: "Type NERAL-V42-TIER-APPROVED"
+        type: string
+        required: true
+      tier:
+        type: choice
+        options: [Amber, Quartz, Obsidian]
+        required: true
+      batch_offset:
+        type: choice
+        options: ["0", "50", "100", "150"]
+        required: true
+      balanced_50:
+        description: "Exactly 50 tasks sampled across all seven categories; offset must be 0"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  cpu-preflight:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.approval == 'NERAL-V42-TIER-APPROVED') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: CPU contracts for checkpoint isolation and deadlines
+        run: |
+          python -m py_compile scripts/neral_v42_resumable.py
+          python -m unittest discover -s tests -p test_neral_v42_resumable_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_blind_live_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_provenance_cpu.py -v
+  owner-tier:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.approval == 'NERAL-V42-TIER-APPROVED' }}
+    needs: cpu-preflight
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 115
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resume only the approved one-tier 50-task batch
+        timeout-minutes: 105
+        env:
+          V42_TIER: ${{ inputs.tier }}
+          V42_OFFSET: ${{ inputs.batch_offset }}
+          V42_BALANCED: ${{ inputs.balanced_50 }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $python)){throw 'Pinned owner Python missing'}
+          $archive=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057'
+          $sealed=Join-Path $archive 'sealed200.jsonl'
+          $manifest=Join-Path $archive 'manifest.json'
+          if(-not(Test-Path -LiteralPath $sealed) -or -not(Test-Path -LiteralPath $manifest)){
+            throw 'Original sealed snapshot missing; refuse regenerated/fallback cases'
+          }
+          $dest=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-resume/'+$V42_TIER+'/'+$V42_OFFSET+'-'+$V42_BALANCED)
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          $details=Join-Path $dest 'private-details.jsonl'
+          $summary=Join-Path $dest 'summary.json'
+          $args=@('-m','scripts.neral_v42_resumable','--sealed',$sealed,'--manifest',$manifest,
+                   '--tier',$env:V42_TIER,'--private-details',$details,'--summary',$summary,
+                   '--batch-offset',$env:V42_OFFSET,'--count','50')
+          if($env:V42_BALANCED -eq 'true'){$args+='--balanced-50'}
+          & $python @args
+          if($LASTEXITCODE -ne 0){throw 'Tier evaluation failed; completed checkpoint remains private'}
+          $public=Join-Path $env:RUNNER_TEMP ('neral-v42-public-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $public -Force | Out-Null
+          Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
+          $health=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($health -join '').Trim() -ne '200'){throw 'Post-run port 9690 not HTTP200'}
+          Write-Host 'NERAL_V42_TIER_HTTP200'
+      - name: Upload safe aggregate only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v42-tier-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-v42-public-${{ github.run_id }}/
+          if-no-files-found: warn
+          retention-days: 14
