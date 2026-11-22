@@ -1,0 +1,66 @@
+name: NERAL V4.2 recover private Blind200 partials (one time)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v42-recover-partial.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recover:
+    if: ${{ github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event_name == 'push' && github.event.head_commit.message == 'NERAL V4.2 recover partial Blind200 run44935727057' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Snapshot private run 44935727057 without accessing model service
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:LOCALAPPDATA 'NERAL-private/v41-blind200/44935727057'
+          $dst=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057'
+          if(-not(Test-Path -LiteralPath $src -PathType Container)){throw 'PRIVATE_RUN_44935727057_MISSING'}
+          if(Test-Path -LiteralPath $dst){throw 'PRIVATE_BACKUP_ALREADY_EXISTS; do not overwrite'}
+          $details=Join-Path $src 'private-details.jsonl'
+          if(-not(Test-Path -LiteralPath $details -PathType Leaf)){throw 'PRIVATE_DETAILS_MISSING'}
+          New-Item -ItemType Directory -Path $dst -ErrorAction Stop | Out-Null
+          foreach($name in @('sealed200.jsonl','manifest.json','private-details.jsonl','summary.json')){
+            $s=Join-Path $src $name
+            if(-not(Test-Path -LiteralPath $s -PathType Leaf)){continue}
+            $d=Join-Path $dst $name
+            Copy-Item -LiteralPath $s -Destination $d -ErrorAction Stop
+            $a=(Get-FileHash -LiteralPath $s -Algorithm SHA256).Hash
+            $b=(Get-FileHash -LiteralPath $d -Algorithm SHA256).Hash
+            if($a -cne $b){throw ('COPY_HASH_MISMATCH: '+$name)}
+            Write-Host ('PRIVATE_SNAPSHOT_SHA256_OK '+$name+' '+$b)
+          }
+          $rows=New-Object 'System.Collections.Generic.List[object]'
+          $invalid=0
+          foreach($line in [IO.File]::ReadLines($details)){
+            if(-not $line.Trim()){continue}
+            try {
+              $r=ConvertFrom-Json -InputObject $line -ErrorAction Stop
+              if($r.tier -notin @('Amber','Quartz','Obsidian')){throw 'invalid tier'}
+              $rows.Add($r)
+            }catch{$invalid++}
+          }
+          Write-Host ('PRIVATE_SNAPSHOT_ROWS '+$rows.Count+' invalid_lines='+$invalid)
+          foreach($tier in @('Amber','Quartz','Obsidian')){
+            $mine=@($rows | Where-Object {$_.tier -eq $tier})
+            $max=0
+            if($mine.Count -gt 0){$max=($mine | Measure-Object -Property latency_s -Maximum).Maximum}
+            Write-Host ('TIER '+$tier+' n='+$mine.Count+' max_latency_s='+$max)
+            foreach($group in @($mine | Group-Object category)){
+              $mean=($group.Group | Measure-Object -Property latency_s -Average).Average
+              Write-Host ('CATEGORY tier='+$tier+' category='+$group.Name+' n='+$group.Count+' mean_latency_s='+[math]::Round($mean,2))
+            }
+          }
+          foreach($r in @($rows | Sort-Object -Property latency_s -Descending | Select-Object -First 10)){
+            # Task IDs and timing only: no prompts, references or model answers.
+            Write-Host ('SLOW_TASK tier='+$r.tier+' task_id='+$r.id+' category='+$r.category+' latency_s='+$r.latency_s+' route='+$r.tool_used+' reason='+$r.reason)
+          }
+          Write-Host ('NERAL_PRIVATE_PARTIAL_BACKUP_COMPLETE path='+$dst)
