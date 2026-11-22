@@ -121,6 +121,22 @@ class MainText(HTMLParser):
                     any(term in lower for term in terms)):
                 year_pairs[i] = (i, i+1)
                 year_pairs[i+1] = (i, i+1)
+        # Keep an entire three-line event/context/date passage together.
+        # Without this, the ranking can retain the event and the date while
+        # silently dropping the intervening sentence needed for attribution.
+        for i in range(len(lines)-2):
+            joined = "\n".join(lines[i:i+3])
+            first = lines[i]
+            mission = re.findall(r"(?i)\bapollo\s+\d{1,3}\b", first)
+            missions = set(re.findall(r"(?i)\bapollo\s+\d{1,3}\b", joined))
+            if (len(joined) <= 600 and len(mission) == 1 and
+                    {name.casefold() for name in missions} == {mission[0].casefold()} and
+                    re.search(r"(?i)\b(?:land\w*|moon\s+landing)\b", first) and
+                    re.search(r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)", lines[i+2]) and
+                    any(term in joined.casefold() for term in terms)):
+                trio = (i, i+1, i+2)
+                for j in trio:
+                    year_pairs[j] = trio
         ranked = sorted(range(len(lines)),
                         key=lambda i: (-priority(lines[i], i) -
                                        (20 if i in year_pairs else 0), i))
