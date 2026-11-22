@@ -323,6 +323,12 @@ def _year_quote_supports(question, quote, year):
     event, subject = task
     if subject.casefold() not in quote.casefold() or not _YEAR_EVENT[event].search(quote):
         return False
+    # A nearby date for another Apollo mission is not evidence for this one.
+    # This remains a citation-local check; it never supplies a year itself.
+    if event == "land" and re.fullmatch(r"(?i)apollo\s+\d{1,3}", subject):
+        named_missions = set(re.findall(r"(?i)\bapollo\s+\d{1,3}\b", quote))
+        if any(name.casefold() != subject.casefold() for name in named_missions):
+            return False
     years = _YEAR_TOKEN.findall(quote)
     if not years or set(years) != {year}:
         return False
@@ -362,7 +368,12 @@ def unique_read_year_source(question, sources):
             spans.append((left + len(segment) - len(segment.lstrip()),
                           left + len(segment.rstrip())))
         for i, (start, end) in enumerate(spans):
-            for right in (end, spans[i+1][1] if i+1 < len(spans) else end):
+            # At most three contiguous literal sentences. This recovers
+            # event -> brief context -> year when a read page separates them.
+            # Competing years and named missions still fail closed below.
+            for right in (end,
+                          spans[i+1][1] if i+1 < len(spans) else end,
+                          spans[i+2][1] if i+2 < len(spans) else end):
                 quote = content[start:right].strip()
                 if not 25 <= len(quote) <= 400:
                     continue
