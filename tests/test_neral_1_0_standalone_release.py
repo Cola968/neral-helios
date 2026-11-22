@@ -226,6 +226,8 @@ class PreviewStandaloneTests(unittest.TestCase):
             "neral_v41_context.py",
             "neral_verified_notes.py",
             "neral_verified_training.py",
+            "neral_v32_verifier.py",
+            "neral_knowledge_verifier.py",
         )
         for module in modules:
             self.assertIn(module, REQUIRED_FILES, module)
