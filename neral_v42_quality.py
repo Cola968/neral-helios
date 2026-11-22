@@ -55,9 +55,10 @@ def forced_repair_tool(question, *, local=False, web=False):
     if re.search(r"\b(?:schicht\w*|zuordn\w*|ordne|z3|constraint\w*|"
                  r"belegungs\w*|kombinator\w*)\b", q):
         return "z3_solver"
+    if re.search(r"\b(?:python|programmier\w*|implementier\w*|funktion\w*|code|algorithmus)\b",q):
+        return "python_code_sandbox"
     if (re.search(r"\b(?:berechn\w*|rechne\w*|rechnung\w*|"
-                  r"gesam?tgewicht|wiegt|python|programmier\w*|"
-                  r"implementier\w*|funktion\w*)\b", q)
+                  r"gesam?tgewicht|wiegt)\b", q)
             or re.search(r"\d\s*[×*/+\-]\s*\d", q)):
         return "python_sandbox"
     if local or web:
