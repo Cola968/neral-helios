@@ -32,7 +32,7 @@ class ResumableBlindCPU(unittest.TestCase):
         self.assertEqual([c["id"] for c in chosen], [c["id"] for c in balanced_sample(self.cases,50)])
 
     def test_disjoint_batches_cover_all_200_cases(self):
-        batches = [select_batch(self.cases, index=i, count=50) for i in range(4)]
+        batches = [select_batch(self.cases, index=i*50, count=50) for i in range(4)]
         all_ids = [x["id"] for group in batches for x in group]
         self.assertEqual(len(all_ids),200)
         self.assertEqual(len(set(all_ids)),200)
