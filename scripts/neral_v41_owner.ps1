@@ -24,7 +24,13 @@ $approvedV42Smoke5 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
   $env:NERAL_V42_SMOKE5_APPROVED -ceq 'NERAL-V42-SMOKE5-APPROVED' -and
   $env:NERAL_V42_SMOKE5_PREFLIGHT -ceq 'success' -and
   $env:NERAL_V42_SMOKE5_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved deadline smoke5 20261122'
-if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5)){
+$approvedV42Diag3 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -ceq 'push' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V42_DIAG3_APPROVED -ceq 'NERAL-V42-DIAG3-APPROVED' -and
+  $env:NERAL_V42_DIAG3_PREFLIGHT -ceq 'success' -and
+  $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 diagnosis 20261122'
+if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5 -or $approvedV42Diag3)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
