@@ -18,7 +18,13 @@ $approvedV42AB50 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
   $env:NERAL_V42_AB50_APPROVED -ceq 'NERAL-V42-AB50-APPROVED' -and
   $env:NERAL_V42_AB50_PREFLIGHT -ceq 'success' -and
   $env:NERAL_V42_AB50_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved A/B50 Quartz Obsidian 20261122'
-if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50)){
+$approvedV42Smoke5 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -ceq 'push' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V42_SMOKE5_APPROVED -ceq 'NERAL-V42-SMOKE5-APPROVED' -and
+  $env:NERAL_V42_SMOKE5_PREFLIGHT -ceq 'success' -and
+  $env:NERAL_V42_SMOKE5_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved deadline smoke5 20261122'
+if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
@@ -127,6 +133,7 @@ function StartOwned {
 # model checkpoint or production LoRA weights.
 $files=@('neral_v41_context.py','neral_verified_notes.py',
          'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+         'neral_v42_deadline.py',
          'neral_three_tier_runtime.py','neral_preview_server.py',
          'templates/neral_preview.html',
          'static/neral-preview.js','static/neral-reference-ui.js')
@@ -143,7 +150,7 @@ foreach($file in $files){
     $original=Join-Path $backup $file
     New-Item -ItemType Directory -Path (Split-Path -Parent $original) -Force | Out-Null
     Copy-Item -LiteralPath $installed -Destination $original -ErrorAction Stop
-  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py')){
+  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
     throw ('Expected installed V4 file missing: '+$file)
   }
 }
@@ -176,7 +183,7 @@ try{
   }
   $env:PYTHONPATH=$root
   $py=@('neral_v41_context.py','neral_verified_notes.py',
-        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py',
         'neral_three_tier_runtime.py','neral_preview_server.py')
   & $python -m py_compile @($py|ForEach-Object { Join-Path $root $_ })
   if($LASTEXITCODE -ne 0){throw 'Installed V4.1 Python modules failed syntax check'}
@@ -208,7 +215,7 @@ try{
            (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
           throw ('V4.1 rollback checksum mismatch: '+$file)
         }
-      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py')){
+      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
         Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
       }else{
         throw ('Missing original during V4.1 rollback: '+$file)
