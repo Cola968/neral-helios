@@ -267,3 +267,35 @@ foreach($case in @(
   if(-not $denied){throw 'Float-tolerance diagnostic accepted unauthorized or repeated run'}
 }
 Write-Host 'PASS float tolerance 3+3 replay, preflight, token, title, branch and event denial'
+
+# PR607: source-year/math diagnostic requires EXACT approved main push and preflight.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V41_BLIND200_APPROVED=''
+$env:NERAL_V42_AB50_APPROVED=''
+$env:NERAL_V42_SMOKE5_APPROVED=''
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122'
+& $guard
+Write-Host 'PASS PR607 owner-approved one-shot read-page math check'
+foreach($case in @(
+  @{ref='refs/heads/main';event='push';attempt='2';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='failure';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';token='';title='NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='Unrelated'},
+  @{ref='refs/heads/feature';event='push';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122'},
+  @{ref='refs/heads/main';event='pull_request';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122'}
+)){
+  $env:GITHUB_REF=$case.ref
+  $env:GITHUB_EVENT_NAME=$case.event
+  $env:GITHUB_RUN_ATTEMPT=$case.attempt
+  $env:NERAL_V42_DIAG3_PREFLIGHT=$case.preflight
+  $env:NERAL_V42_DIAG3_APPROVED=$case.token
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$case.title
+  $denied=$false
+  try { & $guard } catch { $denied=$true }
+  if(-not $denied){throw 'PR607 accepted unauthorized or repeated diagnostic'}
+}
+Write-Host 'PASS PR607 guard rejects replay, unrelated title, preflight failure and branch'
