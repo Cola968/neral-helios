@@ -1010,6 +1010,10 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     from neral_page_reader import evidence_sentence_windows
     from neral_knowledge_verifier import verified_element_question
     from neral_obsidian_deep import emit, constrained_query
+    from neral_v42_quality import (
+        forced_repair_tool, grounded_literal_citations,
+        evidence_veto_is_generic, checker_veto_class,
+    )
     approved_query = web_query or fallback_query
     wiki_hits = []
     previous_proposal = None
@@ -1017,6 +1021,11 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     def status(stage, attempt=1, tool=None):
         if deep:
             emit(progress, stage, attempt, tool)
+
+    def observed_execute(*args, **kwargs):
+        nonlocal actual_tool_calls
+        actual_tool_calls += 1
+        return execute(*args, **kwargs)
     if not files and not web_query:
         elementary=verified_element_question(question)
         if elementary is not None:
@@ -1048,6 +1057,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     plan = None
     issue = ""
     executed = None
+    actual_tool_calls = 0
     searched = False
     entity_searches = {}
     max_comparison_pages = 8
@@ -1120,6 +1130,10 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         return {"text": text, "verified": False, "safe_to_promote": False, "proof_backend": None,
                 "verification_scope": "tool_execution_and_model_review" if checked else "none",
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
+                "actual_tool_calls": actual_tool_calls,
+                "checker_veto_reason_code": (
+                    checker_veto_class(issue, sources=sources, wiki_hits=wiki_hits,
+                                       executed=executed) if not checked else None),
                 "tool_used": executed, "tool_verified": bool(checked and executed and not wiki_hits),
                 "error_code": (None if checked else (
                     "z3_schema_error" if "Z3" in issue or "Schema" in issue
@@ -1149,22 +1163,36 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         try:
             if plan is None:
                 status("plan", attempt+1)
+                forced_tool = (forced_repair_tool(
+                    question, local=local_lookup is not None,
+                    web=(approved_query is not None and search is not None))
+                    if deep and attempt > 0 and executed in (None, "direct_reasoning")
+                    else None)
                 planner_data = {"question":question,"web_requested":bool(web_query),
                     "files":list(files or {}),"correction":issue,"force_sandbox":force_sandbox}
                 if deep:
                     planner_data["authorized_query"] = approved_query or ""
                     planner_data["local_lookup_available"] = local_lookup is not None
+                    if forced_tool:
+                        planner_data["required_tool"] = forced_tool
                     if previous_proposal is not None:
                         planner_data["previous_proposal"] = previous_proposal
-                    schema = _object(tool={"enum":sorted(TOOLS)},parts=_array(_string(180),6,1),
+                    schema = _object(tool={"enum":[forced_tool] if forced_tool else sorted(TOOLS)},
+                                     parts=_array(_string(180),6,1),
                                      search_query=_string(160))
                     draft_plan = ask(PLANNER +
+                        ("\nREPARATUR: Wähle zwingend das Werkzeug " + forced_tool +
+                         ". Eine Behauptung über einen Werkzeugaufruf reicht nicht; "
+                         "der Controller muss den Aufruf tatsächlich ausführen. "
+                         if forced_tool else "") +
                         "\nZerlege die aktuelle Aufgabe in konkrete Teilfragen, Bedingungen, "
                         "Einheiten und Fallen. Plane die Kontrolle jeder Teilfrage. "
                         "search_query ist leer ohne autorisierte Suche, sonst nur Wörter "
                         "aus authorized_query; bei Korrektur gezielt verkürzen oder umstellen.",
                         planner_data,schema)
                     proposed = _plan({k:v for k,v in draft_plan.items() if k!="search_query"})
+                    if forced_tool and proposed["tool"] != forced_tool:
+                        raise AgentError("Reparaturplan ohne das vorgeschriebene Werkzeug.")
                     revised_query = constrained_query(approved_query,draft_plan.get("search_query"))
                 else:
                     proposed = _plan(ask(PLANNER,planner_data,PLAN_SCHEMA))
@@ -1233,7 +1261,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             exact = quantity_plan(question, evidence)
             status("tool",attempt+1,"python_sandbox" if exact is not None and not files and not wiki_hits else plan["tool"])
             if exact is not None and not files and not wiki_hits:
-                text = _calculate(*exact, execute, external)
+                text = _calculate(*exact, observed_execute, external)
                 executed = "python_sandbox"
                 steps.append("quantity_validation")
                 if deep:
@@ -1339,7 +1367,11 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     question, packet, evidence, sources)
             if deep:
                 previous_proposal=json.dumps(packet,ensure_ascii=False)[:1800]
-            answer = _work(plan, packet, evidence, execute, external, numeric_evidence)
+            calls_before = actual_tool_calls
+            answer = _work(plan, packet, evidence, observed_execute, external, numeric_evidence)
+            if deep and attempt > 0 and plan["tool"] in ("python_sandbox","z3_solver"):
+                if actual_tool_calls == calls_before:
+                    raise AgentError("Vorgeschriebenes Werkzeug wurde nicht tatsächlich ausgeführt.")
             # Report the selected reasoning path even when no sandbox or Z3
             # subprocess was needed. Chrome E2E verifies this observable mode.
             executed = plan["tool"]
