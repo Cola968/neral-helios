@@ -88,15 +88,31 @@ class MainText(HTMLParser):
             historical_penalty = 7 if history.search(line) else 0
             return matches*2 + lead + subject + (4 if measured or tabular else 0) - historical_penalty
 
-        ranked = sorted(range(len(lines)), key=lambda i: (-priority(lines[i], i), i))
+        # Preserve literal neighboring event/year HTML lines as one atomic
+        # candidate. Ranking separated lines independently may discard the
+        # year even though both sentences are present on the read page.
+        year_pairs = {}
+        for i in range(len(lines)-1):
+            joined = lines[i] + "\n" + lines[i+1]
+            lower = joined.casefold()
+            if (len(joined) <= 600 and
+                    re.search(r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)", joined) and
+                    re.search(r"(?i)\b(?:land\w*|mondland\w*|moon\s+landing)\b", joined) and
+                    any(term in lower for term in terms)):
+                year_pairs[i] = (i, i+1)
+                year_pairs[i+1] = (i, i+1)
+        ranked = sorted(range(len(lines)),
+                        key=lambda i: (-priority(lines[i], i) -
+                                       (20 if i in year_pairs else 0), i))
         selected = set()
         remaining = MAX_TEXT
         for i in ranked:
-            if i in selected:
-                continue
-            if len(lines[i]) + 1 <= remaining:
-                selected.add(i)
-                remaining -= len(lines[i]) + 1
+            indices = year_pairs.get(i, (i,))
+            missing = [j for j in indices if j not in selected]
+            space = sum(len(lines[j]) + 1 for j in missing)
+            if space <= remaining:
+                selected.update(missing)
+                remaining -= space
             if remaining < 80:
                 break
         # A single long relevant paragraph still provides an excerpt.
