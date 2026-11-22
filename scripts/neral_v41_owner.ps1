@@ -163,7 +163,7 @@ if(($approvedV42Smoke5 -or $approvedV42Diag3) -and $env:NERAL_V42_SMOKE5_REVERT 
          (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
         throw ('Experiment rollback checksum mismatch: '+$file)
       }
-    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
       Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
     }else{
       throw ('Experiment rollback source missing: '+$file)
@@ -188,7 +188,7 @@ foreach($file in $files){
     $original=Join-Path $backup $file
     New-Item -ItemType Directory -Path (Split-Path -Parent $original) -Force | Out-Null
     Copy-Item -LiteralPath $installed -Destination $original -ErrorAction Stop
-  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
     throw ('Expected installed V4 file missing: '+$file)
   }
 }
@@ -264,7 +264,7 @@ try{
            (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
           throw ('V4.1 rollback checksum mismatch: '+$file)
         }
-      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
         Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
       }else{
         throw ('Missing original during V4.1 rollback: '+$file)
