@@ -64,11 +64,9 @@ jobs:
           $ErrorActionPreference='Stop'
           & .\scripts\neral_v41_owner.ps1
           if($LASTEXITCODE -ne 0){throw 'Owner stage failed'}
-          $availability=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -TimeoutSec 5
-          if($availability.busy -ne $false){throw 'Owner server not idle after deployment'}
-          if($availability.deadline_seconds.Amber -ne 25 -or
-             $availability.deadline_seconds.Quartz -ne 40 -or
-             $availability.deadline_seconds.Obsidian -ne 70){throw 'Wrong deployed server deadline budgets'}
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          & $python -m scripts.neral_v42_owner_availability
+          if($LASTEXITCODE -ne 0){throw 'Authenticated owner deadline/busy probe failed'}
           Write-Host 'NERAL_V42_SMOKE5_OWNER_READY_AND_IDLE'
   quartz-five:
     needs: owner-deploy
@@ -103,8 +101,8 @@ jobs:
           $public=Join-Path $env:RUNNER_TEMP ('neral-v42-smoke5-'+$env:GITHUB_RUN_ID+'-Quartz')
           New-Item -ItemType Directory -Path $public -Force | Out-Null
           Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
-          $status=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -TimeoutSec 5
-          if($status.busy -ne $false){throw 'Quartz left GPU lock busy'}
+          & $python -m scripts.neral_v42_owner_availability
+          if($LASTEXITCODE -ne 0){throw 'Quartz left owner GPU lock busy'}
           $code=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
           if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){throw 'Quartz after-test HTTP200 not confirmed'}
           Write-Host 'NERAL_QUARTZ_SMOKE5_COMPLETE_IDLE_HTTP200'
@@ -150,8 +148,8 @@ jobs:
           $public=Join-Path $env:RUNNER_TEMP ('neral-v42-smoke5-'+$env:GITHUB_RUN_ID+'-Obsidian')
           New-Item -ItemType Directory -Path $public -Force | Out-Null
           Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
-          $status=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -TimeoutSec 5
-          if($status.busy -ne $false){throw 'Obsidian left GPU lock busy'}
+          & $python -m scripts.neral_v42_owner_availability
+          if($LASTEXITCODE -ne 0){throw 'Obsidian left owner GPU lock busy'}
           $code=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
           if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){throw 'Obsidian after-test HTTP200 not confirmed'}
           Write-Host 'NERAL_OBSIDIAN_SMOKE5_COMPLETE_IDLE_HTTP200'

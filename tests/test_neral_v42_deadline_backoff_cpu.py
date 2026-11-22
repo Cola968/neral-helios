@@ -100,6 +100,31 @@ class DeadlineAndBackoffCPU(unittest.TestCase):
         self.assertEqual(set(c["category"] for c in chosen),
                          {"everyday","multiturn","live_web","math_logic","programming"})
 
+    def test_authenticated_availability_probe_uses_owner_cookie_session(self):
+        from scripts.neral_v42_owner_availability import verify_owner_available, STATUS, AVAILABILITY
+        class Owner:
+            def __init__(self):
+                self.connected=False
+                self.calls=[]
+                self.busy=False
+            def connect(self):
+                self.connected=True
+            def get(self,path):
+                self.calls.append(path)
+                if path==STATUS:
+                    return {"enabled":True,"public_tiers":["Amber","Quartz","Obsidian"]}
+                if path==AVAILABILITY:
+                    return {"busy":self.busy,
+                            "deadline_seconds":{"Amber":25,"Quartz":40,"Obsidian":70}}
+                raise AssertionError("Unknown URL")
+        client=Owner()
+        self.assertFalse(verify_owner_available(client)["busy"])
+        self.assertTrue(client.connected)
+        self.assertEqual(client.calls,[STATUS,AVAILABILITY])
+        client.busy=True
+        with self.assertRaises(RuntimeError):
+            verify_owner_available(client)
+
     def test_availability_endpoint_tracks_lock_without_revealing_prompts(self):
         runtime,*_=make_runtime()
         app=Flask(__name__)
