@@ -203,9 +203,11 @@ class OwnerClient:
         if type(self.csrf) is not str or len(self.csrf)<12:
             raise RuntimeError("Invalid CSRF session")
 
-    def post(self,tier,prompt,history,*,web_query=None):
+    def post(self,tier,prompt,history,*,web_query=None,diagnostic_telemetry=False):
         payload={"tier":tier,"prompt":prompt,"history":history,
                  "benchmark_isolated":True}
+        if diagnostic_telemetry:
+            payload["diagnostic_telemetry"]=True
         if web_query is not None:
             payload["web_query"]=web_query
         request=Request(BASE+"/api/neral/chat/three-tier",
