@@ -31,7 +31,7 @@ _ALLOWED_ERRORS = {
 def web_query_for_diagnostic(category, prompt):
     # Only this public synthetic knowledge question is explicitly approved for
     # fresh Web V4 lookup. No private Blind200 prompts ever leave the owner PC.
-    return prompt if category == "knowledge" and prompt == DIAGNOSTIC_CASES[2][1] else None
+    return "Was ist eine Sonnenfinsternis?" if category == "knowledge" and prompt == DIAGNOSTIC_CASES[2][1] else None
 
 
 def _gpu_poll_until(done, peaks):
