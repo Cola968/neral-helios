@@ -179,12 +179,23 @@ def _short(value, limit):
 
 
 def _plan(packet):
-    if set(packet) != {"tool", "parts"} or packet["tool"] not in tuple(TOOLS):
+    # Real structured models may emit the optional search_query property even
+    # when the standard (non-Deep) schema requested only tool and parts.
+    # Ignore this known planner hint; it is NEVER authorization for web access.
+    # Unrecognized fields still fail closed.
+    if (type(packet) is not dict or not {"tool", "parts"} <= set(packet) or
+            set(packet) - {"tool", "parts", "search_query"} or
+            packet["tool"] not in tuple(TOOLS)):
         raise AgentError("Plan enthält kein erlaubtes Werkzeug.")
+    if "search_query" in packet and (
+            type(packet["search_query"]) is not str or
+            len(packet["search_query"]) > 160 or
+            not all(char.isprintable() for char in packet["search_query"])):
+        raise AgentError("Ungültiges optionales Planner-Suchfeld.")
     parts = packet["parts"]
     if not isinstance(parts, list) or not 1 <= len(parts) <= 6 or not all(_short(p, 180) for p in parts):
         raise AgentError("Teilfragen im Plan fehlen.")
-    return packet
+    return {"tool": packet["tool"], "parts": parts}
 
 
 def _number(token, locale):

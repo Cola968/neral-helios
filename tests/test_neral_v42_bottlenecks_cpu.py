@@ -124,6 +124,28 @@ class ExactExecutedFinalCPU(unittest.TestCase):
 
 
 
+class StandardPlannerSchemaCPU(unittest.TestCase):
+    def test_known_optional_search_field_is_discarded_without_authorizing_web(self):
+        from neral_evidence_agent import _plan
+        basic = {"tool": "direct_reasoning", "parts": ["Beleg prüfen"]}
+        self.assertEqual(_plan({**basic, "search_query": "Apollo 11 NASA"}), basic)
+        self.assertEqual(_plan({**basic, "search_query": ""}), basic)
+        self.assertEqual(_plan(basic), basic)
+
+    def test_unknown_or_malformed_planner_fields_still_fail_closed(self):
+        from neral_evidence_agent import _plan, AgentError
+        basic = {"tool": "direct_reasoning", "parts": ["Beleg prüfen"]}
+        for packet in (
+            {**basic, "override": True},
+            {**basic, "search_query": "x" * 161},
+            {**basic, "search_query": None},
+            {**basic, "search_query": "Apollo\\n11"},
+            {"tool": "do_something_else", "parts": ["X"], "search_query": ""},
+        ):
+            with self.subTest(packet=packet), self.assertRaises(AgentError):
+                _plan(packet)
+
+
 class MandatoryResearchCPU(unittest.TestCase):
     def test_explicit_source_question_attempts_kiwix_then_authorized_web(self):
         from neral_local_wiki import source_required
@@ -174,7 +196,7 @@ class MandatoryResearchCPU(unittest.TestCase):
                 return {"results":[{"url":"https://example.org/apollo11"}]}
         service=Source()
         prompts=[
-            {"tool":"direct_reasoning","parts":["Beleg lesen"],"search_query":""},
+            {"tool":"direct_reasoning","parts":["Beleg lesen"]},
             {"answer":quote,"citations":["p1"]},
             {"ok":True,"issue":""},
         ]
