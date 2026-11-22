@@ -83,6 +83,36 @@ def _explicit_two_stage_stock_steps(prompt):
     return total, total - removed
 
 
+def _source_consistent_stock_stdout(stdout):
+    """Two ordered numeric steps from actual tool stdout; accept only known labels.
+
+    No extra numbers, competing final answers or model-generated explanations.
+    The caller checks both values against the user-source calculation.
+    """
+    if type(stdout) is not str or not 1 <= len(stdout) <= 240:
+        return None
+    rows = stdout.strip().splitlines()
+    if len(rows) == 1 and rows[0].count(";") == 1:
+        rows = rows[0].split(";")
+    if len(rows) != 2:
+        return None
+    units = r"(?:\s+(?:Bauteile?|Teile?|St(?:ü|ue)ck))?"
+    prefixes = (
+        r"(?:Gesamtlieferung|Gesamtmenge|Gesamtzahl|Lieferung|"
+        r"Zwischenergebnis|Zwischensumme|Subtotal|Total)",
+        r"(?:Restmenge|Restbestand|Rest|Verbleibend|Uebrig|Übrig|Endmenge)",
+    )
+    values = []
+    for row, label in zip(rows, prefixes):
+        text = row.strip()
+        pattern = rf"(?iu)(?:(?:{label})\s*[:=]\s*)?([-+]?\d{{1,18}}){units}"
+        matched = re.fullmatch(pattern, text)
+        if matched is None:
+            return None
+        values.append(int(matched.group(1)))
+    return tuple(values)
+
+
 def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
     """One canonical final only from successful, source-consistent tool stdout.
 
@@ -97,14 +127,9 @@ def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
     value = stdout.strip()
     if re.fullmatch(r"[-+]?\d{1,18}", value):
         return "ENDERGEBNIS: " + str(int(value))
-    lines = value.splitlines()
     expected = _explicit_two_stage_stock_steps(prompt)
-    if (expected is None or len(lines) != 2 or
-            any(re.fullmatch(r"[-+]?\d{1,18}", line.strip()) is None
-                for line in lines)):
-        return None
-    actual = tuple(int(line.strip()) for line in lines)
-    if actual != expected:
+    actual = _source_consistent_stock_stdout(value)
+    if expected is None or actual != expected:
         return None
     return "ENDERGEBNIS: " + str(expected[-1])
 
@@ -232,11 +257,49 @@ def _year_quote_supports(question, quote, year):
     event, subject = task
     if subject.casefold() not in quote.casefold() or not _YEAR_EVENT[event].search(quote):
         return False
-    if _YEAR_TOKEN.findall(quote) != [year]:
+    years = _YEAR_TOKEN.findall(quote)
+    if not years or set(years) != {year}:
         return False
     if re.search(r"(?iu)\b(?:nicht|never|did\s+not|not\s+land|geplant|planned|sollte)\b", quote):
         return False
     return True
+
+
+def unique_read_year_source(question, sources):
+    """Find one non-contradictory event-year quote in real read HTTPS pages.
+
+    Return nothing if several years conflict, all matches are only snippets,
+    or a quote merely describes plans/denials. Never infer a benchmark key.
+    """
+    if _year_event_subject(question) is None or type(sources) is not list:
+        return None
+    candidates = []
+    for index, source in enumerate(sources, 1):
+        if type(source) is not dict or source.get("page_read") is not True:
+            continue
+        url = source.get("url")
+        parsed = urlsplit(url) if isinstance(url, str) else None
+        if parsed is None or parsed.scheme != "https" or not parsed.hostname:
+            continue
+        content = source.get("page_text")
+        if type(content) is not str or not 1 <= len(content) <= 120000:
+            continue
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", content):
+            quote = sentence.strip()
+            if not 25 <= len(quote) <= 400:
+                continue
+            years = set(_YEAR_TOKEN.findall(quote))
+            if len(years) != 1:
+                continue
+            year = next(iter(years))
+            if _year_quote_supports(question, quote, year):
+                candidates.append({"year": year, "source": f"web{index}",
+                                   "quote": quote, "url": url})
+    if not candidates or len({row["year"] for row in candidates}) != 1:
+        return None
+    # Prefer the shortest literal sentence so a long page cannot bury the
+    # specific event behind unrelated dates or boilerplate.
+    return min(candidates, key=lambda row: len(row["quote"]))
 
 
 def year_evidence_verdict(question, packet, evidence, sources, wiki_hits):

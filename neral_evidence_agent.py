@@ -1133,6 +1133,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         for key in list(evidence):
             if re.fullmatch(r"web\d+", key):
                 del evidence[key]
+        from neral_v42_quality import unique_read_year_source
+        literal_year = unique_read_year_source(question, sources)
         readable = sum(item.get("page_read") is True for item in sources)
         limit = min(3000, 6000 // max(1, readable + len(files or {})))
         if files:
@@ -1148,6 +1150,13 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             excerpt = text[:limit]
             if quote and quote not in excerpt and len(quote) < limit:
                 excerpt = quote + "\n" + text[:limit-len(quote)-1]
+            # Include a literal matching year sentence even when page navigation
+            # puts it beyond the first 3,000 characters. Never copy snippets.
+            if (literal_year and literal_year["source"] == f"web{i}" and
+                    literal_year["quote"] not in excerpt and
+                    len(literal_year["quote"]) < limit):
+                sentence = literal_year["quote"]
+                excerpt = sentence + "\n" + excerpt[:limit-len(sentence)-1]
             evidence[f"web{i}"] = excerpt
 
     def research_entity(name, names):
@@ -1511,6 +1520,28 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             "tool_verified": False,
                             "verification_scope": "read_page_literal_year_not_truth_proof",
                             "source_year_match": True}
+                if verdict in ("invalid_quote", "unsupported_year"):
+                    # Replace a model's incorrect/mis-cited year only when an
+                    # unambiguous literal year is present on an actually read
+                    # HTTPS page. Contradictory sources or missing evidence fail.
+                    from neral_v42_quality import unique_read_year_source
+                    candidate = unique_read_year_source(question, sources)
+                    if candidate and candidate["quote"] in evidence.get(candidate["source"], ""):
+                        grounded = {"answer": candidate["year"],
+                                    "citations": [{"source":candidate["source"],
+                                                   "quote":candidate["quote"]}]}
+                        if year_evidence_verdict(
+                                question, grounded, evidence, sources, wiki_hits) == "supported":
+                            grounded_text = _work(
+                                {"tool": "direct_reasoning"}, grounded,
+                                evidence, observed_execute, external, numeric_evidence)
+                            executed = "direct_reasoning"
+                            accepted = result(grounded_text, checked=True, attempts=attempt+1)
+                            return {**accepted, "verified": False, "safe_to_promote": False,
+                                    "tool_verified": False,
+                                    "verification_scope": "read_page_literal_year_not_truth_proof",
+                                    "source_year_match": True,
+                                    "source_year_repair": True}
                 if verdict in ("no_read_page", "invalid_quote", "unsupported_year"):
                     issue = {
                         "no_read_page": "Keine gelesene Webseite als Quellenbeleg verfügbar.",
