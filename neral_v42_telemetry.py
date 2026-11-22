@@ -125,6 +125,24 @@ def timed_tool(name, fn):
     return measured
 
 
+def timed_search_service(service):
+    """Time search_service.search, not just callable search functions.
+
+    API implementations expose an object with a .search method; wrapping the
+    object itself never measured Web V4 in the earlier GPU diagnostic.
+    """
+    if service is None:
+        return None
+    method = getattr(service, "search", None)
+    if not callable(method):
+        return service
+    measured = timed_tool("web_v4", method)
+    class MeasuredSearch:
+        def search(self, *args, **kwargs):
+            return measured(*args, **kwargs)
+    return MeasuredSearch()
+
+
 def summarize_placement(model):
     """Count actual parameter locations; no checkpoint paths or layer names."""
     obj = getattr(model, "_model", None)
