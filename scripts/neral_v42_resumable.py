@@ -25,6 +25,69 @@ from scripts.neral_v41_blind200_live import (
 
 TIMEOUTS = {"Amber": 30, "Quartz": 45, "Obsidian": 75}
 MAX_BATCH = 50
+SMOKE_CATEGORIES = ("everyday", "multiturn", "live_web", "math_logic", "programming")
+AVAILABILITY_PATH = "/api/neral/chat/three-tier/availability"
+
+
+class ServerBusyError(RuntimeError):
+    """The task has NOT been graded or checkpointed. Preserve it for retry."""
+
+
+def smoke_sample(cases):
+    """Five fixed sealed tasks across five categories; identical pair per tier."""
+    selected = []
+    for category in SMOKE_CATEGORIES:
+        match = next((x for x in cases if x.get("category") == category), None)
+        if match is None:
+            raise ValueError("Missing sealed smoke category: " + category)
+        selected.append(match)
+    if len({x["id"] for x in selected}) != 5:
+        raise ValueError("Duplicate smoke task id")
+    return selected
+
+
+def wait_until_available(client, *, max_wait_seconds=90):
+    """Read-only polling; no model request while GPU owner lock is held."""
+    if type(max_wait_seconds) not in (float, int) or max_wait_seconds < 0:
+        raise ValueError("Invalid owner backoff budget")
+    started = time.monotonic()
+    delay = 2.0
+    while True:
+        status = client.get(AVAILABILITY_PATH)
+        if type(status) is not dict or type(status.get("busy")) is not bool:
+            raise RuntimeError("NERAL busy status unavailable; refuse unsafe retry")
+        if status["busy"] is False:
+            return True
+        left = max_wait_seconds - (time.monotonic() - started)
+        if left <= 0:
+            return False
+        time.sleep(min(delay, left))
+        delay = min(5.0, delay + 1.0)
+
+
+def evaluate_with_busy_retries(tier, case, *, client, evaluator=None, max_wait_seconds=90):
+    """Retry transport 409 for the SAME task; never count 409 as model failure."""
+    if evaluator is None:
+        evaluator = bounded_evaluate
+    started = time.monotonic()
+    retries = 0
+    while True:
+        remaining = max(0.0, max_wait_seconds - (time.monotonic() - started))
+        if not wait_until_available(client, max_wait_seconds=remaining):
+            raise ServerBusyError("NERAL server stayed busy for 90-second recovery budget")
+        try:
+            record = evaluator(tier, case)
+        except ServerBusyError:
+            retries += 1
+            remaining = max_wait_seconds - (time.monotonic() - started)
+            if retries >= 5 or remaining <= 0:
+                raise ServerBusyError("Repeated HTTP409; stop batch without scoring")
+            time.sleep(min(2.0, remaining))
+            continue
+        record["http_409_retries"] = retries
+        record["busy_wait_ms"] = round(
+            (time.monotonic() - started) * 1000 - float(record.get("latency_ms", 0)))
+        return record
 
 
 def balanced_sample(cases, amount=50):
@@ -196,6 +259,8 @@ def bounded_evaluate(tier, case):
         status, code, response, grade, reason = result
         if status == "fatal":
             raise RuntimeError("Benchmark isolation verification failed; abort")
+        if code == 409:
+            raise ServerBusyError("HTTP409: server still executing previous request")
         failure = reason if reason in (
             "benchmark_exception", "runtime_error", "task_timeout",
             "worker_failed",
@@ -244,6 +309,7 @@ def _aggregate(rows, manifest, tiers, expected):
                 "max_latency_ms": round(max(rates), 1) if rates else None,
                 "vram_peak_mb": max(vram) if vram else None,
                 "repair_attempt_count": len(repair),
+                "http_409_retries": sum(int(r.get("http_409_retries") or 0) for r in rs),
                 "repair_hit_rate_pct": (
                     round(100 * sum(r.get("repair_success") is True for r in repair) / len(repair), 2)
                     if repair else None
@@ -254,7 +320,7 @@ def _aggregate(rows, manifest, tiers, expected):
 
 
 def run(sealed, manifest_path, private_details, summary_path, *,
-        tier, count=50, batch_offset=0, balanced_50=False):
+        tier, count=50, batch_offset=0, balanced_50=False, smoke_5=False):
     if tier not in TIERS:
         raise ValueError("Each job must select exactly one NERAL tier")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -262,7 +328,11 @@ def run(sealed, manifest_path, private_details, summary_path, *,
     if manifest["sha256"] != sealed_info["sha256"]:
         raise ValueError("Sealed SHA256 mismatch")
     all_cases = [json.loads(line) for line in sealed.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if balanced_50:
+    if smoke_5:
+        if balanced_50 or count != 5 or batch_offset:
+            raise ValueError("Smoke is exactly five tasks and cannot use A/B50 selection")
+        selected = smoke_sample(all_cases)
+    elif balanced_50:
         if count != 50 or batch_offset:
             raise ValueError("Balanced A/B is exactly 50 tasks, no offset")
         selected = balanced_sample(all_cases, 50)
@@ -278,6 +348,8 @@ def run(sealed, manifest_path, private_details, summary_path, *,
         raise RuntimeError("Offline grader Docker image unavailable")
     client = OwnerClient()
     client.connect()
+    if not wait_until_available(client, max_wait_seconds=90):
+        raise ServerBusyError("Owner GPU not idle before no-training probe")
     code, data, _ = client.post("Amber", "Hallo!", [])
     if code != 200 or data.get("benchmark_isolated") is not True:
         raise RuntimeError("Three-tier API does not enforce no-training isolation")
@@ -291,7 +363,7 @@ def run(sealed, manifest_path, private_details, summary_path, *,
         for case in selected:
             if case["id"] in keys:
                 continue
-            record = bounded_evaluate(tier, case)
+            record = evaluate_with_busy_retries(tier, case, client=client)
             out.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
             out.flush()
             os.fsync(out.fileno())
@@ -301,6 +373,8 @@ def run(sealed, manifest_path, private_details, summary_path, *,
                   f"category={case['category']} grade={record['grade']} "
                   f"latency_ms={record['latency_ms']} error={record['error']}", flush=True)
     OwnerClient().get("/")
+    if not wait_until_available(client, max_wait_seconds=90):
+        raise ServerBusyError("Owner GPU still busy after last task")
     summary = _aggregate(rows, manifest, (tier,), len(selected))
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -318,10 +392,11 @@ def main():
     p.add_argument("--count", type=int, default=50)
     p.add_argument("--batch-offset", type=int, default=0)
     p.add_argument("--balanced-50", action="store_true")
+    p.add_argument("--smoke-5", action="store_true")
     args = p.parse_args()
     run(args.sealed, args.manifest, args.private_details, args.summary,
         tier=args.tier, count=args.count, batch_offset=args.batch_offset,
-        balanced_50=args.balanced_50)
+        balanced_50=args.balanced_50, smoke_5=args.smoke_5)
 
 
 if __name__ == "__main__":
