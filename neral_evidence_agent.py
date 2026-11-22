@@ -1123,6 +1123,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     plan = None
     issue = ""
     veto_detail = None
+    year_page_stage = None
     executed = None
     actual_tool_calls = 0
     searched = False
@@ -1208,6 +1209,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
                 "actual_tool_calls": actual_tool_calls,
                 "checker_veto_detail_code": veto_detail if not checked else None,
+                "year_source_pipeline_code": year_page_stage if not checked else None,
                 "checker_veto_reason_code": (
                     checker_veto_class(issue, sources=sources, wiki_hits=wiki_hits,
                                        executed=executed) if not checked else None),
@@ -1555,6 +1557,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     from neral_v42_quality import year_evidence_subcode
                     veto_detail = year_evidence_subcode(
                         question, packet, evidence, sources, wiki_hits)
+                    from neral_v42_quality import year_source_pipeline_code
+                    year_page_stage = year_source_pipeline_code(
+                        question, sources, evidence)
                 if verdict in ("invalid_quote", "unsupported_year"):
                     # Deterministic two-sentence extraction is tried BEFORE
                     # any second planner/worker generation.
