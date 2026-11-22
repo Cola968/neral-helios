@@ -139,7 +139,7 @@ class StandardPlannerSchemaCPU(unittest.TestCase):
             {**basic, "override": True},
             {**basic, "search_query": "x" * 161},
             {**basic, "search_query": None},
-            {**basic, "search_query": "Apollo\\n11"},
+            {**basic, "search_query": "Apollo\n11"},
             {"tool": "do_something_else", "parts": ["X"], "search_query": ""},
         ):
             with self.subTest(packet=packet), self.assertRaises(AgentError):
