@@ -1206,7 +1206,12 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             status("wiki")
             steps.append("wiki_search")
             try:
-                candidates = local_lookup(question)
+                # Local Kiwix accepts at most 160 characters. Prefer the
+                # explicit user-authorized short query for verbose requests,
+                # otherwise use a bounded prefix of the same user text.
+                local_question = (fallback_query or question) if len(question) > 160 else question
+                local_question = local_question[:160].rsplit(" ", 1)[0] if len(local_question) > 160 else local_question
+                candidates = local_lookup(local_question)
             except (OSError, ValueError, RuntimeError):
                 candidates = []
             if isinstance(candidates, list):
