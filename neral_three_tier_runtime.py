@@ -1870,7 +1870,12 @@ class ThreeTierRuntime:
                 if explanation and not "\x60\x60\x60" in explanation:
                     final += "\n\n" + explanation[:1000]
 
+        # Evaluate only a bounded reason code; no stdout or prompt is logged.
+        from neral_v42_quality import stock_stdout_diagnostic_code
+        stdout_code = stock_stdout_diagnostic_code(
+            output, succeeded=succeeded == 1, prompt=source)
         return {
+            "math_stdout_diagnostic_code": stdout_code,
             "tier": "Helios", "mode": "HELIOS", "text": final,
             **({"auto_escalated_from": auto_from} if auto_from else {}),
             "model": self.helios.model, "model_generated": True,
