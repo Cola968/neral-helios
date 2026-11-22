@@ -1172,6 +1172,7 @@ class ThreeTierRuntime:
                 files=files, force_sandbox=force_sandbox))
         from neral_evidence_agent import run_evidence_agent
         from neral_v41_context import resolve_question
+        search = timed_tool("web_v4", search) if search is not None else None
         resolution = resolve_question(turns)
 
         def respond(instruction, payload, budget, schema):
@@ -1207,7 +1208,7 @@ class ThreeTierRuntime:
                         if fresh_question(fallback_query):
                             web_query = fallback_query
                         else:
-                            local_lookup = local_wiki_search
+                            local_lookup = timed_tool("kiwix", local_wiki_search)
         deep_options = ({"deep":True,"progress":_PROGRESS.get(),
                          "local_lookup":local_lookup,"fallback_query":fallback_query} if deep else {})
         check_deadline()
@@ -2039,7 +2040,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             from neral_v41_context import resolve_question
             resolution = resolve_question(turns)
             is_followup = resolution.is_followup
-            from neral_local_wiki import enabled as wiki_enabled, eligible_question, lookup_with_fallback
+            from neral_local_wiki import enabled as wiki_enabled, eligible_question, lookup_with_fallback, local_wiki_search
             auto_knowledge = (not deep_active and wiki_enabled() and runtime.evidence_agent and
                               search_service is not None and
                               requested_tier in ("Quartz", "Terra") and
@@ -2063,7 +2064,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                         search=search_service), "knowledge_route":"web_v4_fallback"}
                 result = lookup_with_fallback(
                     resolution.work_question, web_fallback,
-                    lambda hits: runtime.answer_local_wiki(turns, requested_tier, hits))
+                    lambda hits: runtime.answer_local_wiki(turns, requested_tier, hits),
+                    local=timed_tool("kiwix", local_wiki_search))
             elif note is not None and not deep_active:
                 result = {"text": note["text"], "tier": requested_tier,
                           "mode": requested_tier.upper(),
