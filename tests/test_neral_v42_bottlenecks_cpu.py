@@ -73,6 +73,27 @@ class ExactExecutedFinalCPU(unittest.TestCase):
         ):
             self.assertIsNone(exact_executed_numeric_tail(stdout, succeeded=good, prompt=prompt))
 
+    def test_sandbox_stdout_becomes_real_http_numeric_terminal_line(self):
+        runtime, low, high, old = make_runtime()
+        generated=[]
+        def propose(turns, **kwargs):
+            high.loaded=True
+            generated.append(turns)
+            return "```python\\nprint(17 * 23 - 46)\\n```"
+        high.respond_chat=propose
+        tool=Mock(return_value={"status":"PASSED","output":"345"})
+        runtime.execute_python=tool
+        answer=runtime.answer([
+            {"role":"system","content":"Löse nur die aktuelle Frage."},
+            {"role":"user","content":"Berechne die Restmenge aus 17 Kisten mit 23 Stück abzüglich 46. ENDERGEBNIS: <Wert>"},
+        ], "Quartz")
+        self.assertTrue(answer["sandbox_executed"])
+        self.assertEqual(_exact_text(answer["text"], "integer"), "345")
+        self.assertIn("nicht unabhängig geprüft",answer["text"])
+        self.assertEqual(len(generated),1,"Do not generate a conflicting second model completion")
+        tool.assert_called_once()
+
+
 
 class MandatoryResearchCPU(unittest.TestCase):
     def test_explicit_source_question_attempts_kiwix_then_authorized_web(self):
