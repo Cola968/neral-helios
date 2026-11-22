@@ -350,9 +350,18 @@ def run(sealed, manifest_path, private_details, summary_path, *,
     client.connect()
     if not wait_until_available(client, max_wait_seconds=90):
         raise ServerBusyError("Owner GPU not idle before no-training probe")
-    code, data, _ = client.post("Amber", "Hallo!", [])
-    if code != 200 or data.get("benchmark_isolated") is not True:
-        raise RuntimeError("Three-tier API does not enforce no-training isolation")
+    # The 5+5 diagnostic must measure the requested models, not consume an
+    # unscored cold-start Amber inference that may itself hit the 25s deadline.
+    # OwnerClient.post() independently validates benchmark isolation on EVERY
+    # successful scored request.
+    if smoke_5:
+        status = client.get("/api/neral/chat/three-tier/status")
+        if status.get("enabled") is not True or status.get("public_tiers") != list(TIERS):
+            raise RuntimeError("Three-tier owner service identity mismatch")
+    else:
+        code, data, _ = client.post("Amber", "Hallo!", [])
+        if code != 200 or data.get("benchmark_isolated") is not True:
+            raise RuntimeError("Three-tier API does not enforce no-training isolation")
     existing = load_checkpoint(private_details, all_cases, (tier,))
     keys = {r.get("task_id", r.get("id")) for r in existing}
     selected_ids = {r["id"] for r in selected}

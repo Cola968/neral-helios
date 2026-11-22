@@ -138,6 +138,38 @@ $files=@('neral_v41_context.py','neral_verified_notes.py',
          'templates/neral_preview.html',
          'static/neral-preview.js','static/neral-reference-ui.js')
 $backup=Join-Path $env:LOCALAPPDATA ('neral-v41-backup-'+$env:GITHUB_RUN_ID)
+if($approvedV42Smoke5 -and $env:NERAL_V42_SMOKE5_REVERT -ceq '1'){
+  # Same-run rollback after the experimental 5+5 measurement, regardless
+  # of pass/fail. Never promote unverified changes to the owner's service.
+  if(-not(Test-Path -LiteralPath $backup -PathType Container)){
+    throw 'Pinned same-run V4.2 owner snapshot absent; refuse blind rollback'
+  }
+  if(-not(HttpReady) -or $null -eq (ReadOwnedListener)){
+    throw 'Pinned owner service identity unhealthy before rollback'
+  }
+  StopOwned
+  foreach($file in $files){
+    $original=Join-Path $backup $file
+    $installed=Join-Path $root $file
+    if(Test-Path -LiteralPath $original -PathType Leaf){
+      Copy-Item -LiteralPath $original -Destination $installed -Force -ErrorAction Stop
+      if((Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash -ne
+         (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
+        throw ('Experiment rollback checksum mismatch: '+$file)
+      }
+    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+      Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
+    }else{
+      throw ('Experiment rollback source missing: '+$file)
+    }
+  }
+  StartOwned
+  if(-not(HttpReady) -or $null -eq (ReadOwnedListener)){
+    throw 'Pinned original service unavailable after experimental rollback'
+  }
+  Write-Host 'NERAL_V42_SMOKE5_ORIGINAL_OWNER_RESTORED_HTTP200'
+  return
+}
 if(Test-Path -LiteralPath $backup){throw 'Backup directory already exists'}
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
 foreach($file in $files){
@@ -192,11 +224,26 @@ try{
     throw 'Updated V4.1 service failed owned HTTP200 check'
   }
   Write-Host 'NERAL_V41_STAGED_ON_OWNER_HTTP200'
-  # Real HTTP/CSRF smoke across all 7 categories and 3 legacy aliases.
-  # No LoRA training, no private blind-test ingestion, no bulk web load.
-  $env:PYTHONPATH=$src
-  & $python -m scripts.neral_v41_owner_smoke
-  if($LASTEXITCODE -ne 0){throw 'V4.1 7-category HTTP acceptance failed'}
+  if($approvedV42Smoke5){
+    # Probe service identity and lock only. The EXACT 5+5 test downstream is
+    # the first inference. A cold-model timeout must be measured, not hidden
+    # behind an unrelated 7-category deployment prerequisite.
+    $identity=Invoke-RestMethod -UseBasicParsing -TimeoutSec 5 -Uri 'http://127.0.0.1:9690/api/neral/chat/three-tier/status'
+    $ready=Invoke-RestMethod -UseBasicParsing -TimeoutSec 5 -Uri 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability'
+    if($identity.enabled -ne $true -or
+       @($identity.public_tiers).Count -ne 3 -or
+       $ready.busy -ne $false -or
+       $ready.deadline_seconds.Quartz -ne 40 -or
+       $ready.deadline_seconds.Obsidian -ne 70){
+      throw 'Temporary smoke-stage identity, timer or busy-lock check failed'
+    }
+    Write-Host 'NERAL_V42_SMOKE5_STAGED_ONLY_NO_INFERENCE'
+  }else{
+    # Full original owner acceptance remains required for all other deployments.
+    $env:PYTHONPATH=$src
+    & $python -m scripts.neral_v41_owner_smoke
+    if($LASTEXITCODE -ne 0){throw 'V4.1 7-category HTTP acceptance failed'}
+  }
   if(-not(HttpReady) -or $null -eq (ReadOwnedListener)){
     throw 'V4.1 owner service not HTTP-ready after smoke'
   }
