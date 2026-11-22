@@ -1406,7 +1406,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             question, sourced, evidence, sources, wiki_hits) == "supported":
                         grounded_text = _work(
                             {"tool": "direct_reasoning"}, sourced, evidence,
-                            observed_execute, external, numeric_evidence)
+                            observed_execute, external, {})
                         executed = "direct_reasoning"
                         steps.append("literal_year_read_page")
                         grounded_result = result(
