@@ -996,8 +996,10 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False,
                        fast_web=False, deep=False, progress=None,
-                       local_lookup=None, fallback_query=None):
+                       local_lookup=None, fallback_query=None, max_attempts=None):
     """Only the user-authorized search query can leave the machine."""
+    if max_attempts is not None and (type(max_attempts) is not int or not 1 <= max_attempts <= 3):
+        raise ValueError("Unapproved evidence attempt cap")
     # V3.2: deterministically execute exact user-provided Python source and
     # independently certified four-person counting constraints before any
     # model-authored planner, worker or subjective LLM validation veto.
@@ -1142,7 +1144,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 del evidence[key]
         wiki_hits = []
 
-    for attempt in range(MAX_REPAIRS + 1):
+    for attempt in range(MAX_REPAIRS + 1 if max_attempts is None else max_attempts):
         packet = None
         try:
             if plan is None:
@@ -1420,4 +1422,4 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                         web_query=fallback_query
                 if web_query:
                     searched=False
-    return result("Ich konnte die Aufgabe nicht vollständig absichern. " + issue, attempts=MAX_REPAIRS+1)
+    return result("Ich konnte die Aufgabe nicht vollständig absichern. " + issue, attempts=MAX_REPAIRS+1 if max_attempts is None else max_attempts)
