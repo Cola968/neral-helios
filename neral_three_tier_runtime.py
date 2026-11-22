@@ -1185,7 +1185,8 @@ class ThreeTierRuntime:
         check_deadline()
         if deep:
             attempts = int(result.get("agent_attempts") or 0)
-            result = {**result, "repair_attempts": max(0, attempts - 1),
+            result = {**result, "obsidian_deep": True,
+                      "repair_attempts": max(0, attempts - 1),
                       "repair_success": attempts > 1 and result.get("agent_checked") is True}
         if resolution.is_followup:
             # User-context reconstruction is never independent proof.
