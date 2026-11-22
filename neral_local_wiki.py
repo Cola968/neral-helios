@@ -41,7 +41,7 @@ def eligible_question(question):
 
 
 def enabled():
-    return os.environ.get("NERAL_V42_OFFLINE_RAG", "0") == "1"
+    return os.environ.get("NERAL_V42_OFFLINE_RAG", "1") == "1"
 
 
 def _get(path, deadline):
