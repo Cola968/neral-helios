@@ -113,6 +113,43 @@ class RepairToolCPU(unittest.TestCase):
 
 
 class GroundedEvidenceCPU(unittest.TestCase):
+    def test_actual_web_agent_bypasses_only_false_missing_quote_veto(self):
+        import json
+        from unittest.mock import Mock
+        source_text="Elektrostatik untersucht ruhende elektrische Ladungen."
+        def diagnostic_response(extra_claim=False):
+            answers=[
+                {"tool":"direct_reasoning","parts":["Definition mit Quelle"],},
+                {"answer":source_text + (" Pluto ist ein Stern." if extra_claim else ""),
+                 "citations":["p1"]},
+                {"ok":False,"issue":"Wörtlicher Quellenbeleg fehlt."},
+            ]
+            def respond(system,payload,budget,schema):
+                return json.dumps(answers.pop(0))
+            return respond
+        search=Mock()
+        search.search.return_value={"results":[{"url":"https://example.org/electrostatics"}]}
+        page_reader=Mock(return_value=[{"url":"https://example.org/electrostatics",
+                                         "page_read":True,"page_text":source_text}])
+        kwargs={"web_query":"Was ist Elektrostatik?", "search":search,
+                "page_reader":page_reader,"max_attempts":1}
+        with patch("neral_v32_verifier.verified_math_question",return_value=None), \
+             patch("neral_knowledge_verifier.verified_element_question",return_value=None):
+            accepted=run_evidence_agent("Was ist Elektrostatik?",
+                                       diagnostic_response(),Mock(),**kwargs)
+            rejected=run_evidence_agent("Was ist Elektrostatik?",
+                                       diagnostic_response(extra_claim=True),Mock(),**kwargs)
+        self.assertTrue(accepted["agent_checked"])
+        self.assertFalse(accepted["verified"])
+        self.assertFalse(accepted["safe_to_promote"])
+        self.assertFalse(accepted["tool_verified"])
+        self.assertEqual(accepted["verification_scope"],
+                         "literal_source_read_not_independent_fact_proof")
+        self.assertEqual(accepted["veto_override_reason_code"],
+                         "generic_quote_veto_exact_literal")
+        self.assertFalse(rejected["agent_checked"])
+        self.assertEqual(rejected["error_code"],"checker_veto")
+
     def test_literal_wiki_and_read_web_are_allowed_if_checker_only_gives_generic_veto(self):
         packet={"answer":"Elektrostatik untersucht elektrische Ladungen.",
                 "citations":[{"source":"wiki1","quote":"Elektrostatik untersucht elektrische Ladungen."}]}
