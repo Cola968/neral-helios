@@ -1172,7 +1172,7 @@ class ThreeTierRuntime:
                 files=files, force_sandbox=force_sandbox))
         from neral_evidence_agent import run_evidence_agent
         from neral_v41_context import resolve_question
-        search = timed_tool("web_v4", search) if search is not None else None
+        search = timed_tool("web_v4", search) if callable(search) else search
         resolution = resolve_question(turns)
 
         def respond(instruction, payload, budget, schema):
