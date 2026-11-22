@@ -12,6 +12,7 @@ on:
       - 'scripts/neral_v41_blind200_live.py'
       - 'scripts/build_neral_1_0_preview.py'
       - 'tests/test_neral_v42_bottlenecks_cpu.py'
+      - 'tests/test_neral_v42_fastpath_math_evidence_cpu.py'
       - '.github/workflows/neral-v42-bottlenecks-cpu.yml'
 permissions:
   contents: read
@@ -36,6 +37,7 @@ jobs:
       - name: New four-bottleneck and existing release/import contracts
         run: |
           python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_fastpath_math_evidence_cpu.py -v
           python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: Real release ZIP build and required local modules
         run: python -m scripts.build_neral_1_0_preview --out NERAL-1.0-Local-Preview.zip
