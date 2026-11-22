@@ -16,18 +16,18 @@ def enabled():
     return os.environ.get("NERAL_V42_OBSIDIAN_DEEP", "1") == "1"
 
 _COMPLEX_INTENT = re.compile(
-    r"(?iu)\\b(?:berechn\\w*|rechne|rechnung\\w*|mathematik|logik|z3|"
-    r"programmier\\w*|python|code|funktion\\w*|algorithmus|debug\\w*|"
-    r"schicht\\w*|zuordn\\w*|vergleich\\w*|vergleiche|analysier\\w*|"
-    r"recherch\\w*|quelle\\w*|beleg\\w*|zitat\\w*|web\\w*|wiki\\w*|"
-    r"aktuell\\w*|heute|gestern|morgen|neueste\\w*|jahr\\w*|datum|"
-    r"statistik\\w*|beweis\\w*|mehrstufig\\w*|zuerst|danach|"
-    r"mehrere\\s+(?:schritte|quellen|artikel)|"
-    r"wann|wer|wo|wieviel|wie\\s+viel|wie\\s+hoch)\\b"
+    r"(?iu)\b(?:berechn\w*|rechne|rechnung\w*|mathematik|logik|z3|"
+    r"programmier\w*|python|code|funktion\w*|algorithmus|debug\w*|"
+    r"schicht\w*|zuordn\w*|vergleich\w*|vergleiche|analysier\w*|"
+    r"recherch\w*|quelle\w*|beleg\w*|zitat\w*|web\w*|wiki\w*|"
+    r"aktuell\w*|heute|gestern|morgen|neueste\w*|jahr\w*|datum|"
+    r"statistik\w*|beweis\w*|mehrstufig\w*|zuerst|danach|"
+    r"mehrere\s+(?:schritte|quellen|artikel)|"
+    r"wann|wer|wo|wieviel|wie\s+viel|wie\s+hoch)\b"
 )
 _SIMPLE_EXPLANATION = re.compile(
-    r"(?iu)(?:^|[?!.]\\s+)(?:warum|wieso|weshalb|erkläre|erklaere|"
-    r"wie\\s+funktioniert|was\\s+bedeutet|was\\s+ist)\\b"
+    r"(?iu)(?:^|[?!.]\s+)(?:warum|wieso|weshalb|erkläre|erklaere|"
+    r"wie\s+funktioniert|was\s+bedeutet|was\s+ist)\b"
 )
 
 
