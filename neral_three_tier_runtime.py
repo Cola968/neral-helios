@@ -1183,12 +1183,14 @@ class ThreeTierRuntime:
                     "adapter_sha256": None,
                     "model_origin": "local_source_unverified_tools_only",
                     "quality_improvement_proven": False}
-        return {**result, "tier": "Helios", "mode": "HELIOS", "model": self.helios.model,
+        # Quartz is a single-pass 9B route, not an implicit Obsidian escalation.
+        assigned = "Terra" if tier == "Terra" else "Helios"
+        return {**result, "tier": assigned, "mode": assigned.upper(), "model": self.helios.model,
                 "model_generated": True, "adapter_loaded": self.helios.loaded,
                 "adapter_sha256": self.helios.adapter_sha256 if self.helios.loaded else None,
                 "model_origin": "local_neral_lora_experimental",
                 "quality_improvement_proven": False,
-                **({"auto_escalated_from": tier} if tier != "Helios" else {})}
+                **({"auto_escalated_from": tier} if tier not in ("Helios", "Terra") else {})}
 
     def answer_local_wiki(self, turns, tier, hits):
         """Use one normal generation, never a proof or strategy-memory entry."""
