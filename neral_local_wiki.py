@@ -40,6 +40,23 @@ def eligible_question(question):
             and bool(_words(question)))
 
 
+_SOURCE_REQUEST = re.compile(
+    r"(?iu)\b(?:beleg\w*|quelle\w*|quellen|zitier\w*|"
+    r"zitat\w*|source\w*|citation\w*|cite|"
+    r"recherchier\w*|nachweis\w*)\b"
+)
+
+
+def source_required(question):
+    """Explicit user source consent, not a blanket automatic web opt-in."""
+    return (type(question) is str and 4 <= len(question.strip()) <= 160
+            and all(ch.isprintable() for ch in question)
+            and not _PRIVATE.search(question)
+            and not _TASK.search(question)
+            and bool(_SOURCE_REQUEST.search(question))
+            and bool(_words(question)))
+
+
 def enabled():
     return os.environ.get("NERAL_V42_OFFLINE_RAG", "1") == "1"
 
