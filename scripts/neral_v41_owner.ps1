@@ -78,6 +78,46 @@ function ReadOwnedListener {
   }
   return @{child=$child;parent=$parent}
 }
+function SnapshotOwnedPythonDescendants($owned) {
+  # Only children of authenticated Python workers bound to NERAL port 9690.
+  if($null -eq $owned){return @()}
+  $all=@(Get-CimInstance Win32_Process -ErrorAction Stop)
+  $known=New-Object 'System.Collections.Generic.HashSet[int]'
+  [void]$known.Add([int]$owned.parent.ProcessId)
+  [void]$known.Add([int]$owned.child.ProcessId)
+  $children=New-Object System.Collections.ArrayList
+  $growing=$true
+  while($growing){
+    $growing=$false
+    foreach($p in $all){
+      if($known.Contains([int]$p.ProcessId)){continue}
+      if($known.Contains([int]$p.ParentProcessId)){
+        [void]$known.Add([int]$p.ProcessId)
+        $growing=$true
+        if([string]$p.Name -match '(?i)^pythonw?\.exe$'){
+          [void]$children.Add(@{ProcessId=[int]$p.ProcessId;CreationDate=[string]$p.CreationDate})
+        }
+      }
+    }
+  }
+  return @($children.ToArray())
+}
+function Write-NeralGpuBaseline {
+  # Numerical driver-wide baseline; do not inspect or kill other GPU owners.
+  $rows=@(& nvidia-smi.exe --query-gpu=memory.used,memory.free,memory.total --format=csv,noheader,nounits 2>$null)
+  if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1 -or
+     [string]$rows[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+    throw 'GPU memory baseline unavailable'
+  }
+  $used=[int]$Matches[1]
+  $free=[int]$Matches[2]
+  $total=[int]$Matches[3]
+  if($total -lt 10000 -or $used+$free -gt $total+256){
+    throw 'GPU memory baseline inconsistent'
+  }
+  Write-Host ('NERAL_GPU_BASELINE_MIB used='+$used+' free='+$free+' total='+$total)
+  if($used -gt 10752){throw 'GPU memory cap exceeded before NERAL startup'}
+}
 function StopOwned {
   $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
   if(@($task.Actions).Count -ne 1 -or
@@ -85,6 +125,7 @@ function StopOwned {
     throw 'Scheduled task identity changed'
   }
   $prior=ReadOwnedListener
+  $descendants=@(SnapshotOwnedPythonDescendants $prior)
   if([string]$task.State -eq 'Running'){
     Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
     for($i=0;$i -lt 20;$i++){
@@ -115,6 +156,16 @@ function StopOwned {
       }
     }
   }
+  $reaped=0
+  foreach($entry in $descendants){
+    $live=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$entry.ProcessId) -ErrorAction SilentlyContinue
+    if($live -and [string]$live.CreationDate -eq [string]$entry.CreationDate -and
+       [string]$live.Name -match '(?i)^pythonw?\.exe$'){
+      Stop-Process -Id ([int]$entry.ProcessId) -Force -ErrorAction SilentlyContinue
+      $reaped++
+    }
+  }
+  Write-Host ('NERAL_OWNER_PYTHON_CHILDREN_REAPED='+$reaped)
   for($i=0;$i -lt 12;$i++){
     if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -eq 0){return}
     Start-Sleep -Milliseconds 500
@@ -212,6 +263,7 @@ $completed=$false
 try{
   StopOwned
   $changed=$true
+  Write-NeralGpuBaseline
   foreach($file in $files){
     $source=Join-Path $src $file
     $installed=Join-Path $root $file
@@ -257,7 +309,8 @@ try{
 }finally{
   if($changed -and -not $completed){
     # The benchmark cannot be used to auto-promote a failed source pipeline.
-    if(HttpReady){StopOwned}
+    # A failed CUDA warmup may leave a process alive without HTTP readiness.
+    StopOwned
     foreach($file in $files){
       $original=Join-Path $backup $file
       $installed=Join-Path $root $file
