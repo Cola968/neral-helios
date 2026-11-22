@@ -1211,23 +1211,34 @@ class ThreeTierRuntime:
             return result
 
         from neral_obsidian_deep import active, _PROGRESS, _SEARCH
+        from neral_local_wiki import (
+            enabled as wiki_enabled, eligible_question, fresh_question,
+            source_required, local_wiki_search,
+        )
         deep = active(tier) and self.evidence_agent and not files
         local_lookup = None
         fallback_query = None
-        if deep and not web_query and not force_sandbox and not resolution.is_followup:
-            try:
-                from neral_local_wiki import enabled, eligible_question, fresh_question, local_wiki_search
-            except ImportError:
-                pass  # PR #585 intentionally not a branch dependency.
+        # An explicit source request is permission to research public facts,
+        # never permission to transmit private notes or arbitrary context.
+        needs_sources = (source_required(resolution.work_question) and
+                         not files and not force_sandbox)
+        if needs_sources:
+            authorized = web_query or resolution.work_question
+            if wiki_enabled() and not fresh_question(resolution.work_question):
+                local_lookup = timed_tool("kiwix", local_wiki_search)
+                fallback_query = authorized
+                web_query = None  # local ZIM first; web only on genuine miss
             else:
-                if enabled() and eligible_question(resolution.work_question):
-                    search = search or _SEARCH.get()
-                    if search is not None:
-                        fallback_query = resolution.work_question
-                        if fresh_question(fallback_query):
-                            web_query = fallback_query
-                        else:
-                            local_lookup = timed_tool("kiwix", local_wiki_search)
+                web_query = authorized
+        elif deep and not web_query and not force_sandbox and not resolution.is_followup:
+            if wiki_enabled() and eligible_question(resolution.work_question):
+                search = search or timed_search_service(_SEARCH.get())
+                if search is not None:
+                    fallback_query = resolution.work_question
+                    if fresh_question(fallback_query):
+                        web_query = fallback_query
+                    else:
+                        local_lookup = timed_tool("kiwix", local_wiki_search)
         deep_options = ({"deep":True,"progress":_PROGRESS.get(),
                          "local_lookup":local_lookup,"fallback_query":fallback_query} if deep else {})
         check_deadline()
