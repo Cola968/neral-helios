@@ -49,7 +49,7 @@ _SOURCE_REQUEST = re.compile(
 
 def source_required(question):
     """Explicit user source consent, not a blanket automatic web opt-in."""
-    return (type(question) is str and 4 <= len(question.strip()) <= 160
+    return (type(question) is str and 4 <= len(question.strip()) <= 320
             and all(ch.isprintable() for ch in question)
             and not _PRIVATE.search(question)
             and not _TASK.search(question)
