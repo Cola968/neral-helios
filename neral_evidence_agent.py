@@ -1430,7 +1430,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             # concrete contradiction, unsupported extra claim, or stale fact.
             if (plan["tool"] == "direct_reasoning" and
                     evidence_veto_is_generic(review["issue"]) and
-                    grounded_literal_citations(packet, evidence, sources, wiki_hits)):
+                    grounded_literal_citations(packet, evidence, sources, wiki_hits,
+                                              passages=passages)):
                 literal = result(answer, checked=True, attempts=attempt+1)
                 return {**literal, "verified": False, "safe_to_promote": False,
                         "tool_verified": False,
