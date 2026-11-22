@@ -1,0 +1,165 @@
+name: NERAL V4.2 owner-approved 5+5 timeout recovery smoke
+on:
+  pull_request:
+    paths:
+      - .github/workflows/neral-v42-deadline-smoke5.yml
+      - .github/workflows/neral-v42-deadline-cpu.yml
+      - neral_three_tier_runtime.py
+      - neral_v42_deadline.py
+      - scripts/neral_v42_resumable.py
+      - scripts/neral_v41_owner.ps1
+      - tests/test_neral_v42_deadline_backoff_cpu.py
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v42-deadline-smoke5.yml]
+permissions:
+  contents: read
+jobs:
+  cpu-preflight:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 owner-approved deadline smoke5 20261122') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: Deadline, HTTP409 backoff and three-tier CPU contracts
+        run: |
+          python -m py_compile neral_v42_deadline.py neral_three_tier_runtime.py scripts/neral_v42_resumable.py
+          python -m unittest discover -s tests -p test_neral_v42_deadline_backoff_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_latency_routing_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_obsidian_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_resumable_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_offline_rag.py -v
+          python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
+      - name: CPU proof of precise owner launch authorization
+        shell: pwsh
+        run: ./tests/test_neral_v41_owner_approval.ps1
+  owner-deploy:
+    if: ${{ github.event_name == 'push' && needs.cpu-preflight.result == 'success' }}
+    needs: cpu-preflight
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 25
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Owner-only staged runtime activation with SHA256 backup/rollback and seven-category smoke
+        env:
+          NERAL_V42_SMOKE5_APPROVED: NERAL-V42-SMOKE5-APPROVED
+          NERAL_V42_SMOKE5_PREFLIGHT: ${{ needs.cpu-preflight.result }}
+          NERAL_V42_SMOKE5_MERGE_TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v41_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Owner stage failed'}
+          $availability=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -TimeoutSec 5
+          if($availability.busy -ne $false){throw 'Owner server not idle after deployment'}
+          if($availability.deadline_seconds.Amber -ne 25 -or
+             $availability.deadline_seconds.Quartz -ne 40 -or
+             $availability.deadline_seconds.Obsidian -ne 70){throw 'Wrong deployed server deadline budgets'}
+          Write-Host 'NERAL_V42_SMOKE5_OWNER_READY_AND_IDLE'
+  quartz-five:
+    needs: owner-deploy
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 20
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exactly five sealed categories with 45-second Quartz client cap and 409 retry
+        env:
+          TIER: Quartz
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          $snapshot=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057'
+          $sealed=Join-Path $snapshot 'sealed200.jsonl'
+          $manifest=Join-Path $snapshot 'manifest.json'
+          if(-not(Test-Path -LiteralPath $sealed) -or -not(Test-Path -LiteralPath $manifest)){throw 'Sealed private reference snapshot missing'}
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-smoke5/'+$env:GITHUB_RUN_ID+'/Quartz')
+          if(Test-Path -LiteralPath $private){throw 'Refuse overwrite existing private smoke5'}
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
+          $summary=Join-Path $private 'summary.json'
+          & $python -m scripts.neral_v42_resumable --sealed $sealed --manifest $manifest --tier Quartz --count 5 --smoke-5 --private-details (Join-Path $private 'private-details.jsonl') --summary $summary
+          if($LASTEXITCODE -ne 0){throw 'Quartz smoke5 incomplete; see private checkpoint'}
+          $public=Join-Path $env:RUNNER_TEMP ('neral-v42-smoke5-'+$env:GITHUB_RUN_ID+'-Quartz')
+          New-Item -ItemType Directory -Path $public -Force | Out-Null
+          Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
+          $status=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -TimeoutSec 5
+          if($status.busy -ne $false){throw 'Quartz left GPU lock busy'}
+          $code=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){throw 'Quartz after-test HTTP200 not confirmed'}
+          Write-Host 'NERAL_QUARTZ_SMOKE5_COMPLETE_IDLE_HTTP200'
+      - name: Upload Quartz aggregates only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v42-smoke5-quartz-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-v42-smoke5-${{ github.run_id }}-Quartz/
+          if-no-files-found: warn
+          retention-days: 14
+  obsidian-five:
+    if: ${{ always() && needs.owner-deploy.result == 'success' }}
+    needs: [owner-deploy, quartz-five]
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 25
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Same five sealed cases with 75-second Obsidian Deep client cap and 409 retry
+        env:
+          TIER: Obsidian
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          $snapshot=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057'
+          $sealed=Join-Path $snapshot 'sealed200.jsonl'
+          $manifest=Join-Path $snapshot 'manifest.json'
+          if(-not(Test-Path -LiteralPath $sealed) -or -not(Test-Path -LiteralPath $manifest)){throw 'Sealed private reference snapshot missing'}
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-smoke5/'+$env:GITHUB_RUN_ID+'/Obsidian')
+          if(Test-Path -LiteralPath $private){throw 'Refuse overwrite existing private smoke5'}
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
+          $summary=Join-Path $private 'summary.json'
+          & $python -m scripts.neral_v42_resumable --sealed $sealed --manifest $manifest --tier Obsidian --count 5 --smoke-5 --private-details (Join-Path $private 'private-details.jsonl') --summary $summary
+          if($LASTEXITCODE -ne 0){throw 'Obsidian smoke5 incomplete; see private checkpoint'}
+          $public=Join-Path $env:RUNNER_TEMP ('neral-v42-smoke5-'+$env:GITHUB_RUN_ID+'-Obsidian')
+          New-Item -ItemType Directory -Path $public -Force | Out-Null
+          Copy-Item -LiteralPath $summary -Destination (Join-Path $public 'summary.json')
+          $status=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -TimeoutSec 5
+          if($status.busy -ne $false){throw 'Obsidian left GPU lock busy'}
+          $code=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){throw 'Obsidian after-test HTTP200 not confirmed'}
+          Write-Host 'NERAL_OBSIDIAN_SMOKE5_COMPLETE_IDLE_HTTP200'
+      - name: Upload Obsidian aggregates only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v42-smoke5-obsidian-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-v42-smoke5-${{ github.run_id }}-Obsidian/
+          if-no-files-found: warn
+          retention-days: 14
