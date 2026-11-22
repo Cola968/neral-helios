@@ -14,6 +14,23 @@ from neral_web_search import safe_result_url
 
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
+
+
+_YEAR_CLIP_CODES = frozenset((
+    "not_year_query", "year_absent_from_page", "year_preserved_in_extract",
+    "year_lost_in_clip",
+))
+
+
+def _bounded_year_clip_code(query, original, excerpt):
+    """Only a four-way code; never retain or emit the web page or query."""
+    if not isinstance(query, str) or re.search(r"(?i)\b(?:year|jahr)\b", query) is None:
+        return "not_year_query"
+    year_pattern = r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)"
+    if re.search(year_pattern, original) is None:
+        return "year_absent_from_page"
+    return ("year_preserved_in_extract" if re.search(year_pattern, excerpt)
+            else "year_lost_in_clip")
 TIMEOUT = 4.0
 CONNECT_TIMEOUT = 2.5
 _executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="page-reader")
@@ -30,6 +47,7 @@ class MainText(HTMLParser):
         self.stack = []
         self.all = []
         self.main = []
+        self.year_clip_code = "not_year_query"
 
     def _add(self, data):
         if not any(hidden for _, hidden in self.stack):
@@ -69,8 +87,10 @@ class MainText(HTMLParser):
         lines = list(dict.fromkeys(
             line for part in "".join(self.main or self.all).splitlines()
             if (line := " ".join(part.split()))))
-        if len("\n".join(lines)) <= MAX_TEXT:
-            return "\n".join(lines)
+        full = "\n".join(lines)
+        if len(full) <= MAX_TEXT:
+            self.year_clip_code = _bounded_year_clip_code(query, full, full)
+            return full
         terms = set(re.findall(r"\b[^\W\d_]{3,}\b", query.casefold())) - {
             "der", "die", "das", "den", "dem", "bitte", "aktuell", "nach", "und", "von", "was"}
         topic = re.compile(r"\b(?:rendering|browser|layout|engine|entwickler|"
@@ -117,8 +137,11 @@ class MainText(HTMLParser):
                 break
         # A single long relevant paragraph still provides an excerpt.
         if not selected or (ranked and len(lines[ranked[0]]) >= MAX_TEXT):
-            return _complete_text_clip(lines[ranked[0]], MAX_TEXT)
-        return "\n".join(lines[i] for i in sorted(selected))
+            excerpt = _complete_text_clip(lines[ranked[0]], MAX_TEXT)
+        else:
+            excerpt = "\n".join(lines[i] for i in sorted(selected))
+        self.year_clip_code = _bounded_year_clip_code(query, full, excerpt)
+        return excerpt
 
 
 
@@ -323,7 +346,8 @@ def fetch_and_extract(url, query=""):
                 parser.feed(markup)
                 parser.close()
             text = parser.text(query)
-            return {"url": url, "text": text} if text.strip() else None
+            return {"url": url, "text": text,
+                    "year_clip_code": parser.year_clip_code} if text.strip() else None
         except (OSError, ValueError, LookupError, http.client.HTTPException):
             return None
         finally:
@@ -353,6 +377,9 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract):
                        "title": str(hit.get("title", ""))[:160],
                        "snippet": str(hit.get("snippet", ""))[:350],
                        "page_text": (_complete_text_clip(page["text"]) or page["text"][:MAX_TEXT]) if page else "",
+                       "year_clip_code": (page.get("year_clip_code")
+                                          if page and page.get("year_clip_code") in _YEAR_CLIP_CODES
+                                          else "not_available"),
                        "page_read": page is not None, "reachable": page is not None,
                        "discovered": True})
     return result
