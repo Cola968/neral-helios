@@ -1933,7 +1933,7 @@ class ThreeTierRuntime:
                 "\nWerkzeugstrategie (kein Faktenbeleg): " + hint), *turns[1:]]
         response = tidy_unverified_model_text(
             chosen.respond_chat(model_turns, max_new_tokens=(
-                80 if _obsidian_simple and tier == "Helios" else
+                256 if _obsidian_simple and tier == "Helios" else
                 768 if _amber_public and tier == "Luna" else TIERS[tier])))
         if type(response) is not str or not response.strip():
             raise RuntimeError("Selected local HF model returned empty result")
