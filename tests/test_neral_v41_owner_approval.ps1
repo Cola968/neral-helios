@@ -195,3 +195,42 @@ foreach($case in @(
   if(-not $denied){throw 'PR603 accepted unauthorized or repeated 3+3 run'}
 }
 Write-Host 'PASS PR603 replay, token, title, branch, event and CPU-denial'
+
+# Fifth owner-approved postmerge diagnostic, never the A/B50 pipeline.
+$parseTokens=$null
+$parseErrors=$null
+$null=[System.Management.Automation.Language.Parser]::ParseFile(
+  (Resolve-Path (Join-Path $PSScriptRoot '../scripts/neral_v41_owner.ps1')),
+  [ref]$parseTokens,[ref]$parseErrors)
+if($parseErrors.Count -ne 0){throw 'Owner PowerShell parse failure'}
+Write-Host 'PASS owner process-tree and VRAM PowerShell syntax'
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V41_BLIND200_APPROVED=''
+$env:NERAL_V42_AB50_APPROVED=''
+$env:NERAL_V42_SMOKE5_APPROVED=''
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122'
+& $guard
+Write-Host 'PASS PR604 fifth one-shot 3+3 authorization'
+foreach($bad in @(
+  @{ref='refs/heads/main';event='push';attempt='2';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='failure';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';token='';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='Unrelated commit'},
+  @{ref='refs/heads/other';event='push';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122'},
+  @{ref='refs/heads/main';event='pull_request';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122'}
+)){
+  $env:GITHUB_REF=$bad.ref
+  $env:GITHUB_EVENT_NAME=$bad.event
+  $env:GITHUB_RUN_ATTEMPT=$bad.attempt
+  $env:NERAL_V42_DIAG3_PREFLIGHT=$bad.preflight
+  $env:NERAL_V42_DIAG3_APPROVED=$bad.token
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$bad.title
+  $rejected=$false
+  try { & $guard } catch { $rejected=$true }
+  if(-not $rejected){throw 'PR604 accepted unauthorized or repeated diagnostic'}
+}
+Write-Host 'PASS PR604 replay, preflight, token, title, branch and event denial'

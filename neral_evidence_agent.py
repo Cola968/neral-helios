@@ -1389,6 +1389,34 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     plan, searched = None, False
                     continue
                 return result("Keine lesbare Webseite mit einem Beleg für: " + needed, attempts=attempt+1)
+            # Controller-only shortcut for a uniquely grounded literal
+            # event-year on an actually read HTTPS page. No model worker,
+            # fallible critic or repair loop after a complete fact attribution.
+            if (provenance_needed and web_query and not files and not wiki_hits and
+                    plan["tool"] == "direct_reasoning"):
+                from neral_v42_quality import (
+                    unique_read_year_source, year_evidence_verdict)
+                literal_year = unique_read_year_source(question, sources)
+                if (literal_year is not None and
+                        literal_year["quote"] in evidence.get(literal_year["source"], "")):
+                    sourced = {"answer": literal_year["year"],
+                               "citations": [{"source": literal_year["source"],
+                                              "quote": literal_year["quote"]}]}
+                    if year_evidence_verdict(
+                            question, sourced, evidence, sources, wiki_hits) == "supported":
+                        grounded_text = _work(
+                            {"tool": "direct_reasoning"}, sourced, evidence,
+                            observed_execute, external, {})
+                        executed = "direct_reasoning"
+                        steps.append("literal_year_read_page")
+                        grounded_result = result(
+                            grounded_text, checked=True, attempts=attempt+1)
+                        return {**grounded_result, "verified": False,
+                                "safe_to_promote": False, "tool_verified": False,
+                                "verification_scope":
+                                    "read_page_literal_year_not_truth_proof",
+                                "source_year_match": True,
+                                "source_year_shortcut": True}
             steps.append("worker")
             exact = quantity_plan(question, evidence)
             status("tool",attempt+1,"python_sandbox" if exact is not None and not files and not wiki_hits else plan["tool"])

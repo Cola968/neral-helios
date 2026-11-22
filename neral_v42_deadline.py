@@ -13,6 +13,17 @@ import time
 
 
 MODE_BUDGETS = {"Amber": 25, "Quartz": 40, "Obsidian": 70}
+TOOL_BUDGET_EXTENSION = 15
+
+
+def deadline_seconds_for_request(tier, *, tool_active=False):
+    """Extend only selected tool work, not everyday conversation."""
+    canonical = canonical_tier(tier)
+    if type(tool_active) is not bool:
+        raise ValueError("tool_active must be a boolean")
+    return MODE_BUDGETS[canonical] + (
+        TOOL_BUDGET_EXTENSION if tool_active and canonical in ("Quartz", "Obsidian") else 0)
+
 ALIASES = {"Luna": "Amber", "Terra": "Quartz", "Helios": "Obsidian"}
 _REQUEST_DEADLINE = ContextVar("neral_v42_request_deadline", default=None)
 

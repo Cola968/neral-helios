@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 from fractions import Fraction
 import time
 from collections.abc import Mapping
@@ -31,6 +32,7 @@ from neral_v42_telemetry import (
 from neral_v42_deadline import (
     DeadlineExceeded, MODE_BUDGETS, canonical_tier, check_deadline,
     remaining_seconds, should_stop_generation, _REQUEST_DEADLINE,
+    deadline_seconds_for_request,
 )
 
 LUNA = "qwen3.5:4b"
@@ -64,6 +66,43 @@ def _offline():
         "HF_HUB_DISABLE_TELEMETRY": "1", "HF_DATASETS_OFFLINE": "1",
         "TOKENIZERS_PARALLELISM": "false", "WANDB_DISABLED": "true",
     })
+
+
+
+# 10.5 GiB driver-wide envelope. The caching-allocator fraction does NOT
+# police the CUDA context, native extensions or GPU use by other processes.
+MAX_TOTAL_GPU_USED_MIB = 10_752
+
+
+def configure_cuda_allocator_limit(torch):
+    """Limit only the private PyTorch allocator before loading model tensors."""
+    _, total_bytes = torch.cuda.mem_get_info(0)
+    if total_bytes <= 0:
+        raise RuntimeError("GPU memory cap needs a CUDA device")
+    mib = 1024 ** 2
+    limit = min(MAX_TOTAL_GPU_USED_MIB, int(total_bytes // mib))
+    torch.cuda.set_per_process_memory_fraction(
+        min(1.0, limit * mib / total_bytes), device=0)
+    return limit
+
+
+def assert_cuda_total_used_below_cap(torch):
+    """Fail closed on driver-wide GPU pressure; never kill unrelated processes."""
+    free, total = torch.cuda.mem_get_info(0)
+    if total <= 0 or free < 0 or free > total:
+        raise RuntimeError("GPU memory cap telemetry unavailable")
+    used_mib = (total - free) / (1024 ** 2)
+    if used_mib > MAX_TOTAL_GPU_USED_MIB:
+        raise RuntimeError("GPU memory cap exceeded by system-wide allocations")
+    return used_mib
+
+
+def release_idle_cuda_cache():
+    """Collect dead Python references and this process's inactive CUDA cache."""
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is not None and torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def probe_cuda_free_after_cache_flush(torch, minimum_free_mib: int):
@@ -148,6 +187,8 @@ class FrozenQwen35HF:
              torch, self.minimum_free_mib)
         if self.effective_mib_before_load < self.minimum_free_mib:
             raise RuntimeError("Insufficient free GPU memory; no other model was stopped")
+        configure_cuda_allocator_limit(torch)
+        assert_cuda_total_used_below_cap(torch)
         if self.root is not None and not frozen_v2_full(self.root):
             raise RuntimeError("Frozen Helios adapter bytes changed")
         dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
@@ -170,6 +211,8 @@ class FrozenQwen35HF:
             self._tokenizer = tokenizer
             self._base_model = base
             self._model = model
+            release_idle_cuda_cache()
+            assert_cuda_total_used_below_cap(torch)
         except Exception:
             self.unload()
             raise
@@ -1181,6 +1224,10 @@ class ThreeTierRuntime:
         preload()
         if not self.helios.loaded:
             raise RuntimeError("Pinned 9B model failed startup warmup")
+        release_idle_cuda_cache()
+        torch = sys.modules.get("torch")
+        if torch is not None and torch.cuda.is_available():
+            assert_cuda_total_used_below_cap(torch)
         self.startup_ready = True
 
     def answer_with_evidence(self, turns, tier, *, web_query=None, search=None, files=None,
@@ -2094,8 +2141,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return response, 409
         diagnostic, diagnostic_token = (diagnostic_begin()
                                         if payload.get("diagnostic_telemetry") else (None, None))
+        from neral_v41_context import resolve_question
+        from neral_local_wiki import source_required
+        work_question = resolve_question(turns).work_question
+        tool_request = bool(
+            web_query or web_stage or payload.get("force_sandbox", False)
+            or source_required(work_question) or _is_free_compute_task(work_question))
         deadline_token = _REQUEST_DEADLINE.set(
-            time.monotonic() + MODE_BUDGETS[canonical_tier(requested_tier)])
+            time.monotonic() + deadline_seconds_for_request(
+                requested_tier, tool_active=tool_request))
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
         deep_active = active(requested_tier) and runtime.evidence_agent and not web_stage
         owner = session.get("csrf", "") if progress_id else ""
@@ -2183,6 +2237,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
             check_deadline()
+            torch = sys.modules.get("torch")
+            if torch is not None and torch.cuda.is_available():
+                assert_cuda_total_used_below_cap(torch)
             # V3.10: local-only training capture after an independent verifier.
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
@@ -2219,4 +2276,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             _REQUEST_DEADLINE.reset(deadline_token)
             if diagnostic_token is not None:
                 diagnostic_end(diagnostic_token)
-            busy.release()
+            try:
+                release_idle_cuda_cache()
+            finally:
+                busy.release()
