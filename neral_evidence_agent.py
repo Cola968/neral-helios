@@ -290,7 +290,7 @@ def _run(execute, code):
     return output
 
 
-def _calculate(packet, numbers, execute, external):
+def _calculate(packet, numbers, execute, external, *, final_prompt=None):
     if set(packet) != {"locale", "calculations", "missing"} or packet["locale"] not in ("de", "en"):
         raise AgentError("Rechenpaket hat ungültige Felder.")
     missing, calculations = packet["missing"], packet["calculations"]
@@ -336,12 +336,23 @@ def _calculate(packet, numbers, execute, external):
     for name in sorted(used):
         occurrence = numbers[name]
         rendered.append(f"{name} ({occurrence['source']}): {occurrence['token']} aus „{occurrence['quote']}“")
+    # This is actual, validated sandbox stdout, not a model-proposed answer.
+    # Only an explicitly requested final marker and exactly one integer stdout
+    # permit a canonical last line; never conceal ambiguity/multiple values.
+    if (len(calculations) == 1 and type(final_prompt) is str and
+            re.search(r"(?i)\bENDERGEBNIS\s*:", final_prompt)):
+        from neral_v42_quality import exact_executed_numeric_tail
+        marker = exact_executed_numeric_tail(
+            lines[0], succeeded=True, prompt=final_prompt)
+        if marker is not None:
+            rendered.append(marker)
     return "\n".join(rendered)
 
 
 def _work(plan, packet, evidence, execute, external, numeric_evidence):
     if plan["tool"] == "python_sandbox":
-        return _calculate(packet, numeric_evidence, execute, external)
+        return _calculate(packet, numeric_evidence, execute, external,
+                          final_prompt=evidence.get("user"))
     if plan["tool"] == "python_code_sandbox":
         if set(packet) != {"code"} or not _short(packet["code"], 4500):
             raise AgentError("Python-Code für echte Sandbox-Ausführung fehlt.")
@@ -1340,7 +1351,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             exact = quantity_plan(question, evidence)
             status("tool",attempt+1,"python_sandbox" if exact is not None and not files and not wiki_hits else plan["tool"])
             if exact is not None and not files and not wiki_hits:
-                text = _calculate(*exact, observed_execute, external)
+                text = _calculate(*exact, observed_execute, external,
+                                  final_prompt=question)
                 executed = "python_sandbox"
                 steps.append("quantity_validation")
                 if deep:
