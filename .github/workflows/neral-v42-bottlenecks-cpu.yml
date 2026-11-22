@@ -1,0 +1,66 @@
+name: NERAL V4.2 telemetry bottlenecks CPU and standalone regressions
+on:
+  pull_request:
+    paths:
+      - 'neral_obsidian_deep.py'
+      - 'neral_v42_quality.py'
+      - 'neral_v42_telemetry.py'
+      - 'neral_local_wiki.py'
+      - 'neral_three_tier_runtime.py'
+      - 'neral_evidence_agent.py'
+      - 'neral_preview_server.py'
+      - 'scripts/neral_v41_blind200_live.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'tests/test_neral_v42_bottlenecks_cpu.py'
+      - '.github/workflows/neral-v42-bottlenecks-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-and-zip:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt -r requirements-neral-preview.txt sympy z3-solver
+      - name: Prepare source-only standalone bundle
+        run: python scripts/vendor_katex.py
+      - name: New four-bottleneck and existing release/import contracts
+        run: |
+          python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
+      - name: Real release ZIP build and required local modules
+        run: python -m scripts.build_neral_1_0_preview --out NERAL-1.0-Local-Preview.zip
+  existing-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt -r requirements-neral-preview.txt sympy z3-solver
+      - name: Complete affected CPU regression suites
+        run: |
+          python -m compileall -q neral_v42_quality.py neral_v42_telemetry.py neral_obsidian_deep.py neral_three_tier_runtime.py neral_evidence_agent.py neral_preview_server.py scripts
+          python -m unittest discover -s tests -p test_neral_v42_pipeline_quality_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_obsidian_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_offline_rag.py -v
+          python -m unittest discover -s tests -p test_neral_v42_telemetry_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
+          python -m unittest discover -s tests -p test_neral_v42_deadline_backoff_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_grading_diagnostics_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_latency_routing_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_blind_live_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
+          python -m unittest discover -s tests -p test_neral_web_v4_cpu.py -v
