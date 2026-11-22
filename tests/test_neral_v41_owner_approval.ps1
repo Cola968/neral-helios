@@ -234,3 +234,32 @@ foreach($bad in @(
   if(-not $rejected){throw 'PR604 accepted unauthorized or repeated diagnostic'}
 }
 Write-Host 'PASS PR604 replay, preflight, token, title, branch and event denial'
+
+# The first PR604 merge requested NO GPU work because Windows CI failed
+# exclusively on floating-point deadline rounding.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V41_BLIND200_APPROVED=''
+$env:NERAL_V42_AB50_APPROVED=''
+$env:NERAL_V42_SMOKE5_APPROVED=''
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 vram web latency windows 20261122'
+& $guard
+Write-Host 'PASS Windows floating-point epsilon corrected 3x3 authorization'
+foreach($bad in @(
+  @{attempt='2';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency windows 20261122'},
+  @{attempt='1';preflight='failure';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency windows 20261122'},
+  @{attempt='1';preflight='success';token='';title='NERAL V4.2 owner-approved telemetry 3x2 vram web latency windows 20261122'},
+  @{attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='Unrelated commit'}
+)){
+  $env:GITHUB_RUN_ATTEMPT=$bad.attempt
+  $env:NERAL_V42_DIAG3_PREFLIGHT=$bad.preflight
+  $env:NERAL_V42_DIAG3_APPROVED=$bad.token
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$bad.title
+  $denied=$false
+  try { & $guard } catch { $denied=$true }
+  if(-not $denied){throw 'Unapproved Windows epsilon GPU job accepted'}
+}
+Write-Host 'PASS Windows epsilon replay denial'
