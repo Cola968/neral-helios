@@ -477,7 +477,7 @@ def _is_free_compute_task(source: object) -> bool:
     # product or aircraft identifiers (e.g. A320) are not quantities by default.
     # Preserve numeric-only free-compute contracts without routing identifier
     # comparisons into the expensive 9B Docker code loop.
-    if re.search(r"(?<!\\w)\\d+(?:[.,]\\d+)?(?!\\w)", source):
+    if re.search(r"(?<!\w)\d+(?:[.,]\d+)?(?!\w)", source):
         return True
     # Punctuation and arithmetic symbols express comparisons even without
     # canonical calculation verbs. No model call is a source proof.
