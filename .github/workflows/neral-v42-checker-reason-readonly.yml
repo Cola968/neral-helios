@@ -1,0 +1,32 @@
+name: NERAL V4.2 existing web-checker reason audit (read-only)
+on:
+  pull_request:
+    paths:
+      - scripts/neral_v42_private_diagnostic.py
+      - neral_v42_quality.py
+      - .github/workflows/neral-v42-checker-reason-readonly.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: ${{ github.head_ref == 'fix/v42-pipeline-quality' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 7
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with: 
+          persist-credentials: false
+      - name: Classify old 10 result reasons, without any model calls
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $python)){throw 'Owner Python unavailable'}
+          & $python -m scripts.neral_v42_private_diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Private read-only reasons unavailable'}
+          Write-Host 'NERAL_REASON_AUDIT_NO_INFERENCE_NO_DATA_UPLOAD'
