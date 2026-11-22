@@ -50,7 +50,7 @@ def final_marked_value(text):
         if value.startswith(fence) and value.endswith(fence) and len(value) > 2 * len(fence):
             value = value[len(fence):-len(fence)].strip()
             break
-    if re.fullmatch(r"[-+]?\\d+\\.", value):
+    if re.fullmatch(r"[-+]?\d+\.", value):
         value = value[:-1]
     return value if value and len(value) <= 200 else None
 
@@ -63,11 +63,11 @@ def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
     """
     if (succeeded is not True or type(stdout) is not str or
             type(prompt) is not str or
-            re.search(r"(?i)\\b(?:berechn\\w*|rechne|rechnung\\w*|"
-                      r"ermittle|bestimme|ENDERGEBNIS)\\b", prompt) is None):
+            re.search(r"(?i)\b(?:berechn\w*|rechne|rechnung\w*|"
+                      r"ermittle|bestimme|ENDERGEBNIS)\b", prompt) is None):
         return None
     value = stdout.strip()
-    if not re.fullmatch(r"[-+]?\\d{1,18}", value):
+    if not re.fullmatch(r"[-+]?\d{1,18}", value):
         return None
     return "ENDERGEBNIS: " + str(int(value))
 
