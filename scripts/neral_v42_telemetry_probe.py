@@ -15,7 +15,7 @@ from scripts.neral_v41_blind200_live import OwnerClient, _exact_text
 from scripts.neral_v42_resumable import sample_gpu_mb, wait_until_available
 
 DIAGNOSTIC_CASES = (
-    ("everyday", "Erkläre in zwei Sätzen, warum ein Badezimmerspiegel beim heißen Duschen beschlägt. Keine Recherche und keine Berechnung."),
+    ("everyday", "Warum beschlägt ein Badezimmerspiegel nach dem Duschen? Erkläre es in zwei verständlichen Sätzen."),
     ("math_logic", "Ein Lager erhält zuerst 17 Kisten mit jeweils 23 Bauteilen und gibt danach 46 Bauteile ab. Berechne zuerst die Gesamtlieferung und danach den Rest. Zeige den Rechenweg und schreibe als letzte Zeile exakt ENDERGEBNIS: <ganze Zahl>. Danach keinen weiteren Text."),
     ("knowledge", "In welchem Jahr landete Apollo 11 erstmals Menschen auf dem Mond? Nenne die Jahreszahl und belege sie mit einem wörtlichen Zitat aus einer tatsächlich gelesenen Quelle."),
 )
