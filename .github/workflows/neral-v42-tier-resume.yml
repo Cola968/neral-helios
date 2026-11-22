@@ -75,7 +75,7 @@ jobs:
           if(-not(Test-Path -LiteralPath $sealed) -or -not(Test-Path -LiteralPath $manifest)){
             throw 'Original sealed snapshot missing; refuse regenerated/fallback cases'
           }
-          $dest=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-resume/'+$V42_TIER+'/'+$V42_OFFSET+'-'+$V42_BALANCED)
+          $dest=Join-Path $env:LOCALAPPDATA ('NERAL-private/v42-resume/'+$env:V42_TIER+'/'+$env:V42_OFFSET+'-'+$env:V42_BALANCED)
           New-Item -ItemType Directory -Path $dest -Force | Out-Null
           $details=Join-Path $dest 'private-details.jsonl'
           $summary=Join-Path $dest 'summary.json'
