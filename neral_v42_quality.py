@@ -81,7 +81,7 @@ def _clean(value):
     return " ".join(str(value).split()).casefold()
 
 
-def grounded_literal_citations(packet, evidence, sources, wiki_hits):
+def grounded_literal_citations(packet, evidence, sources, wiki_hits, *, passages=None):
     """A *verbatim* bounded answer with provenance can clear generic quote veto.
 
     Never accepts a paraphrase, unsupported extra claim, un-read URL,
@@ -97,9 +97,15 @@ def grounded_literal_citations(packet, evidence, sources, wiki_hits):
         return False
     allowed = []
     for item in citations:
-        if type(item) is not dict or set(item) != {"source", "quote"}:
+        if isinstance(item, str) and isinstance(passages, dict):
+            value = passages.get(item)
+            if not isinstance(value, (tuple, list)) or len(value) != 2:
+                return False
+            key, quote = value
+        elif type(item) is dict and set(item) == {"source", "quote"}:
+            key, quote = item["source"], item["quote"]
+        else:
             return False
-        key, quote = item["source"], item["quote"]
         if not isinstance(key, str) or not isinstance(quote, str) or not quote.strip():
             return False
         evidence_text = evidence.get(key)
