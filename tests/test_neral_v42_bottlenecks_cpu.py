@@ -91,16 +91,54 @@ class MandatoryResearchCPU(unittest.TestCase):
                            "verified":False,"safe_to_promote":False,
                            "agent_checked":False,"tool_verified":False,
                            "error_code":"source_evidence_missing"}
+        def simulated_agent(question, respond, execute, **kwargs):
+            self.assertIsNone(kwargs["web_query"])
+            self.assertEqual(kwargs["fallback_query"],
+                             "Apollo 11 erste bemannte Mondlandung Jahr NASA")
+            self.assertEqual(kwargs["local_lookup"](question), [])
+            return verified_response
         with patch("neral_local_wiki.local_wiki_search",return_value=[]) as wiki, \
-             patch.object(runtime,"answer_with_evidence",return_value=verified_response) as fallback:
+             patch("neral_evidence_agent.run_evidence_agent",
+                   side_effect=simulated_agent) as agent:
             response=app.test_client().post("/api/neral/chat/three-tier",json={
                 "tier":"Quartz","prompt":question,"history":[],
                 "web_query":"Apollo 11 erste bemannte Mondlandung Jahr NASA",
             })
         self.assertEqual(response.status_code,200,response.get_json())
         wiki.assert_called_once()
-        self.assertEqual(fallback.call_args.kwargs["web_query"],
-                         "Apollo 11 erste bemannte Mondlandung Jahr NASA")
+        self.assertEqual(agent.call_count,1)
+
+    def test_real_read_web_page_can_supply_literal_source_without_false_veto(self):
+        import json
+        from neral_evidence_agent import run_evidence_agent
+        from neral_v42_telemetry import timed_search_service
+        question="In welchem Jahr landete Apollo 11? Belege mit einem wörtlichen Zitat aus einer gelesenen Quelle."
+        quote="Die Mission Apollo 11 landete 1969 auf dem Mond und brachte Menschen auf die Mondoberfläche."
+        class Source:
+            calls=0
+            def search(self, query):
+                self.calls+=1
+                return {"results":[{"url":"https://example.org/apollo11"}]}
+        service=Source()
+        prompts=[
+            {"tool":"direct_reasoning","parts":["Beleg lesen"],"search_query":""},
+            {"answer":quote,"citations":["p1"]},
+            {"ok":True,"issue":""},
+        ]
+        def answer(system, data, budget, schema):
+            return json.dumps(prompts.pop(0))
+        def pages(hits, query):
+            return [{"url":"https://example.org/apollo11","page_read":True,
+                     "page_text":quote}]
+        result=run_evidence_agent(question,answer,Mock(),web_query=None,
+                                  local_lookup=lambda q:[],
+                                  fallback_query="Apollo 11 NASA Mondlandung Jahr",
+                                  search=timed_search_service(service),
+                                  page_reader=pages,max_attempts=1)
+        self.assertEqual(service.calls,1)
+        self.assertTrue(result["agent_checked"],result)
+        self.assertIn("[web1]",result["text"])
+        self.assertIsNone(result["error_code"])
 
     def test_search_service_method_instrumented_not_only_callable_object(self):
         class Source:
