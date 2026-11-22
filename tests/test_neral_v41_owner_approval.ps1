@@ -163,3 +163,35 @@ foreach($bad in @(
   if(-not $rejected){throw 'Unauthorized PR602 diagnostic accepted'}
 }
 Write-Host 'PASS PR602 third 3x3 negative and replay gates'
+
+# Fourth and final owner-approved 3+3 for PR #603; no AB50 authorization.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V41_BLIND200_APPROVED=''
+$env:NERAL_V42_AB50_APPROVED=''
+$env:NERAL_V42_SMOKE5_APPROVED=''
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122'
+& $guard
+Write-Host 'PASS PR603 one-shot 3+3 approval'
+foreach($case in @(
+  @{ref='refs/heads/main';event='push';attempt='2';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='failure';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';token='';title='NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='Unrelated commit'},
+  @{ref='refs/heads/dev';event='push';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122'},
+  @{ref='refs/heads/main';event='pull_request';attempt='1';preflight='success';token='NERAL-V42-DIAG3-APPROVED';title='NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122'}
+)){
+  $env:GITHUB_REF=$case.ref
+  $env:GITHUB_EVENT_NAME=$case.event
+  $env:GITHUB_RUN_ATTEMPT=$case.attempt
+  $env:NERAL_V42_DIAG3_PREFLIGHT=$case.preflight
+  $env:NERAL_V42_DIAG3_APPROVED=$case.token
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$case.title
+  $denied=$false
+  try { & $guard } catch { $denied=$true }
+  if(-not $denied){throw 'PR603 accepted unauthorized or repeated 3+3 run'}
+}
+Write-Host 'PASS PR603 replay, token, title, branch, event and CPU-denial'
