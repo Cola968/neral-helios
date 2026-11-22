@@ -1,0 +1,95 @@
+name: NERAL V4.2 approved local Kiwix container setup
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v42-kiwix-owner-setup.yml]
+permissions:
+  contents: read
+jobs:
+  setup:
+    if: ${{ github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 authorized local Kiwix setup 20261122' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 35
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Install two official ZIMs under 15GB and loopback-only Kiwix 3.8.2
+        timeout-minutes: 33
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $zim='D:/neral-knowledge/zim'
+          $totalLimit=15000000000L
+          $sources=@(
+            @('wikipedia_de_physics_mini_2026-07.zim','https://download.kiwix.org/zim/wikipedia/wikipedia_de_physics_mini_2026-07.zim',120000000),
+            @('wikipedia_en-simple_all_mini_2026-06.zim','https://download.kiwix.org/zim/wikipedia/wikipedia_en-simple_all_mini_2026-06.zim',750000000)
+          )
+          $listener=@(Get-NetTCPConnection -LocalPort 9691 -State Listen -ErrorAction SilentlyContinue)
+          $owner=@(& docker ps --filter 'name=^/neral-kiwix-v42$' --format '{{.Names}}' 2>$null)
+          if($listener.Count -gt 0 -and $owner.Count -ne 1){throw 'Unknown 9691 port owner'}
+          New-Item -ItemType Directory -Path $zim -Force | Out-Null
+          $sum=0L
+          foreach($file in @(Get-ChildItem -LiteralPath $zim -File -Filter '*.zim')){$sum+=$file.Length}
+          if($sum -gt $totalLimit){throw 'Existing ZIMs exceed 15GB'}
+          foreach($entry in $sources){
+            $dest=Join-Path $zim $entry[0]
+            if(Test-Path -LiteralPath $dest){
+              if((Get-Item -LiteralPath $dest).Length -lt 1048576){throw 'Existing ZIM suspiciously small'}
+              continue
+            }
+            $tmp=$dest+'.download'
+            if(Test-Path -LiteralPath $tmp){throw 'Existing partial download: no overwrite'}
+            if($sum+[long]$entry[2] -gt $totalLimit){throw 'Download exceeds 15GB cap'}
+            Invoke-WebRequest -Uri $entry[1] -OutFile $tmp -UseBasicParsing -TimeoutSec 900 -ErrorAction Stop
+            $size=(Get-Item -LiteralPath $tmp).Length
+            if($size -lt 1048576 -or $size -gt [long]$entry[2] -or ($sum+$size) -gt $totalLimit){
+              throw 'Downloaded ZIM invalid size or >15GB cap'
+            }
+            Move-Item -LiteralPath $tmp -Destination $dest -ErrorAction Stop
+            $sum+=$size
+            Write-Host ('KIWIX_ZIM_READY '+$entry[0]+' size='+$size+' SHA256='+(Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash)
+          }
+          $all=@(Get-ChildItem -LiteralPath $zim -File -Filter '*.zim')
+          $total=0L
+          foreach($f in $all){$total+=$f.Length}
+          if($total -gt $totalLimit){throw 'Hard 15GB cap violated'}
+          & docker info --format '{{.ServerVersion}}'
+          if($LASTEXITCODE -ne 0){throw 'Docker daemon unavailable'}
+          $container='neral-kiwix-v42'
+          $existing=@(& docker ps -a --filter "name=^/$container$" --format '{{.Names}}')
+          if($existing.Count -gt 0){
+            $image=@(& docker inspect --format '{{.Config.Image}}' $container)
+            if($image.Count -ne 1 -or $image[0] -ne 'ghcr.io/kiwix/kiwix-serve:3.8.2'){throw 'Container image identity mismatch'}
+            & docker start $container
+            if($LASTEXITCODE -ne 0){throw 'Pinned Kiwix container failed to start'}
+          }else{
+            & docker pull 'ghcr.io/kiwix/kiwix-serve:3.8.2'
+            if($LASTEXITCODE -ne 0){throw 'Official pinned Kiwix image unavailable'}
+            & docker run -d --name $container --restart unless-stopped -p '127.0.0.1:9691:8080' -v ($zim+':/data:ro') 'ghcr.io/kiwix/kiwix-serve:3.8.2' '*.zim'
+            if($LASTEXITCODE -ne 0){throw 'Kiwix container failed to start'}
+          }
+          $healthy=$false
+          for($i=0;$i -lt 40;$i++){
+            Start-Sleep -Seconds 1
+            try{
+              $page=Invoke-WebRequest -Uri 'http://127.0.0.1:9691/' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+              $catalog=Invoke-WebRequest -Uri 'http://127.0.0.1:9691/catalog/v2/root.xml' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+              if($page.StatusCode -eq 200 -and $catalog.StatusCode -eq 200){$healthy=$true;break}
+            }catch{}
+          }
+          if(-not $healthy){throw 'Kiwix health or catalog failed'}
+          Write-Host ('KIWIX_9691_HEALTHY files='+$all.Count+' bytes='+$total)
+          foreach($lang in @('deu','eng')){
+            $url='http://127.0.0.1:9691/search?pattern=Elektrostatik&format=xml&pageLength=5&books.filter.lang='+$lang
+            try{
+              $response=Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 6 -ErrorAction Stop
+              $xml=[xml]$response.Content
+              $items=@($xml.SelectNodes('//*[local-name()="item"]'))
+              Write-Host ('KIWIX_OFFLINE_SEARCH lang='+$lang+' HTTP='+$response.StatusCode+' items='+$items.Count)
+            }catch{Write-Host ('KIWIX_OFFLINE_SEARCH_FAILED lang='+$lang)}
+          }
+          Write-Host 'KIWIX_OFFLINE_SETUP_COMPLETE'
