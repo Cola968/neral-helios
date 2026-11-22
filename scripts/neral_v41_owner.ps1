@@ -139,7 +139,7 @@ function StartOwned {
 # model checkpoint or production LoRA weights.
 $files=@('neral_v41_context.py','neral_verified_notes.py',
          'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
-         'neral_v42_deadline.py','neral_v42_telemetry.py',
+         'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
          'neral_three_tier_runtime.py','neral_preview_server.py',
          'templates/neral_preview.html',
          'static/neral-preview.js','static/neral-reference-ui.js')
@@ -163,7 +163,7 @@ if(($approvedV42Smoke5 -or $approvedV42Diag3) -and $env:NERAL_V42_SMOKE5_REVERT 
          (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
         throw ('Experiment rollback checksum mismatch: '+$file)
       }
-    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
+    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py')){
       Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
     }else{
       throw ('Experiment rollback source missing: '+$file)
@@ -188,7 +188,7 @@ foreach($file in $files){
     $original=Join-Path $backup $file
     New-Item -ItemType Directory -Path (Split-Path -Parent $original) -Force | Out-Null
     Copy-Item -LiteralPath $installed -Destination $original -ErrorAction Stop
-  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
+  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py')){
     throw ('Expected installed V4 file missing: '+$file)
   }
 }
@@ -221,7 +221,7 @@ try{
   }
   $env:PYTHONPATH=$root
   $py=@('neral_v41_context.py','neral_verified_notes.py',
-        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py',
+        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
         'neral_three_tier_runtime.py','neral_preview_server.py')
   & $python -m py_compile @($py|ForEach-Object { Join-Path $root $_ })
   if($LASTEXITCODE -ne 0){throw 'Installed V4.1 Python modules failed syntax check'}
@@ -264,7 +264,7 @@ try{
            (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
           throw ('V4.1 rollback checksum mismatch: '+$file)
         }
-      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
+      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py')){
         Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
       }else{
         throw ('Missing original during V4.1 rollback: '+$file)

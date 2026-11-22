@@ -15,9 +15,9 @@ from scripts.neral_v41_blind200_live import OwnerClient, _exact_text
 from scripts.neral_v42_resumable import sample_gpu_mb, wait_until_available
 
 DIAGNOSTIC_CASES = (
-    ("everyday", "Erkläre in einem Satz, warum Metall sich beim Erwärmen ausdehnt."),
-    ("math_logic", "Berechne 17 × 23. Antworte ausschließlich mit der Zahl."),
-    ("knowledge", "Was ist eine Sonnenfinsternis? Antworte kurz und präzise."),
+    ("everyday", "Warum beschlägt ein Badezimmerspiegel nach dem Duschen? Erkläre es in zwei verständlichen Sätzen."),
+    ("math_logic", "Ein Lager erhält zuerst 17 Kisten mit jeweils 23 Bauteilen und gibt danach 46 Bauteile ab. Berechne zuerst die Gesamtlieferung und danach den Rest. Zeige den Rechenweg und schreibe als letzte Zeile exakt ENDERGEBNIS: <ganze Zahl>. Danach keinen weiteren Text."),
+    ("knowledge", "In welchem Jahr landete Apollo 11 erstmals Menschen auf dem Mond? Nenne die Jahreszahl und belege sie mit einem wörtlichen Zitat aus einer tatsächlich gelesenen Quelle."),
 )
 TIERS = ("Quartz", "Obsidian")
 _ALLOWED_ERRORS = {
@@ -31,7 +31,7 @@ _ALLOWED_ERRORS = {
 def web_query_for_diagnostic(category, prompt):
     # Only this public synthetic knowledge question is explicitly approved for
     # fresh Web V4 lookup. No private Blind200 prompts ever leave the owner PC.
-    return "Was ist eine Sonnenfinsternis?" if category == "knowledge" and prompt == DIAGNOSTIC_CASES[2][1] else None
+    return "Apollo 11 erste bemannte Mondlandung Jahr NASA" if category == "knowledge" and prompt == DIAGNOSTIC_CASES[2][1] else None
 
 
 def _gpu_poll_until(done, peaks):
@@ -71,7 +71,7 @@ def run(tier, summary_path):
         err = result.get("error_code")
         err = err if err in _ALLOWED_ERRORS else "none" if err is None else "other"
         quality = ("exact_numeric_match" if _exact_text(
-            result.get("text", ""), "integer") == "391" else "not_exact_number"
+            result.get("text", ""), "integer") == "345" else "not_exact_number"
             ) if category == "math_logic" and code == 200 else "not_machine_graded"
         row = {
             "tier":tier, "category":category, "http_code":code,

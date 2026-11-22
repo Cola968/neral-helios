@@ -90,6 +90,36 @@ class RepairToolCPU(unittest.TestCase):
         self.assertIn("required_tool",prompts[3])
         self.assertEqual(prompts[3]["required_tool"],"python_sandbox")
 
+    def test_deep_no_tool_called_triggers_real_second_attempt_python_execution(self):
+        """A claimed computation on pass one is not a successful tool call."""
+        import json
+        question="Berechne, wie viele Teile aus 17 Kisten mit je 23 Stueck nach Abgabe von 46 bleiben."
+        calc={"locale":"de","calculations":[
+            {"label":"Rest","expr":"u1 * u2 - u3","unit":"Stueck"}],"missing":[]}
+        responses=[
+            {"tool":"direct_reasoning","parts":["ohne Ausfuehrung"],"search_query":""},
+            {"answer":"Ungeprueft: 345","citations":[]},
+            {"ok":False,"issue":"no_tool_called"},
+            {"tool":"python_sandbox","parts":["Nachrechnen"],"search_query":""},
+            calc,{"ok":True,"issue":""},
+        ]
+        planned=[]
+        def respond(system, body, budget, schema):
+            planned.append(json.loads(body))
+            return json.dumps(responses.pop(0))
+        actual=Mock(return_value={"status":"PASSED","output":"345"})
+        with patch("neral_evidence_agent.quantity_plan",return_value=None), \
+             patch("neral_v32_verifier.verified_math_question",return_value=None), \
+             patch("neral_v32_verifier.verified_python_question",return_value=None), \
+             patch("neral_v32_verifier.verified_shift_count",return_value=None), \
+             patch("neral_knowledge_verifier.verified_element_question",return_value=None):
+            outcome=run_evidence_agent(question,respond,actual,deep=True)
+        self.assertEqual(actual.call_count,1,"No tool execution is not repair")
+        self.assertIn("print(",actual.call_args.args[0])
+        self.assertEqual(outcome["tool_used"],"python_sandbox")
+        self.assertTrue(outcome["agent_checked"])
+        self.assertEqual(planned[3]["required_tool"],"python_sandbox")
+
     def test_programming_repair_executes_code_in_real_sandbox_contract(self):
         from neral_evidence_agent import _work, AgentError
         import ast
@@ -117,7 +147,12 @@ class TelemetryWebProbeCPU(unittest.TestCase):
         from scripts.neral_v42_telemetry_probe import web_query_for_diagnostic, DIAGNOSTIC_CASES
         self.assertEqual(web_query_for_diagnostic(
             "knowledge", DIAGNOSTIC_CASES[2][1]),
-            "Was ist eine Sonnenfinsternis?")
+            "Apollo 11 erste bemannte Mondlandung Jahr NASA")
+        self.assertIn("ENDERGEBNIS:", DIAGNOSTIC_CASES[1][1])
+        self.assertIn("zuerst", DIAGNOSTIC_CASES[1][1].lower())
+        self.assertIn("Quelle", DIAGNOSTIC_CASES[2][1])
+        self.assertNotIn("ENDERGEBNIS:", DIAGNOSTIC_CASES[0][1])
+        self.assertNotRegex(DIAGNOSTIC_CASES[0][1].casefold(), r"berechn|rechne|schicht|z3|python|web|recherche")
         self.assertIsNone(web_query_for_diagnostic("knowledge","Geheime Nutzerfrage"))
         self.assertIsNone(web_query_for_diagnostic("math_logic","Berechne 17 x 23"))
         self.assertIsNone(web_query_for_diagnostic("everyday","Erkläre thermische Ausdehnung"))

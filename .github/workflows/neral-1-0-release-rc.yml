@@ -64,6 +64,16 @@ on:
       - 'neral_web_search.py'
       - 'neral_page_reader.py'
       - 'neral_evidence_agent.py'
+      - 'neral_v42_telemetry.py'
+      - 'neral_v42_deadline.py'
+      - 'neral_v42_quality.py'
+      - 'neral_obsidian_deep.py'
+      - 'neral_local_wiki.py'
+      - 'neral_v41_context.py'
+      - 'neral_verified_notes.py'
+      - 'neral_verified_training.py'
+      - 'neral_v32_verifier.py'
+      - 'neral_knowledge_verifier.py'
       - 'neral_quantity_plans.py'
       - 'requirements-neral-v3.txt'
       - 'requirements-neral-preview.txt'
@@ -243,6 +253,16 @@ on:
       - 'neral_web_search.py'
       - 'neral_page_reader.py'
       - 'neral_evidence_agent.py'
+      - 'neral_v42_telemetry.py'
+      - 'neral_v42_deadline.py'
+      - 'neral_v42_quality.py'
+      - 'neral_obsidian_deep.py'
+      - 'neral_local_wiki.py'
+      - 'neral_v41_context.py'
+      - 'neral_verified_notes.py'
+      - 'neral_verified_training.py'
+      - 'neral_v32_verifier.py'
+      - 'neral_knowledge_verifier.py'
       - 'neral_quantity_plans.py'
       - 'requirements-neral-v3.txt'
       - 'requirements-neral-preview.txt'
@@ -490,7 +510,7 @@ jobs:
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
-    if: ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
+    if: ${{ (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))) && !(github.event_name == 'push' && github.event.head_commit.message == 'NERAL V4.2 owner-approved telemetry 3x2 diagnosis 20261122') }}
     needs: [cpu-contracts]
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 22
