@@ -13,7 +13,7 @@ _STAGES = {"plan":"Zerlege Aufgabe…", "wiki":"Suche im lokalen Wissen…",
 _TOOLS = {"python_sandbox":"Python", "z3_solver":"Z3", "direct_reasoning":"Quellen/Antwort"}
 
 def enabled():
-    return os.environ.get("NERAL_V42_OBSIDIAN_DEEP", "0") == "1"
+    return os.environ.get("NERAL_V42_OBSIDIAN_DEEP", "1") == "1"
 
 def active(tier):
     return enabled() and tier in ("Obsidian", "Helios", "helios")
