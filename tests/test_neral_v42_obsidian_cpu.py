@@ -152,6 +152,19 @@ class DeepTests(unittest.TestCase):
         self.assertFalse(result["adapter_loaded"])
         self.assertFalse(high.calls)
 
+    def test_quartz_single_agent_pass_and_no_deep_mode(self):
+        from test_neral_three_tier_api import make_runtime
+        runtime, _, _, _ = make_runtime()
+        runtime.evidence_agent = True
+        with patch("neral_evidence_agent.run_evidence_agent",
+                   return_value={"text":"Quartz","verified":False,"agent_attempts":1}) as agent:
+            result = runtime.answer_with_evidence([
+                {"role":"system","content":"test"},
+                {"role":"user","content":"Berechne komplexe Zuordnung."}], "Quartz")
+        self.assertEqual(result["tier"],"Quartz")
+        self.assertEqual(agent.call_args.kwargs.get("max_attempts"),1)
+        self.assertNotIn("deep",agent.call_args.kwargs)
+
     def test_progress_http_session_and_benchmark_isolation(self):
         import threading
         from flask import Flask
@@ -185,7 +198,8 @@ class DeepTests(unittest.TestCase):
              patch("neral_evidence_agent.run_evidence_agent",return_value={"text":"Test","verified":False}) as agent:
             response=client.post("/api/neral/chat/three-tier",json={**payload,"benchmark_isolated":True})
             self.assertEqual(response.status_code,200)
-            self.assertNotIn("deep",agent.call_args.kwargs)
+            self.assertTrue(agent.call_args.kwargs.get("deep"))
+            self.assertIs(response.get_json().get("benchmark_isolated"), True)
 
 if __name__=="__main__":
     unittest.main()
