@@ -56,3 +56,30 @@ $denied=$false
 try { & $guard } catch { $denied=$true }
 if(-not $denied){throw 'V42 accepted replay'}
 Write-Host 'PASS V42 negative launch guards'
+
+# V4.2 five-case smoke: main-only, single attempt and passed CPU tests.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V41_BLIND200_APPROVED=''
+$env:NERAL_V42_AB50_APPROVED=''
+$env:NERAL_V42_SMOKE5_APPROVED='NERAL-V42-SMOKE5-APPROVED'
+$env:NERAL_V42_SMOKE5_PREFLIGHT='success'
+$env:NERAL_V42_SMOKE5_MERGE_TITLE='NERAL V4.2 owner-approved deadline smoke5 20261122'
+& $guard
+Write-Host 'PASS V42 smoke5 approved'
+$env:NERAL_V42_SMOKE5_PREFLIGHT='failure'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'V42 smoke5 accepted failed CPU preflight'}
+$env:NERAL_V42_SMOKE5_PREFLIGHT='success'
+$env:NERAL_V42_SMOKE5_MERGE_TITLE='Any other commit'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'V42 smoke5 accepted unrelated commit'}
+$env:NERAL_V42_SMOKE5_MERGE_TITLE='NERAL V4.2 owner-approved deadline smoke5 20261122'
+$env:GITHUB_RUN_ATTEMPT='2'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'V42 smoke5 accepted replay'}
+Write-Host 'PASS V42 smoke5 approval/negative guards'
