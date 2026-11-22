@@ -164,6 +164,43 @@ def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
 
 
 
+_STOCK_STDOUT_DIAGNOSTICS = frozenset((
+    "accepted", "execution_failed", "not_stock_task", "empty_stdout",
+    "wrong_value", "extra_lines", "unsupported_shape",
+))
+
+
+def stock_stdout_diagnostic_code(stdout, *, succeeded, prompt):
+    """Bounded enum only; never return stdout, quantities or prompt content.
+
+    This does not change the mathematical checker. The rejection is evaluated
+    independently from the user source in exact_executed_numeric_tail().
+    """
+    if _explicit_two_stage_stock_steps(prompt) is None:
+        return "not_stock_task"
+    if not succeeded:
+        return "execution_failed"
+    if type(stdout) is not str or not stdout.strip():
+        return "empty_stdout"
+    if exact_executed_numeric_tail(stdout, succeeded=True, prompt=prompt) is not None:
+        return "accepted"
+    expected = _explicit_two_stage_stock_steps(prompt)
+    value = stdout.strip()
+    if re.fullmatch(r"[-+]?\d{1,18}", value):
+        return "wrong_value"
+    rows = value.splitlines()
+    if len(rows) > 3 or len(rows) == 3 and not re.match(
+            r"(?i)^\s*ENDERGEBNIS\s*:", rows[2]):
+        return "extra_lines"
+    # The shape may be familiar, but the values disagree with the user's
+    # exact input arithmetic. Avoid reproducing those numbers in the log.
+    if re.search(r"(?i)\b(?:Gesamt|Ergebnis|Rest|Gesamtlieferung)\s*[:=]", value):
+        matched = re.findall(r"(?<!\d)(?:\d{1,18})(?!\d)", value)
+        if len(matched) >= 2 and any(int(x) not in expected for x in matched[:2]):
+            return "wrong_value"
+    return "unsupported_shape"
+
+
 def forced_repair_tool(question, *, local=False, web=False):
     """Request a permitted real tool on second/third Deep pass only."""
     if not isinstance(question, str):
@@ -424,6 +461,35 @@ def year_evidence_subcode(question, packet, evidence, sources, wiki_hits):
             if type(quote) is str and not _year_quote_supports(question, quote, year):
                 return "unsupported_year_missing_event"
     return "unsupported_year_no_passage"
+
+
+_YEAR_PIPELINE_CODES = frozenset((
+    "no_read_page", "year_lost_in_clip", "year_missing_in_extract",
+    "year_event_not_contiguous", "quote_missing_from_evidence",
+    "candidate_available",
+))
+
+
+def year_source_pipeline_code(question, sources, evidence):
+    """Enum-only attribution of missing web year evidence (no source text)."""
+    if not isinstance(sources, list):
+        return "no_read_page"
+    readable = [s for s in sources
+                if isinstance(s, dict) and s.get("page_read") is True]
+    if not readable:
+        return "no_read_page"
+    if any(s.get("year_clip_code") == "year_lost_in_clip" for s in readable):
+        return "year_lost_in_clip"
+    if not any(_YEAR_TOKEN.search(s.get("page_text", ""))
+               for s in readable if isinstance(s.get("page_text"), str)):
+        return "year_missing_in_extract"
+    candidate = unique_read_year_source(question, sources)
+    if candidate is None:
+        return "year_event_not_contiguous"
+    if candidate["quote"] not in (evidence.get(candidate["source"], "")
+                                  if isinstance(evidence, dict) else ""):
+        return "quote_missing_from_evidence"
+    return "candidate_available"
 
 
 def checker_veto_class(issue, *, sources=(), wiki_hits=(), executed=None):
