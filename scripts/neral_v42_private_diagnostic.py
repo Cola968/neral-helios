@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import re
 from collections import Counter
+import ast
+from scripts.neral_v41_blind200_live import _exact_text, _code_only
 
 ORIGIN = 45008615332
 _ALLOWED_GRADES = {"pass", "fail", "ungraded"}
@@ -33,7 +35,41 @@ def safe_enum(value, allow):
     return value if type(value) is str and value in allow else "other"
 
 
+def classify_exact_format(row, case):
+    """Public enum only: parsing vs wrong answer, never expose either value."""
+    ref = case["sealed_reference"]
+    kind = ref["kind"]
+    value = row.get("model_text") or ""
+    if kind in ("integer", "web_integer", "yesno"):
+        extracted = _exact_text(value, kind)
+        if extracted is None:
+            return "unparseable"
+        expected = ref["value"].casefold() if kind == "yesno" else ref["value"]
+        return "parsed_wrong" if extracted != expected else "parsed_correct"
+    if kind == "string":
+        actual = value.strip().rstrip(".! ")
+        return "parsed_correct" if actual.casefold() == ref["value"].casefold() else "string_wrong"
+    return "other_kind"
+
+
+def code_syntax_class(row):
+    candidate = _code_only(row.get("model_text") or "")
+    try:
+        ast.parse(candidate)
+        return "syntax_valid"
+    except SyntaxError:
+        return "syntax_invalid"
+
+
 def audit(root: Path):
+    sealed_path = (Path(os.environ["LOCALAPPDATA"]) / "NERAL-private" /
+                   "artifacts" / "blind200-partial-run44935727057" / "sealed200.jsonl")
+    if not sealed_path.is_file():
+        raise RuntimeError("Original private sealed suite missing")
+    cases = {case["id"]: case for case in (
+        json.loads(line) for line in sealed_path.read_text(encoding="utf-8").splitlines()
+        if line.strip())}
+
     for tier in ("Quartz", "Obsidian"):
         path = root / tier / "private-details.jsonl"
         if not path.is_file():
@@ -63,6 +99,11 @@ def audit(root: Path):
             raw_error = row.get("error")
             error = safe_enum(raw_error, _ALLOWED_REASONS) if raw_error else "none"
             reason = safe_enum(row.get("reason"), _ALLOWED_REASONS)
+            case = cases.get(row.get("id"))
+            if case is None or case.get("category") != category:
+                raise RuntimeError("Local sealed task identity mismatch")
+            exact_class = classify_exact_format(row, case) if reason == "exact_mismatch" else "not_applicable"
+            code_class = code_syntax_class(row) if reason == "private_docker_tests_fail" else "not_applicable"
             error_code = safe_enum(row.get("error_code"), {
                 "runtime_error", "request_deadline", "hf_time_budget", "hf_token_budget",
                 "hf_invalid_final", "hf_reasoning_unclosed", "checker_veto",
@@ -74,7 +115,8 @@ def audit(root: Path):
             print(f"PRIVACY_SAFE_RESULT tier={tier} category={category} "
                   f"grade={grade} reason={reason} error={error} "
                   f"error_code={error_code} chars={length} code_fence={int(code_fence)} "
-                  f"json_start={int(json_start)} generated={int(row.get('model_generated') is True)} "
+                  f"json_start={int(json_start)} exact_parse={exact_class} code_syntax={code_class} "
+                  f"generated={int(row.get('model_generated') is True)} "
                   f"adapter={int(row.get('adapter_loaded') is True)} "
                   f"repair_attempts={min(max(int(row.get('repair_attempts') or 0), 0), 9)} "
                   f"latency_ms={int(row.get('latency_ms') or 0)}")
