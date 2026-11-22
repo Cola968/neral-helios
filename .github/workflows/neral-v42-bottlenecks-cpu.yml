@@ -14,6 +14,7 @@ on:
       - 'tests/test_neral_v42_bottlenecks_cpu.py'
       - 'tests/test_neral_v42_fastpath_math_evidence_cpu.py'
       - 'tests/test_neral_v42_remaining_failures_cpu.py'
+      - 'tests/test_neral_v42_failure_attribution_cpu.py'
       - 'tests/test_neral_v42_vram_web_deadline_cpu.py'
       - '.github/workflows/neral-v42-bottlenecks-cpu.yml'
 permissions:
@@ -41,6 +42,7 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_fastpath_math_evidence_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_remaining_failures_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_failure_attribution_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_vram_web_deadline_cpu.py -v
           python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: Real release ZIP build and required local modules
@@ -67,6 +69,7 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v42_obsidian_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_offline_rag.py -v
           python -m unittest discover -s tests -p test_neral_v42_telemetry_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_failure_attribution_cpu.py -v
           python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
           python -m unittest discover -s tests -p test_neral_v42_deadline_backoff_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_grading_diagnostics_cpu.py -v
