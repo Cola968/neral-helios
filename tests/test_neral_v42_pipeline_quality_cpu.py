@@ -114,10 +114,11 @@ class RepairToolCPU(unittest.TestCase):
 
 class TelemetryWebProbeCPU(unittest.TestCase):
     def test_only_public_web_knowledge_question_triggers_v4(self):
-        from scripts.neral_v42_telemetry_probe import web_query_for_diagnostic
+        from scripts.neral_v42_telemetry_probe import web_query_for_diagnostic, DIAGNOSTIC_CASES
         self.assertEqual(web_query_for_diagnostic(
-            "knowledge","Was ist eine Sonnenfinsternis?"),
+            "knowledge", DIAGNOSTIC_CASES[2][1]),
             "Was ist eine Sonnenfinsternis?")
+        self.assertIsNone(web_query_for_diagnostic("knowledge","Geheime Nutzerfrage"))
         self.assertIsNone(web_query_for_diagnostic("math_logic","Berechne 17 x 23"))
         self.assertIsNone(web_query_for_diagnostic("everyday","Erkläre thermische Ausdehnung"))
 
