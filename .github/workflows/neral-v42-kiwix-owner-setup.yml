@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   setup:
-    if: ${{ github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 authorized local Kiwix setup 20261122' }}
+    if: ${{ github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 authorized Kiwix cold-start setup 20261122' }}
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 35
     concurrency:
@@ -17,11 +17,18 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install two official ZIMs under 15GB and loopback-only Kiwix 3.8.2
         timeout-minutes: 33
         run: |
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $python)){throw 'Pinned local Python unavailable'}
+          & $python -c 'from neral_docker_runtime import ensure_docker_ready; import sys; sys.exit(0 if ensure_docker_ready() else 1)'
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows Docker Desktop could not start'}
           $zim='D:/neral-knowledge/zim'
           $totalLimit=15000000000L
           $sources=@(
