@@ -1424,6 +1424,18 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 raise AgentError("Prüfer lieferte kein gültiges Urteil.")
             if review["ok"] and not review["issue"].strip():
                 return result(answer, checked=True, attempts=attempt+1)
+            # Narrow false-positive case only: reviewer claims that NO quote
+            # exists although the complete answer is an exact literal span of
+            # a real read HTTPS page or local ZIM article. Never override a
+            # concrete contradiction, unsupported extra claim, or stale fact.
+            if (plan["tool"] == "direct_reasoning" and
+                    evidence_veto_is_generic(review["issue"]) and
+                    grounded_literal_citations(packet, evidence, sources, wiki_hits)):
+                literal = result(answer, checked=True, attempts=attempt+1)
+                return {**literal, "verified": False, "safe_to_promote": False,
+                        "tool_verified": False,
+                        "verification_scope": "literal_source_read_not_independent_fact_proof",
+                        "veto_override_reason_code": "generic_quote_veto_exact_literal"}
             issue = review["issue"][:350] or "Teilfrage, Beleg oder Bedingung fehlt."
             plan = None  # A wrong tool or missing input requires planning again.
             if deep:
