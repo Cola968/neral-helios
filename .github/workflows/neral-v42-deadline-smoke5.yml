@@ -163,3 +163,30 @@ jobs:
           path: ${{ runner.temp }}/neral-v42-smoke5-${{ github.run_id }}-Obsidian/
           if-no-files-found: warn
           retention-days: 14
+
+  restore-original-owner:
+    if: ${{ always() && needs.owner-deploy.result == 'success' }}
+    needs: [owner-deploy, quartz-five, obsidian-five]
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 20
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Restore previously verified owner service after test
+        env:
+          NERAL_V42_SMOKE5_APPROVED: NERAL-V42-SMOKE5-APPROVED
+          NERAL_V42_SMOKE5_PREFLIGHT: success
+          NERAL_V42_SMOKE5_MERGE_TITLE: ${{ github.event.head_commit.message }}
+          NERAL_V42_SMOKE5_REVERT: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v41_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Owner restore failed'}
+          Write-Host 'NERAL_V42_SMOKE5_ORIGINAL_OWNER_RESTORED'
