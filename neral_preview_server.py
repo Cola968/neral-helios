@@ -269,6 +269,16 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     return app
 
 
+def warmup_three_tier_before_serve(runtime, app, serve, **serve_options):
+    """Perform pinned local 9B startup loading before opening port 9690.
+
+    This is a synchronous boot gate, not an asynchronous background warmup.
+    A CUDA/memory/adapter failure prevents the HTTP listener from starting.
+    """
+    runtime.warmup_default_model()
+    return serve(app, **serve_options)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     parser.add_argument("--model",choices=ALLOWED_MODELS,default="qwen3:8b")
@@ -334,7 +344,11 @@ def main(argv=None):
           f"dual_routing_opt_in={args.experimental_dual_routing} | "
           f"three_tier_hf_opt_in={tier_runtime is not None} | "
           "no default model promotion",flush=True)
-    serve(app,host=HOST,port=args.port,threads=4)
+    if tier_runtime is not None:
+        warmup_three_tier_before_serve(
+            tier_runtime, app, serve, host=HOST, port=args.port, threads=4)
+    else:
+        serve(app,host=HOST,port=args.port,threads=4)
 
 
 if __name__=="__main__":

@@ -44,7 +44,33 @@ def final_marked_value(text):
     if ending is None:
         return None
     value = ending.group(1).strip()
+    # Permit presentation-only wrappers, never competing answers or content
+    # after the terminal marker. Keep all other kinds untouched.
+    for fence in ("**", "__", "`"):
+        if value.startswith(fence) and value.endswith(fence) and len(value) > 2 * len(fence):
+            value = value[len(fence):-len(fence)].strip()
+            break
+    if re.fullmatch(r"[-+]?\d+\.", value):
+        value = value[:-1]
     return value if value and len(value) <= 200 else None
+
+
+def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
+    """One canonical final only from real, successful, single-value tool stdout.
+
+    Do not use this for a model-only guess, multi-output program, code-writing
+    request, or as an independent mathematical verification certificate.
+    """
+    if (succeeded is not True or type(stdout) is not str or
+            type(prompt) is not str or
+            re.search(r"(?i)\b(?:berechn\w*|rechne|rechnung\w*|"
+                      r"ermittle|bestimme|ENDERGEBNIS)\b", prompt) is None):
+        return None
+    value = stdout.strip()
+    if not re.fullmatch(r"[-+]?\d{1,18}", value):
+        return None
+    return "ENDERGEBNIS: " + str(int(value))
+
 
 
 def forced_repair_tool(question, *, local=False, web=False):

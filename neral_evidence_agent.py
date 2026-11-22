@@ -179,12 +179,23 @@ def _short(value, limit):
 
 
 def _plan(packet):
-    if set(packet) != {"tool", "parts"} or packet["tool"] not in tuple(TOOLS):
+    # Real structured models may emit the optional search_query property even
+    # when the standard (non-Deep) schema requested only tool and parts.
+    # Ignore this known planner hint; it is NEVER authorization for web access.
+    # Unrecognized fields still fail closed.
+    if (type(packet) is not dict or not {"tool", "parts"} <= set(packet) or
+            set(packet) - {"tool", "parts", "search_query"} or
+            packet["tool"] not in tuple(TOOLS)):
         raise AgentError("Plan enthält kein erlaubtes Werkzeug.")
+    if "search_query" in packet and (
+            type(packet["search_query"]) is not str or
+            len(packet["search_query"]) > 160 or
+            not all(char.isprintable() for char in packet["search_query"])):
+        raise AgentError("Ungültiges optionales Planner-Suchfeld.")
     parts = packet["parts"]
     if not isinstance(parts, list) or not 1 <= len(parts) <= 6 or not all(_short(p, 180) for p in parts):
         raise AgentError("Teilfragen im Plan fehlen.")
-    return packet
+    return {"tool": packet["tool"], "parts": parts}
 
 
 def _number(token, locale):
@@ -290,7 +301,7 @@ def _run(execute, code):
     return output
 
 
-def _calculate(packet, numbers, execute, external):
+def _calculate(packet, numbers, execute, external, *, final_prompt=None):
     if set(packet) != {"locale", "calculations", "missing"} or packet["locale"] not in ("de", "en"):
         raise AgentError("Rechenpaket hat ungültige Felder.")
     missing, calculations = packet["missing"], packet["calculations"]
@@ -336,12 +347,23 @@ def _calculate(packet, numbers, execute, external):
     for name in sorted(used):
         occurrence = numbers[name]
         rendered.append(f"{name} ({occurrence['source']}): {occurrence['token']} aus „{occurrence['quote']}“")
+    # This is actual, validated sandbox stdout, not a model-proposed answer.
+    # Only an explicitly requested final marker and exactly one integer stdout
+    # permit a canonical last line; never conceal ambiguity/multiple values.
+    if (len(calculations) == 1 and type(final_prompt) is str and
+            re.search(r"(?i)\bENDERGEBNIS\s*:", final_prompt)):
+        from neral_v42_quality import exact_executed_numeric_tail
+        marker = exact_executed_numeric_tail(
+            lines[0], succeeded=True, prompt=final_prompt)
+        if marker is not None:
+            rendered.append(marker)
     return "\n".join(rendered)
 
 
 def _work(plan, packet, evidence, execute, external, numeric_evidence):
     if plan["tool"] == "python_sandbox":
-        return _calculate(packet, numeric_evidence, execute, external)
+        return _calculate(packet, numeric_evidence, execute, external,
+                          final_prompt=evidence.get("user"))
     if plan["tool"] == "python_code_sandbox":
         if set(packet) != {"code"} or not _short(packet["code"], 4500):
             raise AgentError("Python-Code für echte Sandbox-Ausführung fehlt.")
@@ -1036,6 +1058,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     from neral_page_reader import evidence_sentence_windows
     from neral_knowledge_verifier import verified_element_question
     from neral_obsidian_deep import emit, constrained_query
+    from neral_local_wiki import source_required
     from neral_v42_quality import (
         forced_repair_tool, grounded_literal_citations,
         evidence_veto_is_generic, checker_veto_class,
@@ -1052,7 +1075,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         nonlocal actual_tool_calls
         actual_tool_calls += 1
         return execute(*args, **kwargs)
-    if not files and not web_query:
+    if not files and not web_query and not fallback_query:
         elementary=verified_element_question(question)
         if elementary is not None:
             status('proof')
@@ -1184,6 +1207,57 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 del evidence[key]
         wiki_hits = []
 
+    # Always access a real source before asking an LLM to propose factual
+    # assertions. A prompt that explicitly requests evidence cannot be
+    # satisfied by a planner guessing a tool or generating a citation.
+    provenance_needed = (source_required(question) and not force_sandbox
+                         and not files)
+    if provenance_needed:
+        if local_lookup is not None and not web_query:
+            status("wiki")
+            steps.append("wiki_search")
+            try:
+                # Local Kiwix accepts at most 160 characters. Prefer the
+                # explicit user-authorized short query for verbose requests,
+                # otherwise use a bounded prefix of the same user text.
+                local_question = (fallback_query or question) if len(question) > 160 else question
+                local_question = local_question[:160].rsplit(" ", 1)[0] if len(local_question) > 160 else local_question
+                candidates = local_lookup(local_question)
+            except (OSError, ValueError, RuntimeError):
+                candidates = []
+            if isinstance(candidates, list):
+                wiki_hits = [
+                    hit for hit in candidates[:3]
+                    if type(hit) is dict and
+                    all(isinstance(hit.get(k), str) and hit[k]
+                        for k in ("title", "book", "url", "context")) and
+                    hit["url"].startswith("http://127.0.0.1:9691/content/")
+                ]
+                for i, hit in enumerate(wiki_hits, 1):
+                    evidence[f"wiki{i}"] = hit["context"][:1900]
+            if not wiki_hits:
+                web_query = fallback_query
+        if web_query and not wiki_hits:
+            if search is None:
+                issue = "Kein autorisiertes Suchwerkzeug verfügbar."
+                return result("Keine gelesene Quelle verfügbar.", attempts=0)
+            status("web")
+            steps.extend(("web_search", "web_reader"))
+            try:
+                found = search.search(web_query)
+                sources = page_reader(found.get("results", []), web_query)
+                rebuild_web_evidence()
+            except (WebSearchError, OSError, ValueError, TypeError, RuntimeError):
+                sources = []
+            searched = True
+            if not any(item.get("page_read") is True
+                       for item in sources if isinstance(item, dict)):
+                issue = "Keine gelesene Webseite als Quellenbeleg verfügbar."
+                return result("Keine gelesene Quelle verfügbar.", attempts=0)
+        elif not wiki_hits:
+            issue = "Keine gelesene Quelle verfügbar."
+            return result("Keine gelesene Quelle verfügbar.", attempts=0)
+
     for attempt in range(MAX_REPAIRS + 1 if max_attempts is None else max_attempts):
         packet = None
         try:
@@ -1203,7 +1277,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                         planner_data["required_tool"] = forced_tool
                     if previous_proposal is not None:
                         planner_data["previous_proposal"] = previous_proposal
-                    schema = _object(tool={"enum":[forced_tool] if forced_tool else sorted(TOOLS)},
+                    schema = _object(tool={"enum":["direct_reasoning"] if provenance_needed else
+                                     [forced_tool] if forced_tool else sorted(TOOLS)},
                                      parts=_array(_string(180),6,1),
                                      search_query=_string(160))
                     draft_plan = ask(PLANNER +
@@ -1217,15 +1292,20 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                         "aus authorized_query; bei Korrektur gezielt verkürzen oder umstellen.",
                         planner_data,schema)
                     proposed = _plan({k:v for k,v in draft_plan.items() if k!="search_query"})
+                    if provenance_needed and proposed["tool"] != "direct_reasoning":
+                        raise AgentError("Quellenpflicht erfordert Quellen- und Zitatpfad.")
                     if forced_tool and proposed["tool"] != forced_tool:
                         raise AgentError("Reparaturplan ohne das vorgeschriebene Werkzeug.")
                     revised_query = constrained_query(approved_query,draft_plan.get("search_query"))
                 else:
                     proposed = _plan(ask(PLANNER,planner_data,PLAN_SCHEMA))
+                    if provenance_needed:
+                        proposed = {"tool":"direct_reasoning",
+                                    "parts":["Nur gelesene Quellen wörtlich belegen"]}
                 if force_sandbox and proposed["tool"] == "direct_reasoning":
                     raise AgentError("Für diese Frage konnte kein belegter Sandbox-Rechenplan erstellt werden.")
                 plan = proposed
-            if deep and local_lookup is not None and not web_query and not wiki_hits and plan["tool"]=="direct_reasoning":
+            if deep and not provenance_needed and local_lookup is not None and not web_query and not wiki_hits and plan["tool"]=="direct_reasoning":
                 status("wiki",attempt+1)
                 try:
                     hits = local_lookup(question if attempt==0 else revised_query or question)
@@ -1287,7 +1367,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             exact = quantity_plan(question, evidence)
             status("tool",attempt+1,"python_sandbox" if exact is not None and not files and not wiki_hits else plan["tool"])
             if exact is not None and not files and not wiki_hits:
-                text = _calculate(*exact, observed_execute, external)
+                text = _calculate(*exact, observed_execute, external,
+                                  final_prompt=question)
                 executed = "python_sandbox"
                 steps.append("quantity_validation")
                 if deep:

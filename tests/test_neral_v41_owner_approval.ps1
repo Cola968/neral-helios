@@ -111,3 +111,28 @@ $denied=$false
 try { & $guard } catch { $denied=$true }
 if(-not $denied){throw 'V42 diag3 accepts replay'}
 Write-Host 'PASS V42 diag3 denial and replay'
+
+# V4.2 explicitly approved second diagnostic: no 50-case authorization.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 bottleneck recheck 20261122'
+& $guard
+Write-Host 'PASS second 3x3 diagnostic one-shot authorization'
+$env:GITHUB_RUN_ATTEMPT='2'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'Second diag3 accepted replay'}
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V42_DIAG3_PREFLIGHT='failure'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'Second diag3 accepted failed preflight'}
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_APPROVED=''
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'Second diag3 accepted missing owner token'}
+Write-Host 'PASS second 3x3 diagnostic negative/replay authorization'
