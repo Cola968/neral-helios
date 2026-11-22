@@ -28,6 +28,12 @@ _ALLOWED_ERRORS = {
 }
 
 
+def web_query_for_diagnostic(category, prompt):
+    # Only this public synthetic knowledge question is explicitly approved for
+    # fresh Web V4 lookup. No private Blind200 prompts ever leave the owner PC.
+    return prompt if category == "knowledge" and prompt == DIAGNOSTIC_CASES[2][1] else None
+
+
 def _gpu_poll_until(done, peaks):
     """Only GPU used-MiB integers; no process list or command lines."""
     while not done.is_set():
@@ -52,7 +58,8 @@ def run(tier, summary_path):
         sampler.start()
         try:
             code, result, total = client.post(
-                tier, prompt, [], diagnostic_telemetry=True)
+                tier, prompt, [], diagnostic_telemetry=True,
+                web_query=web_query_for_diagnostic(category, prompt))
         finally:
             done.set()
             sampler.join(timeout=5)
@@ -71,6 +78,13 @@ def run(tier, summary_path):
             "latency_ms":round(total*1000),
             "error_code":err, "response_nonempty":bool(str(result.get("text","")).strip()),
             "numeric_math_probe":quality,
+            "checker_veto_reason_code": (
+                result.get("checker_veto_reason_code")
+                if result.get("checker_veto_reason_code") in (
+                    "generic_quote_veto","contradiction_reported",
+                    "source_or_quote_issue","tool_issue",
+                    "no_external_evidence","tool_not_executed","other_checker_issue")
+                else "not_available"),
             "vram_peak_mib":max(peaks) if peaks else None,
             "telemetry":diagnostics,
         }
