@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NERAL Frontier Blind180 manifest metadata only; not a dataset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_count",
+    "data_origin",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "neral-frontier-blind180-v1"
+    },
+    "case_count": {
+      "const": 180
+    },
+    "data_origin": {
+      "const": "new_independent_private_blind180"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 180,
+      "maxItems": 180,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case_id",
+          "category",
+          "prompt_sha256",
+          "grader_sha256"
+        ],
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "pattern": "^(?:everyday_facts|math|code)-[0-9]{3}$"
+          },
+          "category": {
+            "enum": [
+              "everyday_facts",
+              "math",
+              "code"
+            ]
+          },
+          "prompt_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "grader_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "category"
+            ],
+            "properties": {
+              "category": {
+                "const": "everyday_facts"
+              }
+            }
+          },
+          "minContains": 60,
+          "maxContains": 60
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "category"
+            ],
+            "properties": {
+              "category": {
+                "const": "math"
+              }
+            }
+          },
+          "minContains": 60,
+          "maxContains": 60
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "category"
+            ],
+            "properties": {
+              "category": {
+                "const": "code"
+              }
+            }
+          },
+          "minContains": 60,
+          "maxContains": 60
+        }
+      ]
+    }
+  }
+}
