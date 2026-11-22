@@ -11,6 +11,7 @@ on:
       - tests/test_neral_v42_bottlenecks_cpu.py
       - tests/test_neral_v42_fastpath_math_evidence_cpu.py
       - tests/test_neral_v42_remaining_failures_cpu.py
+      - tests/test_neral_v42_failure_attribution_cpu.py
       - tests/test_neral_v42_vram_web_deadline_cpu.py
       - tests/test_neral_v42_pipeline_quality_cpu.py
       - tests/test_neral_1_0_standalone_release.py
@@ -45,6 +46,7 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_fastpath_math_evidence_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_remaining_failures_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_failure_attribution_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_vram_web_deadline_cpu.py -v
       - name: Assemble complete real release ZIP and verify contents
         shell: pwsh
@@ -73,6 +75,7 @@ jobs:
           python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_fastpath_math_evidence_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_remaining_failures_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_failure_attribution_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_vram_web_deadline_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_pipeline_quality_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_telemetry_cpu.py -v
