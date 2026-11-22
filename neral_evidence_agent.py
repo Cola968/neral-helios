@@ -13,12 +13,12 @@ from neral_web_search import WebSearchError
 from neral_z3_json_compiler import compile_z3_json
 
 MAX_REPAIRS = 2
-TOOLS = {"direct_reasoning", "python_sandbox", "z3_solver"}
+TOOLS = {"direct_reasoning", "python_sandbox", "z3_solver", "python_code_sandbox"}
 NUMBER = re.compile(r"(?<![\w.,])[-+]?\d(?:[\d.,\u00a0\u202f ]*\d)?(?!\w)")
 SIMPLE = re.compile(r"(?i)\s*(?:hallo|hi|hey|danke|guten\s+(?:tag|morgen|abend)|tschüss)[.!? ]*\s*")
 PLANNER = """Du bist der Helios-Aufgabenplaner. Antworte nur mit gültigem JSON. Beispiel für eine andere Aufgabe:
 {"tool":"python_sandbox","parts":["Stückpreis aus Gesamtpreis und Stückzahl bestimmen"]}
-Die zwei Schlüssel bleiben gleich. Wähle python_sandbox bei jeder Rechnung, auch bei frei formulierten Fragen.
+Die zwei Schlüssel bleiben gleich. Wähle python_sandbox bei Rechnungen, python_code_sandbox beim Schreiben von Python-Programmen oder Funktionen.
 Wähle z3_solver für Pläne, bei denen Personen, Zeiten oder Aufgaben unter Bedingungen zugeordnet werden. Nutze dort keine python_sandbox. Für reine Wissensfragen wähle direct_reasoning.
 Die genehmigte Websuche wird separat ausgeführt. Wenn web_requested=true, plane das Werkzeug, das NACH dem Abruf die eigentliche Frage beantwortet. web_search ist hier keine Werkzeugwahl.
 Beantworte noch nichts. Liste alle Teilfragen. Wenn force_sandbox=true, wähle ein Rechenwerkzeug.
@@ -33,6 +33,13 @@ Benutze AUSSCHLIESSLICH Kennungen aus numbers. Jede Kennung steht für die dort 
 Bei aktuellen Kursen nutze eine als aktuell erkennbare Zahl in der angefragten Währung und Einheit. €/oz bedeutet Euro pro Feinunze bei einem Edelmetallkurs. Keine Währungs- oder Einheitensubstitution.
 In expr stehen nur gebundene Variablen, + - * / ( ) und pct(x) für x/100. Keine numerischen Literale. Für jede Teilfrage ein Ergebnis.
 Fehlt eine erforderliche Zahl, beschreibe in missing konkret, welche Zahl, Einheit oder Währung fehlt. Gib dann calculations=[] aus. Erfinde keinen Ersatzwert.
+""",
+    "python_code_sandbox": """Antwortformat: {"code":"vollständiger syntaktisch gültiger Python-Code"}.
+Schreibe die vom Nutzer geforderte Funktion oder das Programm in code.
+Der Controller führt es ausschließlich in der isolierten Docker-Sandbox aus und
+akzeptiert es nur nach tatsächlichem fehlerfreiem Lauf.
+Keine Netzwerkaufrufe, Shell-Befehle oder Dateisystemzugriffe. Keine Behauptung,
+dass ein Test gelaufen sei; das Werkzeug muss den Status selbst liefern.
 """,
     "z3_solver": """Antwortformat mit Beispieldaten für eine andere Aufgabe:
 {"schema":{"variables":[{"name":"ada","min":1,"max":3}],"constraints":[{"rule_id":"R1","description":"Ada ist nicht in Schicht 2","expr":"ada != 2"}],"objective":"find_one"},"legend":"1–3 sind die drei Schichten. ada benennt Adas Schicht."}
@@ -102,6 +109,8 @@ def _worker_schema(plan, evidence):
     if tool == "python_sandbox":
         return _object(calculations=_array(_object(label=_string(120), expr=_string(240), unit=_string(35)), 6),
                        locale={"enum": ["de", "en"]}, missing=_array(_string(120), 6))
+    if tool == "python_code_sandbox":
+        return _object(code=_string(4500))
     if tool == "z3_solver":
         variable = _object(name=_string(26), min={"type": "integer"}, max={"type": "integer"})
         constraint = _object(rule_id=_string(4), description=_string(150), expr=_string(230))
@@ -333,6 +342,23 @@ def _calculate(packet, numbers, execute, external):
 def _work(plan, packet, evidence, execute, external, numeric_evidence):
     if plan["tool"] == "python_sandbox":
         return _calculate(packet, numeric_evidence, execute, external)
+    if plan["tool"] == "python_code_sandbox":
+        if set(packet) != {"code"} or not _short(packet["code"], 4500):
+            raise AgentError("Python-Code für echte Sandbox-Ausführung fehlt.")
+        code = packet["code"].strip()
+        if len(code.encode("utf-8")) > 4500:
+            raise AgentError("Python-Code überschreitet das sichere Eingabelimit.")
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            raise AgentError("Python-Code enthält einen Syntaxfehler.") from exc
+        if external:
+            raise AgentError("Externe Belege werden nicht in ungebundenen Code eingefügt.")
+        # The sentinel is appended by trusted code, never by the model.
+        output = _run(execute, code + "\nprint('NERAL_CODE_SMOKE_OK')")
+        if output.strip().splitlines()[-1] != "NERAL_CODE_SMOKE_OK":
+            raise AgentError("Kein bestätigter Python-Sandbox-Lauf.")
+        return "```python\n" + code + "\n```"
     if plan["tool"] == "z3_solver":
         if external:
             raise AgentError("Für Z3 aus externen Zahlen fehlen gebundene Parameter. Keine Berechnung ausgeführt.")
@@ -1010,6 +1036,10 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     from neral_page_reader import evidence_sentence_windows
     from neral_knowledge_verifier import verified_element_question
     from neral_obsidian_deep import emit, constrained_query
+    from neral_v42_quality import (
+        forced_repair_tool, grounded_literal_citations,
+        evidence_veto_is_generic, checker_veto_class,
+    )
     approved_query = web_query or fallback_query
     wiki_hits = []
     previous_proposal = None
@@ -1017,6 +1047,11 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     def status(stage, attempt=1, tool=None):
         if deep:
             emit(progress, stage, attempt, tool)
+
+    def observed_execute(*args, **kwargs):
+        nonlocal actual_tool_calls
+        actual_tool_calls += 1
+        return execute(*args, **kwargs)
     if not files and not web_query:
         elementary=verified_element_question(question)
         if elementary is not None:
@@ -1048,6 +1083,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
     plan = None
     issue = ""
     executed = None
+    actual_tool_calls = 0
     searched = False
     entity_searches = {}
     max_comparison_pages = 8
@@ -1120,6 +1156,10 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         return {"text": text, "verified": False, "safe_to_promote": False, "proof_backend": None,
                 "verification_scope": "tool_execution_and_model_review" if checked else "none",
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
+                "actual_tool_calls": actual_tool_calls,
+                "checker_veto_reason_code": (
+                    checker_veto_class(issue, sources=sources, wiki_hits=wiki_hits,
+                                       executed=executed) if not checked else None),
                 "tool_used": executed, "tool_verified": bool(checked and executed and not wiki_hits),
                 "error_code": (None if checked else (
                     "z3_schema_error" if "Z3" in issue or "Schema" in issue
@@ -1149,22 +1189,36 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         try:
             if plan is None:
                 status("plan", attempt+1)
+                forced_tool = (forced_repair_tool(
+                    question, local=local_lookup is not None,
+                    web=(approved_query is not None and search is not None))
+                    if deep and attempt > 0 and executed in (None, "direct_reasoning")
+                    else None)
                 planner_data = {"question":question,"web_requested":bool(web_query),
                     "files":list(files or {}),"correction":issue,"force_sandbox":force_sandbox}
                 if deep:
                     planner_data["authorized_query"] = approved_query or ""
                     planner_data["local_lookup_available"] = local_lookup is not None
+                    if forced_tool:
+                        planner_data["required_tool"] = forced_tool
                     if previous_proposal is not None:
                         planner_data["previous_proposal"] = previous_proposal
-                    schema = _object(tool={"enum":sorted(TOOLS)},parts=_array(_string(180),6,1),
+                    schema = _object(tool={"enum":[forced_tool] if forced_tool else sorted(TOOLS)},
+                                     parts=_array(_string(180),6,1),
                                      search_query=_string(160))
                     draft_plan = ask(PLANNER +
+                        ("\nREPARATUR: Wähle zwingend das Werkzeug " + forced_tool +
+                         ". Eine Behauptung über einen Werkzeugaufruf reicht nicht; "
+                         "der Controller muss den Aufruf tatsächlich ausführen. "
+                         if forced_tool else "") +
                         "\nZerlege die aktuelle Aufgabe in konkrete Teilfragen, Bedingungen, "
                         "Einheiten und Fallen. Plane die Kontrolle jeder Teilfrage. "
                         "search_query ist leer ohne autorisierte Suche, sonst nur Wörter "
                         "aus authorized_query; bei Korrektur gezielt verkürzen oder umstellen.",
                         planner_data,schema)
                     proposed = _plan({k:v for k,v in draft_plan.items() if k!="search_query"})
+                    if forced_tool and proposed["tool"] != forced_tool:
+                        raise AgentError("Reparaturplan ohne das vorgeschriebene Werkzeug.")
                     revised_query = constrained_query(approved_query,draft_plan.get("search_query"))
                 else:
                     proposed = _plan(ask(PLANNER,planner_data,PLAN_SCHEMA))
@@ -1233,7 +1287,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             exact = quantity_plan(question, evidence)
             status("tool",attempt+1,"python_sandbox" if exact is not None and not files and not wiki_hits else plan["tool"])
             if exact is not None and not files and not wiki_hits:
-                text = _calculate(*exact, execute, external)
+                text = _calculate(*exact, observed_execute, external)
                 executed = "python_sandbox"
                 steps.append("quantity_validation")
                 if deep:
@@ -1339,7 +1393,11 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     question, packet, evidence, sources)
             if deep:
                 previous_proposal=json.dumps(packet,ensure_ascii=False)[:1800]
-            answer = _work(plan, packet, evidence, execute, external, numeric_evidence)
+            calls_before = actual_tool_calls
+            answer = _work(plan, packet, evidence, observed_execute, external, numeric_evidence)
+            if deep and attempt > 0 and plan["tool"] in ("python_sandbox","z3_solver","python_code_sandbox"):
+                if actual_tool_calls == calls_before:
+                    raise AgentError("Vorgeschriebenes Werkzeug wurde nicht tatsächlich ausgeführt.")
             # Report the selected reasoning path even when no sandbox or Z3
             # subprocess was needed. Chrome E2E verifies this observable mode.
             executed = plan["tool"]
@@ -1392,6 +1450,19 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 raise AgentError("Prüfer lieferte kein gültiges Urteil.")
             if review["ok"] and not review["issue"].strip():
                 return result(answer, checked=True, attempts=attempt+1)
+            # Narrow false-positive case only: reviewer claims that NO quote
+            # exists although the complete answer is an exact literal span of
+            # a real read HTTPS page or local ZIM article. Never override a
+            # concrete contradiction, unsupported extra claim, or stale fact.
+            if (plan["tool"] == "direct_reasoning" and
+                    evidence_veto_is_generic(review["issue"]) and
+                    grounded_literal_citations(packet, evidence, sources, wiki_hits,
+                                              passages=passages)):
+                literal = result(answer, checked=True, attempts=attempt+1)
+                return {**literal, "verified": False, "safe_to_promote": False,
+                        "tool_verified": False,
+                        "verification_scope": "literal_source_read_not_independent_fact_proof",
+                        "veto_override_reason_code": "generic_quote_veto_exact_literal"}
             issue = review["issue"][:350] or "Teilfrage, Beleg oder Bedingung fehlt."
             plan = None  # A wrong tool or missing input requires planning again.
             if deep:

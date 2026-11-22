@@ -31,7 +31,13 @@ def _norm(text):
 
 
 def _exact_text(text,kind):
+    from neral_v42_quality import final_marked_value
     val=str(text).strip().strip("`")
+    if "ENDERGEBNIS" in val.upper():
+        isolated = final_marked_value(val)
+        if isolated is None:
+            return None
+        val = isolated
     if kind in ("integer","web_integer"):
         # Do not award correctness just because the right number is mentioned
         # somewhere among several wrong alternatives or worked-out steps.
@@ -169,7 +175,10 @@ def grade_response(case: dict, response: dict, *, docker_image=IMAGE):
             if any(t.casefold() in response["text"].casefold() for t in ref.get("forbidden_terms",[])):
                 return "fail","prior_topic_leak"
         if kind=="string":
-            val=response["text"].strip().rstrip(".! ")
+            val=_exact_text(response["text"],kind)
+            if val is None:
+                return "fail","exact_output_unparseable"
+            val=val.strip().rstrip(".! ")
             return ("pass","exact_string") if val.casefold()==ref["value"].casefold() else (
                 "fail","string_mismatch")
         result=_exact_text(response["text"],kind)
@@ -254,7 +263,8 @@ def execute_case(client,tier,case):
             {"role":"user","content":turn["content"]},
             {"role":"assistant","content":_safe_history_piece(result["text"])}
         ])
-    code,result,spent=client.post(tier,case["prompt"],history,
+    from neral_v42_quality import prompt_for_exact_case
+    code,result,spent=client.post(tier,prompt_for_exact_case(case),history,
                web_query=case.get("web_query"))
     return code,result,elapsed+spent,None
 

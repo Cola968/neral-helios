@@ -10,7 +10,7 @@ _SEARCH = ContextVar("obsidian_search", default=None)
 _STAGES = {"plan":"Zerlege Aufgabe…", "wiki":"Suche im lokalen Wissen…",
            "web":"Prüfe Webquellen…", "tool":"Prüfe mit Werkzeug…",
            "critic":"Prüfe Antwort auf Vollständigkeit…", "proof":"Unabhängigen Beweis geprüft."}
-_TOOLS = {"python_sandbox":"Python", "z3_solver":"Z3", "direct_reasoning":"Quellen/Antwort"}
+_TOOLS = {"python_sandbox":"Python", "python_code_sandbox":"Python-Code", "z3_solver":"Z3", "direct_reasoning":"Quellen/Antwort"}
 
 def enabled():
     return os.environ.get("NERAL_V42_OBSIDIAN_DEEP", "1") == "1"
