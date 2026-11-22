@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
 from neral_v42_telemetry import (
     current as diagnostic_current, begin_request as diagnostic_begin,
-    end_request as diagnostic_end, FirstTokenStopper, timed_tool,
+    end_request as diagnostic_end, FirstTokenStopper, timed_tool, timed_search_service,
 )
 from neral_v42_deadline import (
     DeadlineExceeded, MODE_BUDGETS, canonical_tier, check_deadline,
@@ -1163,6 +1163,25 @@ class ThreeTierRuntime:
             raise ValueError("Dataset Docker callback must be callable")
         self.execute_dataset_python = execute_dataset_python
         self.evidence_agent = evidence_agent
+        self.startup_ready = False
+
+    def warmup_default_model(self):
+        """Block startup until the pinned Quartz/Obsidian 9B model is loaded.
+
+        Only the HF main() boot path calls this; fake/legacy Flask apps remain
+        side-effect free until explicitly warmed by their owner.
+        """
+        if self.startup_ready and self.active_backend is self.helios and self.helios.loaded:
+            return
+        self.startup_ready = False
+        self._switch(self.helios)
+        preload = getattr(self.helios, "_load", None)
+        if not callable(preload):
+            raise RuntimeError("Pinned 9B model cannot be preloaded")
+        preload()
+        if not self.helios.loaded:
+            raise RuntimeError("Pinned 9B model failed startup warmup")
+        self.startup_ready = True
 
     def answer_with_evidence(self, turns, tier, *, web_query=None, search=None, files=None,
                              force_sandbox=False):
@@ -1172,7 +1191,7 @@ class ThreeTierRuntime:
                 files=files, force_sandbox=force_sandbox))
         from neral_evidence_agent import run_evidence_agent
         from neral_v41_context import resolve_question
-        search = timed_tool("web_v4", search) if callable(search) else search
+        search = timed_search_service(search)
         resolution = resolve_question(turns)
 
         def respond(instruction, payload, budget, schema):
@@ -1801,11 +1820,13 @@ class ThreeTierRuntime:
     def answer(self, turns: list[dict], tier: str, *,
                force_sandbox: bool = False,
                sandbox_files: dict[str, bytes] | None = None,
-               _amber_public: bool = False) -> dict:
+               _amber_public: bool = False,
+               _obsidian_simple: bool = False) -> dict:
         if tier in PUBLIC_TO_LEGACY:
             return _public_result(self.answer(
                 turns, PUBLIC_TO_LEGACY[tier], force_sandbox=force_sandbox,
-                sandbox_files=sandbox_files, _amber_public=tier == "Amber"))
+                sandbox_files=sandbox_files, _amber_public=tier == "Amber",
+                _obsidian_simple=_obsidian_simple and tier == "Obsidian"))
         if type(force_sandbox) is not bool:
             raise ValueError("force_sandbox must be a JSON boolean")
         if sandbox_files is not None and (type(sandbox_files) is not dict or
@@ -1876,7 +1897,7 @@ class ThreeTierRuntime:
         self._switch(chosen)
         from neral_everyday_verified import tidy_unverified_model_text
         from neral_verified_notes import VerifiedStrategyStore
-        hint = ("" if _BENCHMARK_ISOLATED.get() else
+        hint = ("" if _BENCHMARK_ISOLATED.get() or _obsidian_simple else
                 VerifiedStrategyStore().hint(turns[-1]["content"]))
         model_turns = turns
         if hint:
@@ -1885,6 +1906,7 @@ class ThreeTierRuntime:
                 "\nWerkzeugstrategie (kein Faktenbeleg): " + hint), *turns[1:]]
         response = tidy_unverified_model_text(
             chosen.respond_chat(model_turns, max_new_tokens=(
+                80 if _obsidian_simple and tier == "Helios" else
                 768 if _amber_public and tier == "Luna" else TIERS[tier])))
         if type(response) is not str or not response.strip():
             raise RuntimeError("Selected local HF model returned empty result")
@@ -1944,6 +1966,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
     # exposed app._neral_prepare_model: normal, streaming, THINK, and file
     # routes all use that closure and must release HF CUDA allocations.
     app._neral_before_legacy_model = runtime.release_for_legacy
+
+    @app.get("/health")
+    def three_tier_health():
+        # No success until the startup model-load hook completes; main()
+        # initializes before the socket is opened, so the runner cannot see
+        # a ready but still lazy-loading 9B service.
+        if runtime.startup_ready and runtime.helios.loaded:
+            return jsonify(status="ready", model="Quartz"), 200
+        return jsonify(status="starting"), 503
 
     @app.get("/api/neral/chat/three-tier/status")
     def three_tier_status():
@@ -2042,6 +2073,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         progress_token = _PROGRESS.set(
             (lambda event: progress_registry.emit(owner, progress_id, event)) if tracking else None)
         search_token = _SEARCH.set(search_service if deep_active else None)
+        from neral_obsidian_deep import is_simple_everyday_question
+        simple_deep = (deep_active and not web_query and not web_stage and
+                       not payload.get("force_sandbox", False) and
+                       is_simple_everyday_question(turns[-1]["content"]))
         try:
             started = time.monotonic()
             # Zero-model exact recall of independently checked local examples.
@@ -2093,8 +2128,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 result = runtime.answer_with_evidence(
                     turns, requested_tier, web_query=web_query, search=search_service,
                     force_sandbox=payload.get("force_sandbox", False))
+            elif simple_deep and not is_followup:
+                # Fast route only for uncomplicated, timeless explanations.
+                # One normal HF generation with a short bounded token budget.
+                result = {**runtime.answer(
+                    turns, requested_tier, _obsidian_simple=True),
+                    "obsidian_fast_path": True, "obsidian_deep": False,
+                    "repair_attempts": 0, "repair_success": False}
             elif deep_active:
-                # Obsidian retains its full three-loop pipeline after PR #591.
+                # Complex tasks retain the full verified three-loop pipeline.
                 result = runtime.answer_with_evidence(
                     turns, requested_tier, search=search_service,
                     force_sandbox=payload.get("force_sandbox", False))
