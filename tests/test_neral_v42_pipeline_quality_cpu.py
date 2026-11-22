@@ -152,6 +152,7 @@ class TelemetryWebProbeCPU(unittest.TestCase):
         self.assertIn("zuerst", DIAGNOSTIC_CASES[1][1].lower())
         self.assertIn("Quelle", DIAGNOSTIC_CASES[2][1])
         self.assertNotIn("ENDERGEBNIS:", DIAGNOSTIC_CASES[0][1])
+        self.assertNotRegex(DIAGNOSTIC_CASES[0][1].casefold(), r"berechn|rechne|schicht|z3|python|web|recherche")
         self.assertIsNone(web_query_for_diagnostic("knowledge","Geheime Nutzerfrage"))
         self.assertIsNone(web_query_for_diagnostic("math_logic","Berechne 17 x 23"))
         self.assertIsNone(web_query_for_diagnostic("everyday","Erkläre thermische Ausdehnung"))
