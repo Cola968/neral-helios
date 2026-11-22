@@ -157,7 +157,7 @@ class DeadlineAndBackoffCPU(unittest.TestCase):
                     "agent_attempts":1,"agent_checked":True,"error_code":None}
         with patch("neral_evidence_agent.run_evidence_agent",side_effect=mock_agent):
             ob=client.post("/api/neral/chat/three-tier",
-                json={"tier":"Obsidian","prompt":"Warum ist der Himmel blau?",
+                json={"tier":"Obsidian","prompt":"Ordne vier Schichten mit Z3 und prüfe alle Bedingungen.",
                       "benchmark_isolated":True})
             self.assertEqual(ob.status_code,200)
             self.assertTrue(ob.get_json().get("obsidian_deep"))
