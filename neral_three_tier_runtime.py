@@ -1239,8 +1239,12 @@ class ThreeTierRuntime:
                         web_query = fallback_query
                     else:
                         local_lookup = timed_tool("kiwix", local_wiki_search)
-        deep_options = ({"deep":True,"progress":_PROGRESS.get(),
-                         "local_lookup":local_lookup,"fallback_query":fallback_query} if deep else {})
+        # Quartz must receive the same deterministic source retrieval inputs;
+        # only the additional critic/repair attempts are Obsidian-specific.
+        deep_options = {"local_lookup": local_lookup,
+                        "fallback_query": fallback_query}
+        if deep:
+            deep_options.update(deep=True, progress=_PROGRESS.get())
         check_deadline()
         result = run_evidence_agent(resolution.work_question, respond, deadline_execute,
                                     web_query=web_query, search=search, files=files,
@@ -2108,12 +2112,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             from neral_v41_context import resolve_question
             resolution = resolve_question(turns)
             is_followup = resolution.is_followup
-            from neral_local_wiki import enabled as wiki_enabled, eligible_question, lookup_with_fallback, local_wiki_search
+            from neral_local_wiki import (enabled as wiki_enabled,
+                                          eligible_question, source_required,
+                                          lookup_with_fallback, local_wiki_search)
+            source_requested = source_required(resolution.work_question)
             auto_knowledge = (not deep_active and wiki_enabled() and runtime.evidence_agent and
                               search_service is not None and
                               requested_tier in ("Quartz", "Terra") and
                               not _BENCHMARK_ISOLATED.get() and not is_followup and
-                              not web_query and not web_stage and
+                              not source_requested and not web_query and not web_stage and
                               not payload.get("force_sandbox", False) and
                               eligible_question(resolution.work_question))
             note = None
@@ -2147,9 +2154,13 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                           "quality_improvement_proven": False,
                           "verification_scope": "historical_source_not_live_proof",
                           "proof_backend": None, "error_code": None}
-            elif web_query:
+            elif web_query or source_requested:
+                # Explicit user request for a read source never goes to notes,
+                # unverified model-only chat, or the unreviewed wiki shortcut.
                 result = runtime.answer_with_evidence(
-                    turns, requested_tier, web_query=web_query, search=search_service,
+                    turns, requested_tier,
+                    web_query=web_query or resolution.work_question,
+                    search=search_service,
                     force_sandbox=payload.get("force_sandbox", False))
             elif simple_deep and not is_followup:
                 # Fast route only for uncomplicated, timeless explanations.
