@@ -1,7 +1,7 @@
 # NERAL V4.2 Obsidian Verify & Repair (draft)
 
 DO NOT MERGE, DEPLOY, or use W39/9690 during Blind200.
-Default off: NERAL_V42_OBSIDIAN_DEEP=1 enables the existing three-round agent
+Owner-approved V4.2 default on: NERAL_V42_OBSIDIAN_DEEP=0 disables the existing three-round agent
 for Obsidian (legacy Helios) only, not Amber, Quartz, benchmark-isolated
 or file requests. No new weights, CUDA libraries or GPU workers. Uses the
 same model sequentially. Additional prompt/KV memory must be measured;
