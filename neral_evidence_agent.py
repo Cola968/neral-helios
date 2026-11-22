@@ -244,14 +244,29 @@ def _numeric_evidence(evidence):
     return found
 
 
-def _passages(evidence, query):
+def _passages(evidence, query, *, sources=None):
+    """Rank literal event/year quotes first; exclude unread Web V4 results."""
+    from neral_v42_quality import _year_event_subject, _year_quote_supports, _YEAR_TOKEN
     terms = set(re.findall(r"[^\W\d_]{4,}", query.casefold()))
+    event = _year_event_subject(query)
     passages = {}
     seen = set()
     for source, text in evidence.items():
-        if source == "user":
+        if source == "user" or not isinstance(text, str):
             continue
-        lines = sorted(text.splitlines(), key=lambda line: -sum(term in line.casefold() for term in terms))
+        if isinstance(sources, list) and re.fullmatch(r"web[1-9]\d*", source):
+            idx = int(source[3:]) - 1
+            if (idx >= len(sources) or not isinstance(sources[idx], dict)
+                    or sources[idx].get("page_read") is not True):
+                continue
+        def score(line):
+            matching = sum(term in line.casefold() for term in terms)
+            if event:
+                years = _YEAR_TOKEN.findall(line)
+                if len(years) == 1 and _year_quote_supports(query, line, years[0]):
+                    matching += 100
+            return -matching
+        lines = sorted(text.splitlines(), key=score)
         for line in lines[:12]:
             line = line.strip()[:400]
             if len(line) >= 25 and line not in seen:
@@ -350,11 +365,13 @@ def _calculate(packet, numbers, execute, external, *, final_prompt=None):
     # This is actual, validated sandbox stdout, not a model-proposed answer.
     # Only an explicitly requested final marker and exactly one integer stdout
     # permit a canonical last line; never conceal ambiguity/multiple values.
-    if (len(calculations) == 1 and type(final_prompt) is str and
+    if (type(final_prompt) is str and
             re.search(r"(?i)\bENDERGEBNIS\s*:", final_prompt)):
         from neral_v42_quality import exact_executed_numeric_tail
+        # Accept ordered multi-stage stdout only when both values match the
+        # source-level arithmetic; preserve all provenance and intermediate steps.
         marker = exact_executed_numeric_tail(
-            lines[0], succeeded=True, prompt=final_prompt)
+            output, succeeded=True, prompt=final_prompt)
         if marker is not None:
             rendered.append(marker)
     return "\n".join(rendered)
@@ -1390,7 +1407,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             worker_data = {"numbers": numeric_evidence} if plan["tool"] == "python_sandbox" else {"evidence": evidence}
             if deep and previous_proposal is not None:
                 worker_data["previous_proposal"]=previous_proposal
-            passages = _passages(evidence, web_query or question) if plan["tool"] == "direct_reasoning" and external else {}
+            passages = _passages(evidence, question if provenance_needed else web_query or question, sources=sources) if plan["tool"] == "direct_reasoning" and external else {}
             if passages:
                 # Deterministic factual grounding is a pre-generation input,
                 # not a substitute for the complete answer or its checker.
@@ -1479,6 +1496,30 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if deep and attempt > 0 and plan["tool"] in ("python_sandbox","z3_solver","python_code_sandbox"):
                 if actual_tool_calls == calls_before:
                     raise AgentError("Vorgeschriebenes Werkzeug wurde nicht tatsächlich ausgeführt.")
+            # A short historical year/event claim can be checked against
+            # a literal excerpt from an actually read HTTPS page, without
+            # relying on a second subjective model verdict. This certifies
+            # attribution only, never independent historical truth.
+            if provenance_needed and plan["tool"] == "direct_reasoning":
+                from neral_v42_quality import year_evidence_verdict
+                verdict = year_evidence_verdict(
+                    question, packet, evidence, sources, wiki_hits)
+                if verdict == "supported":
+                    executed = plan["tool"]
+                    accepted = result(answer, checked=True, attempts=attempt+1)
+                    return {**accepted, "verified": False, "safe_to_promote": False,
+                            "tool_verified": False,
+                            "verification_scope": "read_page_literal_year_not_truth_proof",
+                            "source_year_match": True}
+                if verdict in ("no_read_page", "invalid_quote", "unsupported_year"):
+                    issue = {
+                        "no_read_page": "Keine gelesene Webseite als Quellenbeleg verfügbar.",
+                        "invalid_quote": "Ungültiger Quellenbeleg auf tatsächlich gelesener Webseite.",
+                        "unsupported_year": "Unbelegte Jahreszahl in der Antwort.",
+                    }[verdict]
+                    executed = plan["tool"]
+                    plan = None
+                    continue
             # Report the selected reasoning path even when no sandbox or Z3
             # subprocess was needed. Chrome E2E verifies this observable mode.
             executed = plan["tool"]

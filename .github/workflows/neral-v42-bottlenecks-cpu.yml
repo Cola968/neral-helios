@@ -42,7 +42,11 @@ jobs:
       - name: Real release ZIP build and required local modules
         run: python -m scripts.build_neral_1_0_preview --out NERAL-1.0-Local-Preview.zip
   existing-cpu:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

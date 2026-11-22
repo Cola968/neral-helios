@@ -55,11 +55,39 @@ def final_marked_value(text):
     return value if value and len(value) <= 200 else None
 
 
-def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
-    """One canonical final only from real, successful, single-value tool stdout.
+def _explicit_two_stage_stock_steps(prompt):
+    """Parse only an explicit quantity-times-unit calculation followed by subtraction.
 
-    Do not use this for a model-only guess, multi-output program, code-writing
-    request, or as an independent mathematical verification certificate.
+    Source-level consistency, not a benchmark answer key or general NL solver.
+    Ambiguous inputs never qualify for the multi-output shortcut.
+    """
+    if type(prompt) is not str:
+        return None
+    statement = prompt.split("ENDERGEBNIS:", 1)[0]
+    q = statement.casefold()
+    if (not re.search(r"\b(?:zuerst|zunächst)\b", q)
+            or not re.search(r"\b(?:danach|anschließend)\b", q)
+            or not re.search(r"\b(?:je|jeweils|pro)\b", q)
+            or not re.search(r"\b(?:gibt|abgibt|entnimmt|zieht|verbraucht)\b", q)
+            or not re.search(r"\b(?:ab|weg|rest\w*|übrig)\b", q)):
+        return None
+    tokens = re.findall(r"(?<![\w])(?:0|[1-9]\d{0,6})(?![\w])", statement)
+    if len(tokens) != 3:
+        return None
+    count, per_unit, removed = (int(token) for token in tokens)
+    if count <= 0 or per_unit <= 0 or removed < 0:
+        return None
+    total = count * per_unit
+    if removed > total:
+        return None
+    return total, total - removed
+
+
+def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
+    """One canonical final only from successful, source-consistent tool stdout.
+
+    Multi-line outputs must match both independently parsed arithmetic steps.
+    Never infer the result from an arbitrary last line or benchmark answer key.
     """
     if (succeeded is not True or type(stdout) is not str or
             type(prompt) is not str or
@@ -67,9 +95,18 @@ def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
                       r"ermittle|bestimme|ENDERGEBNIS)\b", prompt) is None):
         return None
     value = stdout.strip()
-    if not re.fullmatch(r"[-+]?\d{1,18}", value):
+    if re.fullmatch(r"[-+]?\d{1,18}", value):
+        return "ENDERGEBNIS: " + str(int(value))
+    lines = value.splitlines()
+    expected = _explicit_two_stage_stock_steps(prompt)
+    if (expected is None or len(lines) != 2 or
+            any(re.fullmatch(r"[-+]?\d{1,18}", line.strip()) is None
+                for line in lines)):
         return None
-    return "ENDERGEBNIS: " + str(int(value))
+    actual = tuple(int(line.strip()) for line in lines)
+    if actual != expected:
+        return None
+    return "ENDERGEBNIS: " + str(expected[-1])
 
 
 
@@ -165,8 +202,111 @@ def grounded_literal_citations(packet, evidence, sources, wiki_hits, *, passages
     return _clean(answer) in allowed
 
 
+_YEAR_TOKEN = re.compile(r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)")
+_YEAR_QUESTION = re.compile(r"(?iu)\b(?:in\s+welchem\s+jahr|wann)\b")
+_YEAR_EVENT = {
+    "land": re.compile(r"(?iu)\b(?:land\w*|mondland\w*|moon\s+landing)\b"),
+    "start": re.compile(r"(?iu)\b(?:start\w*|launch\w*)\b"),
+    "erschein": re.compile(r"(?iu)\b(?:erschein\w*|publish\w*|releas\w*)\b"),
+}
+
+
+def _year_event_subject(question):
+    """Extract a narrow public event and its named subject, never a target year."""
+    if type(question) is not str or not _YEAR_QUESTION.search(question):
+        return None
+    match = re.search(
+        r"(?iu)\b(landete|startete|erschien)\s+([^\W\d_][\w.-]*(?:\s+\d{1,3})?)\b",
+        question)
+    if match is None:
+        return None
+    stem = ("land" if match[1].casefold() == "landete"
+            else "start" if match[1].casefold() == "startete" else "erschein")
+    return stem, match[2]
+
+
+def _year_quote_supports(question, quote, year):
+    task = _year_event_subject(question)
+    if task is None or not isinstance(quote, str):
+        return False
+    event, subject = task
+    if subject.casefold() not in quote.casefold() or not _YEAR_EVENT[event].search(quote):
+        return False
+    if _YEAR_TOKEN.findall(quote) != [year]:
+        return False
+    if re.search(r"(?iu)\b(?:nicht|never|did\s+not|not\s+land|geplant|planned|sollte)\b", quote):
+        return False
+    return True
+
+
+def year_evidence_verdict(question, packet, evidence, sources, wiki_hits):
+    """Read-page literal year matching, never truth or freshness certification.
+
+    None preserves the standard model checker for unsupported task shapes.
+    Search previews, unread pages and invalid citation IDs fail closed.
+    """
+    if _year_event_subject(question) is None:
+        return None
+    if (type(packet) is not dict or set(packet) != {"answer", "citations"}
+            or not isinstance(packet["answer"], str)
+            or not isinstance(packet["citations"], list)):
+        return "invalid_quote"
+    answer = packet["answer"].strip()
+    years = _YEAR_TOKEN.findall(answer)
+    if len(years) != 1 or not 1 <= len(answer) <= 170:
+        return "unsupported_year"
+    year = years[0]
+    event, subject = _year_event_subject(question)
+    bare_year = re.fullmatch(r"(?:19|20)\d{2}[.!]?", answer)
+    if bare_year is None:
+        if (subject.casefold() not in answer.casefold()
+                or not _YEAR_EVENT[event].search(answer)
+                or len(re.split(r"[.!?]", answer.rstrip(".!?"))) != 1):
+            return None
+    citations = packet["citations"]
+    if not 1 <= len(citations) <= 6:
+        return "invalid_quote"
+    if not isinstance(sources, list) or not sources:
+        return "no_read_page"
+    supported = False
+    for item in citations:
+        if type(item) is not dict or set(item) != {"source", "quote"}:
+            return "invalid_quote"
+        key, quote = item["source"], item["quote"]
+        if not isinstance(key, str) or not re.fullmatch(r"web[1-9]\d*", key):
+            return None
+        idx = int(key[3:]) - 1
+        if idx >= len(sources) or type(sources[idx]) is not dict:
+            return "no_read_page"
+        source = sources[idx]
+        if source.get("page_read") is not True:
+            return "no_read_page"
+        url = source.get("url")
+        parsed = urlsplit(url) if isinstance(url, str) else None
+        if parsed is None or parsed.scheme != "https" or not parsed.hostname:
+            return "invalid_quote"
+        if (not isinstance(quote, str) or len(quote) < 25 or
+                quote not in evidence.get(key, "") or
+                quote not in source.get("page_text", "")):
+            return "invalid_quote"
+        if not _year_quote_supports(question, quote, year):
+            return "unsupported_year"
+        supported = True
+    return "supported" if supported else "invalid_quote"
+
+
 def checker_veto_class(issue, *, sources=(), wiki_hits=(), executed=None):
     """Privacy-safe bounded code, never the arbitrary model's checker wording."""
+    if isinstance(issue, str):
+        low = issue.casefold()
+        if "keine gelesene webseite" in low or "keine lesbare webseite" in low:
+            return "no_read_page"
+        if "unbelegte jahreszahl" in low or "jahreszahl ohne beleg" in low:
+            return "unsupported_year"
+        if "konkreter widerspruch" in low:
+            return "critic_contradiction"
+        if "wörtlicher quellenbeleg fehlt" in low or "ungültiger quellenbeleg" in low:
+            return "invalid_quote"
     if evidence_veto_is_generic(issue):
         return "generic_quote_veto"
     if isinstance(issue,str) and re.search(r"(?i)widerspruch|contradiction",issue):

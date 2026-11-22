@@ -83,7 +83,8 @@ def run(tier, summary_path):
                 if result.get("checker_veto_reason_code") in (
                     "generic_quote_veto","contradiction_reported",
                     "source_or_quote_issue","tool_issue",
-                    "no_external_evidence","tool_not_executed","other_checker_issue")
+                    "no_external_evidence","tool_not_executed","other_checker_issue",
+                    "no_read_page","invalid_quote","unsupported_year","critic_contradiction")
                 else "not_available"),
             "vram_peak_mib":max(peaks) if peaks else None,
             "telemetry":diagnostics,
