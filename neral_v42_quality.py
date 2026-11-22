@@ -367,13 +367,20 @@ def unique_read_year_source(question, sources):
             segment = content[left:]
             spans.append((left + len(segment) - len(segment.lstrip()),
                           left + len(segment.rstrip())))
+        event, _subject = _year_event_subject(question)
         for i, (start, end) in enumerate(spans):
-            # At most three contiguous literal sentences. This recovers
-            # event -> brief context -> year when a read page separates them.
-            # Competing years and named missions still fail closed below.
-            for right in (end,
-                          spans[i+1][1] if i+1 < len(spans) else end,
-                          spans[i+2][1] if i+2 < len(spans) else end):
+            # At most three contiguous literal sentences. A three-sentence
+            # window is valid only if the FINAL sentence itself states the
+            # requested event AND the year. A nearby generic date is not proof.
+            for width in (1, 2, 3):
+                if i+width > len(spans):
+                    continue
+                right = spans[i+width-1][1]
+                if width == 3:
+                    last_sentence = content[spans[i+2][0]:right]
+                    if (_YEAR_TOKEN.search(last_sentence) is None or
+                            _YEAR_EVENT[event].search(last_sentence) is None):
+                        continue
                 quote = content[start:right].strip()
                 if not 25 <= len(quote) <= 400:
                     continue
