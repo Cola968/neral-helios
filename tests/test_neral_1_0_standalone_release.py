@@ -225,6 +225,7 @@ class PreviewStandaloneTests(unittest.TestCase):
             "neral_local_wiki.py",
             "neral_v41_context.py",
             "neral_verified_notes.py",
+            "neral_verified_training.py",
         )
         for module in modules:
             self.assertIn(module, REQUIRED_FILES, module)
