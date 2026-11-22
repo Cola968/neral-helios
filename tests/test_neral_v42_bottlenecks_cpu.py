@@ -73,6 +73,35 @@ class ExactExecutedFinalCPU(unittest.TestCase):
         ):
             self.assertIsNone(exact_executed_numeric_tail(stdout, succeeded=good, prompt=prompt))
 
+    def test_deep_evidence_agent_preserves_canonical_executed_integer_final(self):
+        import json
+        from neral_evidence_agent import run_evidence_agent
+        question=("Ein Lager erhält zuerst 17 Kisten mit je 23 Teilen und gibt 46 ab. "
+                  "Berechne den Rest. Antworte abschließend mit ENDERGEBNIS: <ganze Zahl>.")
+        packets=[
+            {"tool":"python_sandbox","parts":["Rest berechnen"],"search_query":""},
+            {"locale":"de","calculations":[
+                {"label":"Rest","expr":"u1 * u2 - u3","unit":"Stueck"}],"missing":[]},
+            {"ok":True,"issue":""},
+        ]
+        model_calls=[]
+        def model(system,data,budget,schema):
+            model_calls.append(data)
+            return json.dumps(packets.pop(0))
+        sandbox=Mock(return_value={"status":"PASSED","output":"345"})
+        with patch("neral_evidence_agent.quantity_plan",return_value=None), \
+             patch("neral_v32_verifier.verified_math_question",return_value=None), \
+             patch("neral_v32_verifier.verified_python_question",return_value=None), \
+             patch("neral_v32_verifier.verified_shift_count",return_value=None), \
+             patch("neral_knowledge_verifier.verified_element_question",return_value=None):
+            result=run_evidence_agent(question,model,sandbox,deep=True,max_attempts=1)
+        self.assertEqual(result["tool_used"],"python_sandbox")
+        self.assertTrue(result["agent_checked"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(sandbox.call_count,1)
+        self.assertEqual(_exact_text(result["text"],"integer"),"345")
+        self.assertTrue(result["text"].endswith("ENDERGEBNIS: 345"))
+
     def test_sandbox_stdout_becomes_real_http_numeric_terminal_line(self):
         runtime, low, high, old = make_runtime()
         generated=[]
