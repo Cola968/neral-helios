@@ -214,6 +214,27 @@ class PreviewStandaloneTests(unittest.TestCase):
                 for filename in required:
                     self.assertIn("NERAL-1.0-Local/"+filename,names)
 
+    def test_v42_runtime_dependencies_are_in_built_standalone_zip(self):
+        """V4.2 local runtime dependencies must survive the release packaging."""
+        from zipfile import ZipFile
+        modules=(
+            "neral_v42_telemetry.py",
+            "neral_v42_deadline.py",
+            "neral_v42_quality.py",
+            "neral_obsidian_deep.py",
+            "neral_local_wiki.py",
+            "neral_v41_context.py",
+            "neral_verified_notes.py",
+        )
+        for module in modules:
+            self.assertIn(module, REQUIRED_FILES, module)
+        with tempfile.TemporaryDirectory() as td:
+            archive=Path(td)/"preview.zip"
+            build_preview(ROOT, archive)
+            with ZipFile(archive) as bundle:
+                for module in modules:
+                    self.assertIn("NERAL-1.0-Local/"+module, bundle.namelist())
+
     def test_every_local_python_import_is_present_in_shipped_source_allowlist(self):
         """Protect all lazy agent and THINK imports, not only a single use case."""
         included=set(REQUIRED_FILES)
