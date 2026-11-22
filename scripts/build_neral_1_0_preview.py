@@ -96,6 +96,7 @@ REQUIRED_FILES = (
     "neral_local_wiki.py",
     "neral_v41_context.py",
     "neral_verified_notes.py",
+    "neral_verified_training.py",
     "neral_quantity_plans.py",
     "requirements-neral-v3.txt",
     "neral_web_api.py",
