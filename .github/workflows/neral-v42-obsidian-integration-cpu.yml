@@ -1,0 +1,32 @@
+name: NERAL V4.2 Deep and offline integration CPU checks
+on:
+  pull_request:
+    paths:
+      - neral_obsidian_deep.py
+      - neral_local_wiki.py
+      - neral_three_tier_runtime.py
+      - neral_evidence_agent.py
+      - tests/test_neral_v42_obsidian_cpu.py
+      - .github/workflows/neral-v42-obsidian-integration-cpu.yml
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: Deep v4.2 and legacy API no-training checks
+        run: |
+          python -m py_compile neral_obsidian_deep.py neral_local_wiki.py neral_evidence_agent.py neral_three_tier_runtime.py
+          python -m unittest discover -s tests -p test_neral_v42_obsidian_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_offline_rag.py -v
+          python -m unittest discover -s tests -p test_neral_v42_resumable_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
