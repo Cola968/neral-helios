@@ -108,10 +108,10 @@ class RepairToolCPU(unittest.TestCase):
             planned.append(json.loads(body))
             return json.dumps(responses.pop(0))
         actual=Mock(return_value={"status":"PASSED","output":"345"})
-        with patch("neral_evidence_agent.quantity_plan",return_value=None), \\
-             patch("neral_v32_verifier.verified_math_question",return_value=None), \\
-             patch("neral_v32_verifier.verified_python_question",return_value=None), \\
-             patch("neral_v32_verifier.verified_shift_count",return_value=None), \\
+        with patch("neral_evidence_agent.quantity_plan",return_value=None), \
+             patch("neral_v32_verifier.verified_math_question",return_value=None), \
+             patch("neral_v32_verifier.verified_python_question",return_value=None), \
+             patch("neral_v32_verifier.verified_shift_count",return_value=None), \
              patch("neral_knowledge_verifier.verified_element_question",return_value=None):
             outcome=run_evidence_agent(question,respond,actual,deep=True)
         self.assertEqual(actual.call_count,1,"No tool execution is not repair")
