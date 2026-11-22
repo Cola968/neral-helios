@@ -1,0 +1,31 @@
+name: NERAL V4.2 read-only existing 10-row grader audit
+on:
+  pull_request:
+    paths:
+      - scripts/neral_v42_private_diagnostic.py
+      - .github/workflows/neral-v42-private-diag-cpu.yml
+permissions:
+  contents: read
+jobs:
+  private-metadata-audit:
+    if: ${{ github.head_ref == 'diag/v42-telemetry-and-private-grader-audit-20261122' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 8
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Only metadata of 10 previously recorded results; no model execution
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $python)){throw 'Pinned owner Python missing'}
+          & $python -m scripts.neral_v42_private_diagnostic
+          if($LASTEXITCODE -ne 0){throw 'Privacy-safe metadata audit failed'}
+          Write-Host 'NO_INFERENCE_NO_PRIVATE_ARTIFACTS'
