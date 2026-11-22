@@ -473,7 +473,11 @@ def _is_free_compute_task(source: object) -> bool:
     source = _original_web_question(source)
     if not source:
         return False
-    if any(ch.isdecimal() for ch in source):
+    # A numeric quantity can request a calculation, but numbers embedded in
+    # product or aircraft identifiers (e.g. A320) are not quantities by default.
+    # Preserve numeric-only free-compute contracts without routing identifier
+    # comparisons into the expensive 9B Docker code loop.
+    if re.search(r"(?<!\w)\d+(?:[.,]\d+)?(?!\w)", source):
         return True
     # Punctuation and arithmetic symbols express comparisons even without
     # canonical calculation verbs. No model call is a source proof.
@@ -1750,10 +1754,14 @@ class ThreeTierRuntime:
         from neral_v41_context import resolve_question
         resolution = resolve_question(turns)
         contextual = resolution.is_followup
-        if self.evidence_agent and not sandbox_files:
-            from neral_evidence_agent import SIMPLE
-            if force_sandbox or not SIMPLE.fullmatch(turns[-1]["content"]):
-                return self.answer_with_evidence(turns, tier, force_sandbox=force_sandbox)
+        # V4.2 latency fix: the evidence agent performs 9B planner, worker,
+        # checker and up to two repairs. Do not run it implicitly for almost
+        # every chat message (including Amber). Normal chat stays on its
+        # selected foundation; independently verified source calculations and
+        # the existing code path remain below. Explicit sandbox and opt-in
+        # web/search routes still use the evidence agent.
+        if self.evidence_agent and not sandbox_files and force_sandbox:
+            return self.answer_with_evidence(turns, tier, force_sandbox=True)
         if contextual:
             turns = [*turns[:-1], {"role": "user",
                                   "content": resolution.work_question}]
