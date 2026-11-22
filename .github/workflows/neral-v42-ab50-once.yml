@@ -3,11 +3,17 @@ on:
   push:
     branches: [main]
     paths: [.github/workflows/neral-v42-ab50-once.yml]
+  pull_request:
+    paths:
+      - .github/workflows/neral-v42-ab50-once.yml
+      - scripts/neral_v41_owner.ps1
+      - neral_local_wiki.py
+      - tests/test_neral_v41_owner_approval.ps1
 permissions:
   contents: read
 jobs:
   cpu-preflight:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 owner-approved A/B50 Quartz Obsidian 20261122' }}
+    if: ${{ github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 owner-approved A/B50 Quartz Obsidian 20261122') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -32,6 +38,7 @@ jobs:
         shell: pwsh
         run: ./tests/test_neral_v41_owner_approval.ps1
   owner-deploy:
+    if: ${{ github.event_name == 'push' && needs.cpu-preflight.result == 'success' }}
     needs: cpu-preflight
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 40
