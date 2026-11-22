@@ -1,0 +1,40 @@
+name: NERAL V4.2 Kiwix owner-local read-only inventory
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v42-kiwix-inventory.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: ${{ github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.2 Kiwix owner inventory 20261122' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read Kiwix binary, 15GB ZIM inventory and 9691 health without writing
+        run: |
+          $ErrorActionPreference='Stop'
+          $tools='D:/neral-knowledge/tools'
+          $zim='D:/neral-knowledge/zim'
+          $bin=@()
+          if(Test-Path -LiteralPath $tools){$bin=@(Get-ChildItem -LiteralPath $tools -Recurse -File -Filter 'kiwix-serve.exe' -ErrorAction Stop)}
+          $zimFiles=@()
+          if(Test-Path -LiteralPath $zim){$zimFiles=@(Get-ChildItem -LiteralPath $zim -File -Filter '*.zim' -ErrorAction Stop)}
+          $bytes=0L
+          foreach($item in $zimFiles){$bytes+=$item.Length}
+          Write-Host ('KIWIX_BINARIES '+$bin.Count)
+          foreach($item in $bin){Write-Host ('KIWIX_BINARY_SHA256 '+(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash)}
+          Write-Host ('KIWIX_ZIM_FILES '+$zimFiles.Count+' TOTAL_BYTES '+$bytes+' WITHIN_15GB '+($bytes -le 15000000000))
+          foreach($item in $zimFiles){Write-Host ('KIWIX_ZIM filename='+$item.Name+' size_bytes='+$item.Length)}
+          $listeners=@(Get-NetTCPConnection -LocalPort 9691 -State Listen -ErrorAction SilentlyContinue)
+          Write-Host ('KIWIX_LISTENERS_9691 '+$listeners.Count)
+          if($listeners.Count -gt 0){
+            try{
+              $response=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9691/' -TimeoutSec 3 -ErrorAction Stop
+              Write-Host ('KIWIX_HEALTH_HTTP '+[int]$response.StatusCode)
+            }catch{Write-Host 'KIWIX_HEALTH_NOT_AVAILABLE'}
+          }
+          Write-Host 'KIWIX_INVENTORY_COMPLETE'
