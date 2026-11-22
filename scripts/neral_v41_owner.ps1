@@ -228,14 +228,10 @@ try{
     # Probe service identity and lock only. The EXACT 5+5 test downstream is
     # the first inference. A cold-model timeout must be measured, not hidden
     # behind an unrelated 7-category deployment prerequisite.
-    $identity=Invoke-RestMethod -UseBasicParsing -TimeoutSec 5 -Uri 'http://127.0.0.1:9690/api/neral/chat/three-tier/status'
-    $ready=Invoke-RestMethod -UseBasicParsing -TimeoutSec 5 -Uri 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability'
-    if($identity.enabled -ne $true -or
-       @($identity.public_tiers).Count -ne 3 -or
-       $ready.busy -ne $false -or
-       $ready.deadline_seconds.Quartz -ne 40 -or
-       $ready.deadline_seconds.Obsidian -ne 70){
-      throw 'Temporary smoke-stage identity, timer or busy-lock check failed'
+    $env:PYTHONPATH=$src
+    & $python -m scripts.neral_v42_owner_availability
+    if($LASTEXITCODE -ne 0){
+      throw 'NERAL local-session service status or GPU-busy verification failed'
     }
     Write-Host 'NERAL_V42_SMOKE5_STAGED_ONLY_NO_INFERENCE'
   }else{
