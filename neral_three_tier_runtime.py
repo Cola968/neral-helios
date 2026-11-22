@@ -1999,7 +1999,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         # No success until the startup model-load hook completes; main()
         # initializes before the socket is opened, so the runner cannot see
         # a ready but still lazy-loading 9B service.
-        if runtime.startup_ready and runtime.helios.loaded:
+        # Once boot verified the pinned model, normal tier switches are
+        # legitimate; health tracks completed startup, not which tier currently
+        # owns VRAM. Switches may require a new cold load.
+        if runtime.startup_ready:
             return jsonify(status="ready", model="Quartz"), 200
         return jsonify(status="starting"), 503
 
