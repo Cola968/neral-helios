@@ -257,5 +257,69 @@ class SurgicalMathAndWebRegressionsCPU(unittest.TestCase):
         self.assertEqual(result["agent_attempts"],1)
         self.assertEqual(result.get("checker_veto_detail_code"),"unsupported_year_no_passage")
 
+
+class ThreeSentenceYearEvidenceCPU(unittest.TestCase):
+    def test_three_adjacent_sentences_can_ground_one_unique_event_year(self):
+        from neral_v42_quality import unique_read_year_source, year_evidence_verdict
+        text = ("Apollo 11 landed the first humans on the Moon.\n"
+                "The crew descended toward the lunar surface.\n"
+                "The landing took place in July 1969.")
+        page = {**PAGE, "page_text": text}
+        candidate = unique_read_year_source(YEAR, [page])
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["year"], "1969")
+        self.assertEqual(candidate["quote"], text)
+        self.assertEqual(year_evidence_verdict(
+            YEAR, {"answer":"1969",
+                   "citations":[{"source":"web1","quote":text}]},
+            {"user":YEAR,"web1":text}, [page], []), "supported")
+
+    def test_competing_apollo_mission_cannot_supply_the_year(self):
+        from neral_v42_quality import unique_read_year_source, _year_quote_supports
+        text = ("Apollo 11 landed the first humans on the Moon.\n"
+                "The Apollo 12 spacecraft was a separate mission.\n"
+                "Apollo 12 landed in November 1969.")
+        self.assertIsNone(unique_read_year_source(
+            YEAR, [{**PAGE, "page_text":text}]))
+        self.assertFalse(_year_quote_supports(YEAR, text, "1969"))
+
+    def test_long_html_preserves_three_line_event_and_year(self):
+        from neral_page_reader import MainText, MAX_TEXT
+        filler = "".join(
+            "<p>Apollo mission overview and flight chronology section %d.</p>" % i
+            for i in range(180))
+        text = ("Apollo 11 landed the first humans on the Moon.\n"
+                "The astronauts descended toward the lunar surface.\n"
+                "The landing took place in July 1969.")
+        html = ("<main>" + filler +
+                "<p>Apollo 11 landed the first humans on the Moon.</p>"
+                "<p>The astronauts descended toward the lunar surface.</p>"
+                "<p>The landing took place in July 1969.</p></main>")
+        parser = MainText()
+        parser.feed(html)
+        actual = parser.text("Apollo 11 first humans landing Moon year")
+        self.assertLessEqual(len(actual), MAX_TEXT)
+        self.assertIn(text, actual)
+
+    def test_agent_shortcuts_three_sentence_literal_without_worker(self):
+        text = ("Apollo 11 landed the first humans on the Moon.\n"
+                "The crew descended toward the lunar surface.\n"
+                "The landing took place in July 1969.")
+        sources = [{**PAGE, "page_text": text}]
+        calls = []
+        def respond(*args):
+            calls.append(1)
+            return json.dumps({"tool":"direct_reasoning","parts":["Get year"],"search_query":""})
+        class Search:
+            def search(self, _):
+                return {"results":[{"url": URL, "snippet":"untrusted 1971"}]}
+        result = run_evidence_agent(
+            YEAR, respond, Mock(), web_query="Apollo 11 NASA moon landing",
+            search=Search(), page_reader=lambda hits,q:sources,
+            deep=True, max_attempts=3)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(result["agent_checked"], result)
+        self.assertEqual(result.get("source_year_shortcut"), True)
+
 if __name__=="__main__":
     unittest.main()

@@ -323,6 +323,12 @@ def _year_quote_supports(question, quote, year):
     event, subject = task
     if subject.casefold() not in quote.casefold() or not _YEAR_EVENT[event].search(quote):
         return False
+    # A nearby date for another Apollo mission is not evidence for this one.
+    # This remains a citation-local check; it never supplies a year itself.
+    if event == "land" and re.fullmatch(r"(?i)apollo\s+\d{1,3}", subject):
+        named_missions = set(re.findall(r"(?i)\bapollo\s+\d{1,3}\b", quote))
+        if any(name.casefold() != subject.casefold() for name in named_missions):
+            return False
     years = _YEAR_TOKEN.findall(quote)
     if not years or set(years) != {year}:
         return False
@@ -361,8 +367,20 @@ def unique_read_year_source(question, sources):
             segment = content[left:]
             spans.append((left + len(segment) - len(segment.lstrip()),
                           left + len(segment.rstrip())))
+        event, _subject = _year_event_subject(question)
         for i, (start, end) in enumerate(spans):
-            for right in (end, spans[i+1][1] if i+1 < len(spans) else end):
+            # At most three contiguous literal sentences. A three-sentence
+            # window is valid only if the FINAL sentence itself states the
+            # requested event AND the year. A nearby generic date is not proof.
+            for width in (1, 2, 3):
+                if i+width > len(spans):
+                    continue
+                right = spans[i+width-1][1]
+                if width == 3:
+                    last_sentence = content[spans[i+2][0]:right]
+                    if (_YEAR_TOKEN.search(last_sentence) is None or
+                            _YEAR_EVENT[event].search(last_sentence) is None):
+                        continue
                 quote = content[start:right].strip()
                 if not 25 <= len(quote) <= 400:
                     continue
