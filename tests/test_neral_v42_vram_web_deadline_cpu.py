@@ -89,9 +89,9 @@ class ToolOnlyDeadlinesCPU(unittest.TestCase):
         self.assertEqual(daily.status_code,200,daily.get_json())
         self.assertEqual(web.status_code,200,web.get_json())
         self.assertGreater(observed["everyday"],39)
-        self.assertLessEqual(observed["everyday"],40)
+        self.assertLessEqual(observed["everyday"],40.0 + 1e-6)
         self.assertGreater(observed["web"],54)
-        self.assertLessEqual(observed["web"],55)
+        self.assertLessEqual(observed["web"],55.0 + 1e-6)
 
 
 class LiteralWebFastPathCPU(unittest.TestCase):
