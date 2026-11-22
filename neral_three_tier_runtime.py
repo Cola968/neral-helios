@@ -24,6 +24,10 @@ import time
 from collections.abc import Mapping
 
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
+from neral_v42_telemetry import (
+    current as diagnostic_current, begin_request as diagnostic_begin,
+    end_request as diagnostic_end, FirstTokenStopper, timed_tool,
+)
 from neral_v42_deadline import (
     DeadlineExceeded, MODE_BUDGETS, canonical_tier, check_deadline,
     remaining_seconds, should_stop_generation, _REQUEST_DEADLINE,
@@ -208,7 +212,14 @@ class FrozenQwen35HF:
         if self.model == HELIOS and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         check_deadline()
-        self._load()
+        metric = diagnostic_current()
+        already_loaded = self.loaded
+        load_mark = time.monotonic() if metric else None
+        try:
+            self._load()
+        finally:
+            if metric:
+                metric.load(already_loaded, (time.monotonic()-load_mark)*1000, self)
         check_deadline()
         generation = {}
         if response_schema is not None:
@@ -1125,7 +1136,7 @@ class ThreeTierRuntime:
             execute_python = run_python_in_docker
         if not callable(execute_python):
             raise ValueError("Docker execution callback missing")
-        self.execute_python = execute_python
+        self.execute_python = timed_tool("python_z3", execute_python)
         if execute_dataset_python is not None and not callable(execute_dataset_python):
             raise ValueError("Dataset Docker callback must be callable")
         self.execute_dataset_python = execute_dataset_python
@@ -1270,6 +1281,8 @@ class ThreeTierRuntime:
             self.active_backend = None
 
     def _switch(self, chosen):
+        metric = diagnostic_current()
+        start_switch = time.monotonic() if metric else None
         if self.active_backend is chosen:
             return
         if self.active_backend is None:
@@ -1278,6 +1291,8 @@ class ThreeTierRuntime:
         else:
             self.active_backend.unload()
         self.active_backend = chosen
+        if metric:
+            metric.model_switch_ms += (time.monotonic() - start_switch) * 1000
 
     def _verified_source(self, turns: list[dict]) -> dict | None:
         # A complete standalone question remains independently provable even
