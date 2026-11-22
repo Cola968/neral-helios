@@ -1130,16 +1130,50 @@ class ThreeTierRuntime:
                  {"role": "user", "content": payload}], max_new_tokens=budget,
                 response_schema=schema)
 
+        from neral_obsidian_deep import active, _PROGRESS, _SEARCH
+        deep = active(tier) and self.evidence_agent and not files
+        local_lookup = None
+        fallback_query = None
+        if deep and not web_query and not force_sandbox and not resolution.is_followup:
+            try:
+                from neral_local_wiki import enabled, eligible_question, fresh_question, local_wiki_search
+            except ImportError:
+                pass  # PR #585 intentionally not a branch dependency.
+            else:
+                if enabled() and eligible_question(resolution.work_question):
+                    search = search or _SEARCH.get()
+                    if search is not None:
+                        fallback_query = resolution.work_question
+                        if fresh_question(fallback_query):
+                            web_query = fallback_query
+                        else:
+                            local_lookup = local_wiki_search
+        deep_options = ({"deep":True,"progress":_PROGRESS.get(),
+                         "local_lookup":local_lookup,"fallback_query":fallback_query} if deep else {})
         result = run_evidence_agent(resolution.work_question, respond, self.execute_python,
                                     web_query=web_query, search=search, files=files,
                                     history=turns[1:-1][-2:], force_sandbox=force_sandbox,
-                                    fast_web=True)
+                                    fast_web=True, max_attempts=1 if tier == "Terra" else None, **deep_options)
+        if deep:
+            attempts = int(result.get("agent_attempts") or 0)
+            result = {**result, "repair_attempts": max(0, attempts - 1),
+                      "repair_success": attempts > 1 and result.get("agent_checked") is True}
         if resolution.is_followup:
             # User-context reconstruction is never independent proof.
             result = {**result, "verified": False, "safe_to_promote": False,
                       "agent_checked": False, "tool_verified": False,
                       "verification_scope": "context_assisted_not_independent",
                       "context_resolved": True}
+        if deep and result.get("obsidian_source_only") is True:
+            proven = result.get("verified") is True and result.get("safe_to_promote") is True
+            return {**result, "tier":tier, "mode":tier.upper(),
+                    "model":"local_source_only_no_model", "model_generated":False,
+                    "adapter_loaded":False, "adapter_sha256":None,
+                    "verified":proven, "safe_to_promote":proven,
+                    "verification_scope":result.get("verification_scope") if proven else "none",
+                    "proof_backend":result.get("proof_backend") if proven else None,
+                    "model_origin":"local_source_verified_tools_only" if proven else "local_source_unverified_tools_only",
+                    "quality_improvement_proven":False}
         if result.get("web_v4_fast_path") is True:
             # V4 source-only proof never loaded 9B. Do not falsely claim
             # inference, adapter identity or an automatic tier escalation.
@@ -1149,12 +1183,14 @@ class ThreeTierRuntime:
                     "adapter_sha256": None,
                     "model_origin": "local_source_unverified_tools_only",
                     "quality_improvement_proven": False}
-        return {**result, "tier": "Helios", "mode": "HELIOS", "model": self.helios.model,
+        # Quartz is a single-pass 9B route, not an implicit Obsidian escalation.
+        assigned = "Terra" if tier == "Terra" else "Helios"
+        return {**result, "tier": assigned, "mode": assigned.upper(), "model": self.helios.model,
                 "model_generated": True, "adapter_loaded": self.helios.loaded,
                 "adapter_sha256": self.helios.adapter_sha256 if self.helios.loaded else None,
                 "model_origin": "local_neral_lora_experimental",
                 "quality_improvement_proven": False,
-                **({"auto_escalated_from": tier} if tier != "Helios" else {})}
+                **({"auto_escalated_from": tier} if tier not in ("Helios", "Terra") else {})}
 
     def answer_local_wiki(self, turns, tier, hits):
         """Use one normal generation, never a proof or strategy-memory entry."""
@@ -1819,8 +1855,11 @@ def _safe_runtime_error_code(exc: Exception) -> str:
 
 def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_service=None):
     # The CUDA evaluation environment need not install the Flask preview.
-    from flask import jsonify, request
+    from flask import jsonify, request, session
+    import hmac
+    from neral_obsidian_deep import active, enabled, ProgressRegistry, _PROGRESS, _SEARCH
     from neral_local_chat_api import _messages
+    progress_registry = ProgressRegistry()
     if not isinstance(runtime, ThreeTierRuntime):
         raise ValueError("Three-tier runtime not installed")
     if not callable(getattr(busy, "acquire", None)):
@@ -1842,7 +1881,16 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                        adapter_loaded=runtime.helios.loaded,
                        adapter_sha256=(runtime.helios.adapter_sha256
                                        if runtime.helios.loaded else None),
-                       quality_improvement_proven=False)
+                       quality_improvement_proven=False,
+                       obsidian_deep=bool(enabled() and runtime.evidence_agent))
+
+    @app.get("/api/neral/chat/three-tier/progress/<request_id>")
+    def three_tier_progress(request_id):
+        owner = session.get("csrf", "")
+        if not owner or not hmac.compare_digest(owner, request.headers.get("X-Neral-CSRF", "")):
+            return jsonify(error="Lokale Sitzungsprüfung fehlgeschlagen."), 403
+        result = progress_registry.read(owner, request_id)
+        return jsonify(result or {"events": [], "done": False})
 
     @app.post("/api/neral/chat/three-tier")
     def three_tier_generate():
@@ -1850,7 +1898,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
         allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_query",
-                   "benchmark_isolated"}
+                   "benchmark_isolated", "progress_id"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
@@ -1862,6 +1910,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         requested_tier = payload["tier"].capitalize() if payload["tier"] in ("luna", "terra", "helios") else payload["tier"]
         try:
             web_stage = None
+            progress_id = payload.get("progress_id")
+            if "progress_id" in payload and (type(progress_id) is not str or
+                    not re.fullmatch(r"[0-9a-f]{32}", progress_id)):
+                raise ValueError("Invalid progress ID")
             web_query = payload.get("web_query")
             if "web_query" in payload and (
                     not runtime.evidence_agent or search_service is None or
@@ -1888,6 +1940,12 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
+        deep_active = active(requested_tier) and runtime.evidence_agent and not web_stage
+        owner = session.get("csrf", "") if progress_id else ""
+        tracking = deep_active and progress_id and progress_registry.begin(owner, progress_id)
+        progress_token = _PROGRESS.set(
+            (lambda event: progress_registry.emit(owner, progress_id, event)) if tracking else None)
+        search_token = _SEARCH.set(search_service if deep_active else None)
         try:
             started = time.monotonic()
             # Zero-model exact recall of independently checked local examples.
@@ -1896,10 +1954,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             from neral_v41_context import resolve_question
             resolution = resolve_question(turns)
             is_followup = resolution.is_followup
-            from neral_local_wiki import enabled, eligible_question, lookup_with_fallback
-            auto_knowledge = (enabled() and runtime.evidence_agent and
+            from neral_local_wiki import enabled as wiki_enabled, eligible_question, lookup_with_fallback
+            auto_knowledge = (not deep_active and wiki_enabled() and runtime.evidence_agent and
                               search_service is not None and
-                              requested_tier in ("Quartz", "Obsidian", "Terra", "Helios") and
+                              requested_tier in ("Quartz", "Terra") and
                               not _BENCHMARK_ISOLATED.get() and not is_followup and
                               not web_query and not web_stage and
                               not payload.get("force_sandbox", False) and
@@ -1917,11 +1975,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 def web_fallback():
                     return {**runtime.answer_with_evidence(
                         turns, requested_tier, web_query=resolution.work_question,
-                        search=search_service), "knowledge_route": "web_v4_fallback"}
+                        search=search_service), "knowledge_route":"web_v4_fallback"}
                 result = lookup_with_fallback(
                     resolution.work_question, web_fallback,
                     lambda hits: runtime.answer_local_wiki(turns, requested_tier, hits))
-            elif note is not None:
+            elif note is not None and not deep_active:
                 result = {"text": note["text"], "tier": requested_tier,
                           "mode": requested_tier.upper(),
                           "verified": False, "safe_to_promote": False,
@@ -1947,7 +2005,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
             proof_ok = verifier_ok(result)
-            if proof_ok and not auto_knowledge and not is_followup and not _BENCHMARK_ISOLATED.get():
+            if proof_ok and not auto_knowledge and not deep_active and not is_followup and not _BENCHMARK_ISOLATED.get():
                 try:
                     append_verified_example(turns[-1]["content"], result)
                     from neral_verified_notes import VerifiedStrategyStore
@@ -1965,5 +2023,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.",
                 error_code=_safe_runtime_error_code(exc)), 503
         finally:
+            if tracking:
+                progress_registry.finish(owner, progress_id)
+            _PROGRESS.reset(progress_token)
+            _SEARCH.reset(search_token)
             _BENCHMARK_ISOLATED.reset(benchmark_token)
             busy.release()

@@ -11,6 +11,7 @@
   let csrf=null, busy=false, recognizer=null, listening=false;
   let threeTierEnabled=false; // Explicit local HF opt-in; legacy default unchanged.
   let evidenceAgentEnabled=false;
+  let obsidianDeepEnabled=false;
   const sandboxToggle=$("forceSandbox");
   let activeRequest=null, conversationEpoch=0;
   stopRequest.disabled=true;
@@ -478,6 +479,7 @@
           throw new Error("Drei-Modell-Profil nicht eindeutig verifiziert.");
         v41Names=Array.isArray(pinned.public_tiers) &&
           pinned.public_tiers.join(",")==="Amber,Quartz,Obsidian";
+        obsidianDeepEnabled=pinned.obsidian_deep===true;
         threeTierEnabled=true;
         if(sandboxToggle)sandboxToggle.disabled=false;
         document.documentElement.dataset.neralThreeTier="true";
@@ -830,6 +832,7 @@
     prompt.value="";
     let partialNode=null, painter=null, partialBody=null;
     let completedTurn=false;
+    let progressNode=null, progressTimer=null, progressClosed=false;
     const deadline=AbortSignal.timeout(evidenceAgentEnabled ? 540000 : threeTierEnabled ? 260000
       : selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
@@ -999,6 +1002,39 @@
                                      ...(webData.length && (forceSandbox||isWebDataQuestion(text))
                                        ? {web_data:webData}: {})});
       }
+      if(obsidianDeepEnabled && legacyTier(selectedTier)==="Helios" &&
+         !selectedAttachments.length && browser.crypto?.getRandomValues){
+        const id=Array.from(browser.crypto.getRandomValues(new Uint8Array(16)),
+          b=>b.toString(16).padStart(2,"0")).join("");
+        const payload=JSON.parse(options.body);
+        payload.progress_id=id;
+        options.body=JSON.stringify(payload);
+        progressNode=document.createElement("p");
+        progressNode.className="neral-live-body";
+        progressNode.setAttribute("role","status");
+        progressNode.setAttribute("aria-live","polite");
+        progressNode.textContent="Obsidian bereitet die Prüfung vor…";
+        messages.append(progressNode);
+        let lastSeq=0;
+        const poll=async()=>{
+          if(progressClosed || signal.aborted || activeRequest!==controller)return;
+          try{
+            const state=await json("/api/neral/chat/three-tier/progress/"+id,
+              {headers:{"X-Neral-CSRF":csrf},signal});
+            if(progressClosed || signal.aborted || activeRequest!==controller)return;
+            for(const item of (Array.isArray(state.events)?state.events:[])){
+              if(Number.isInteger(item.seq) && item.seq>lastSeq && typeof item.message==="string"){
+                lastSeq=item.seq;
+                progressNode.textContent=item.message;
+                motionActivity("obsidian-progress",mode,{stage:item.stage,attempt:item.attempt,tool:item.tool});
+              }
+            }
+            if(state.done)return;
+          }catch(_e){if(signal.aborted || progressClosed)return;}
+          progressTimer=setTimeout(poll,350);
+        };
+        progressTimer=setTimeout(poll,100);
+      }
       const useLive=!threeTierEnabled && mode==="generate" && !selectedAttachments.length &&
         typeof browser.NeralLiveStream?.read==="function" &&
         typeof ReadableStream!=="undefined";
@@ -1080,7 +1116,10 @@
         }else if(result.verified===true){
           if(result.model_origin!=="local_source_verified_tools_only" ||
              result.safe_to_promote!==true || result.adapter_loaded!==false ||
-             !["full_source_independent","full_source_grammar_exact"].includes(result.verification_scope))
+             !(["full_source_independent","full_source_grammar_exact"].includes(result.verification_scope) ||
+               (selectedTierLegacy==="Helios" && obsidianDeepEnabled && result.obsidian_source_only===true &&
+                ["exact_user_script_stdout","all_rules_independent_enumeration",
+                 "complete_source_independent_math_and_docker","one_exact_atomic_number_1_to_118"].includes(result.verification_scope))))
             throw new Error("Werkzeugantwort ohne unabhängigen Vollquellenbeweis.");
         }else if(result.verified!==false ||
                  result.model_origin!=="local_source_unverified_tools_only" ||
@@ -1243,6 +1282,9 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
+      progressClosed=true;
+      if(progressTimer!==null)clearTimeout(progressTimer);
+      progressNode?.remove();
       painter?.cancel();
       partialNode?.remove();
       if(!completedTurn)motionActivity(startedEpoch!==conversationEpoch||controller.signal.aborted?"cancelled":"error",mode);

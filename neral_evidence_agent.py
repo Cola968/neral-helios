@@ -995,8 +995,11 @@ def _one_shot_web_comparison(question, names, topic, respond, search, page_reade
 
 def run_evidence_agent(question, respond, execute, *, web_query=None, search=None, files=None,
                        page_reader=read_top_pages, history=(), force_sandbox=False,
-                       fast_web=False):
+                       fast_web=False, deep=False, progress=None,
+                       local_lookup=None, fallback_query=None, max_attempts=None):
     """Only the user-authorized search query can leave the machine."""
+    if max_attempts is not None and (type(max_attempts) is not int or not 1 <= max_attempts <= 3):
+        raise ValueError("Unapproved evidence attempt cap")
     # V3.2: deterministically execute exact user-provided Python source and
     # independently certified four-person counting constraints before any
     # model-authored planner, worker or subjective LLM validation veto.
@@ -1006,15 +1009,27 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         _property_evidence)
     from neral_page_reader import evidence_sentence_windows
     from neral_knowledge_verifier import verified_element_question
+    from neral_obsidian_deep import emit, constrained_query
+    approved_query = web_query or fallback_query
+    wiki_hits = []
+    previous_proposal = None
+    revised_query = approved_query
+    def status(stage, attempt=1, tool=None):
+        if deep:
+            emit(progress, stage, attempt, tool)
     if not files and not web_query:
         elementary=verified_element_question(question)
         if elementary is not None:
-            return elementary
+            status('proof')
+            return {**elementary, "obsidian_source_only":True} if deep else elementary
         for verify in (verified_python_question, verified_shift_count, verified_math_question):
             certified=verify(question,execute)
             if certified is not None:
-                return {**certified,"agent_attempts":1}
-    if not files and web_query and search is not None and not force_sandbox:
+                if deep and certified.get("verified") is True:
+                    status("proof")
+                return {**certified,"agent_attempts":1,
+                        **({"obsidian_source_only":True} if deep else {})}
+    if not deep and not files and web_query and search is not None and not force_sandbox:
         names=_comparison_entities(question)
         topic=_property_type(question)
         if 2<=len(names)<=4 and topic and not _FORMAL_INTENT.search(question):
@@ -1066,6 +1081,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         if index >= MAX_REPAIRS + 1:
             return
         query = _entity_search_query(web_query, name, names, index)
+        if deep:
+            query = constrained_query(approved_query, query)
         entity_searches[name] = index + 1
         if index:
             steps.append("web_evidence_retry")
@@ -1097,10 +1114,13 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         if checked:
             from neral_knowledge_verifier import normalize_german_capital_name
             text=normalize_german_capital_name(question,text)
+        if deep and wiki_hits and checked:
+            text += "\n\nOffline-Quellen (ZIM-Snapshot, nicht live verifiziert):\n" + "\n".join(
+                "- " + hit["title"] + " (" + hit["book"] + "): " + hit["url"] for hit in wiki_hits)
         return {"text": text, "verified": False, "safe_to_promote": False, "proof_backend": None,
                 "verification_scope": "tool_execution_and_model_review" if checked else "none",
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
-                "tool_used": executed, "tool_verified": bool(checked and executed),
+                "tool_used": executed, "tool_verified": bool(checked and executed and not wiki_hits),
                 "error_code": (None if checked else (
                     "z3_schema_error" if "Z3" in issue or "Schema" in issue
                     else "sandbox_error" if "Docker" in issue or "Sandbox" in issue
@@ -1108,23 +1128,73 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     else "format_mismatch" if "JSON" in issue or "Modellantwort" in issue
                     else "no_tool_called")),
                 "sources": [{k: v for k, v in s.items() if k != "page_text"}
-                                                   for s in sources]}
+                                                   for s in sources],
+                **({"obsidian_deep": True,
+                    "knowledge_route": "offline_zim" if wiki_hits else
+                       "web_v4_fallback" if web_query and local_lookup is not None else
+                       "web_v4" if web_query else "local_reasoning",
+                    "offline_sources": wiki_hits,
+                    **({"verification_scope":"offline_snapshot_unverified"} if wiki_hits else {})
+                    } if deep else {})}
 
-    for attempt in range(MAX_REPAIRS + 1):
+    def clear_wiki():
+        nonlocal wiki_hits
+        for key in list(evidence):
+            if key.startswith("wiki"):
+                del evidence[key]
+        wiki_hits = []
+
+    for attempt in range(MAX_REPAIRS + 1 if max_attempts is None else max_attempts):
         packet = None
         try:
             if plan is None:
-                proposed = _plan(ask(PLANNER, {"question": question, "web_requested": bool(web_query),
-                                               "files": list(files or {}), "correction": issue,
-                                               "force_sandbox": force_sandbox},
-                                      PLAN_SCHEMA))
+                status("plan", attempt+1)
+                planner_data = {"question":question,"web_requested":bool(web_query),
+                    "files":list(files or {}),"correction":issue,"force_sandbox":force_sandbox}
+                if deep:
+                    planner_data["authorized_query"] = approved_query or ""
+                    planner_data["local_lookup_available"] = local_lookup is not None
+                    if previous_proposal is not None:
+                        planner_data["previous_proposal"] = previous_proposal
+                    schema = _object(tool={"enum":sorted(TOOLS)},parts=_array(_string(180),6,1),
+                                     search_query=_string(160))
+                    draft_plan = ask(PLANNER +
+                        "\nZerlege die aktuelle Aufgabe in konkrete Teilfragen, Bedingungen, "
+                        "Einheiten und Fallen. Plane die Kontrolle jeder Teilfrage. "
+                        "search_query ist leer ohne autorisierte Suche, sonst nur Wörter "
+                        "aus authorized_query; bei Korrektur gezielt verkürzen oder umstellen.",
+                        planner_data,schema)
+                    proposed = _plan({k:v for k,v in draft_plan.items() if k!="search_query"})
+                    revised_query = constrained_query(approved_query,draft_plan.get("search_query"))
+                else:
+                    proposed = _plan(ask(PLANNER,planner_data,PLAN_SCHEMA))
                 if force_sandbox and proposed["tool"] == "direct_reasoning":
                     raise AgentError("Für diese Frage konnte kein belegter Sandbox-Rechenplan erstellt werden.")
                 plan = proposed
+            if deep and local_lookup is not None and not web_query and not wiki_hits and plan["tool"]=="direct_reasoning":
+                status("wiki",attempt+1)
+                try:
+                    hits = local_lookup(question if attempt==0 else revised_query or question)
+                except (ValueError,OSError,RuntimeError):
+                    hits = []
+                if isinstance(hits,list):
+                    wiki_hits = [h for h in hits[:3] if isinstance(h,dict) and
+                        all(isinstance(h.get(k),str) and h[k] for k in ("title","book","url","context")) and
+                        h["url"].startswith("http://127.0.0.1:9691/content/")]
+                if wiki_hits:
+                    for i,hit in enumerate(wiki_hits,1):
+                        evidence[f"wiki{i}"] = hit["context"][:1900]
+                elif fallback_query and search is not None:
+                    web_query = fallback_query
+                else:
+                    issue = "Kein geeigneter lokaler Quellenbeleg."
+                    plan = None
+                    continue
             compared = (_comparison_entities(question) if web_query and
                         plan["tool"] == "direct_reasoning" and
                         not _FORMAL_INTENT.search(question) else ())
             if web_query and not searched:
+                status("web",attempt+1)
                 searched = True
                 steps.append("web_search")
                 steps.append("web_reader")
@@ -1132,8 +1202,9 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     for entity in compared:
                         research_entity(entity, compared)
                 else:
-                    found = search.search(web_query)
-                    sources = page_reader(found.get("results", []), web_query)
+                    query = (revised_query or web_query) if deep else web_query
+                    found = search.search(query)
+                    sources = page_reader(found.get("results", []),query)
                     rebuild_web_evidence()
             elif compared and issue:
                 # Checker instructions cannot introduce arbitrary new searches.
@@ -1146,18 +1217,35 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 missing = missing_entity(compared)
                 if missing:
                     issue = f"Kein gelesener Quellenbeleg für {missing}."
+                    if deep:
+                        searched = False
                     plan = None
                     continue
             external = set(evidence) - {"user"}
             if web_query and not any(key.startswith("web") for key in external):
                 needed = web_query
+                if deep:
+                    issue = "Keine lesbare Webseite mit passendem Beleg; Suchanfrage präzisieren."
+                    plan, searched = None, False
+                    continue
                 return result("Keine lesbare Webseite mit einem Beleg für: " + needed, attempts=attempt+1)
             steps.append("worker")
             exact = quantity_plan(question, evidence)
-            if exact is not None and not files:
+            status("tool",attempt+1,"python_sandbox" if exact is not None and not files and not wiki_hits else plan["tool"])
+            if exact is not None and not files and not wiki_hits:
                 text = _calculate(*exact, execute, external)
                 executed = "python_sandbox"
                 steps.append("quantity_validation")
+                if deep:
+                    status("critic",attempt+1)
+                    review = ask(CHECKER,{"question":question,"plan":plan,"draft":text,"evidence":evidence},
+                                 CHECK_SCHEMA,budget=256)
+                    if review != {"ok":True,"issue":""}:
+                        issue = str(review.get("issue") or "Teilfrage oder Beleg fehlt.")[:350]
+                        plan = None
+                        if web_query:
+                            searched = False
+                        continue
                 return result(text, checked=True, attempts=attempt+1)
             if plan["tool"] != "direct_reasoning" and any(
                     text.endswith("[Auszug gekürzt]") for key, text in evidence.items() if key.startswith("file")):
@@ -1165,6 +1253,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                               attempts=attempt+1)
             numeric_evidence = _numeric_evidence(evidence) if plan["tool"] == "python_sandbox" else {}
             worker_data = {"numbers": numeric_evidence} if plan["tool"] == "python_sandbox" else {"evidence": evidence}
+            if deep and previous_proposal is not None:
+                worker_data["previous_proposal"]=previous_proposal
             passages = _passages(evidence, web_query or question) if plan["tool"] == "direct_reasoning" and external else {}
             if passages:
                 # Deterministic factual grounding is a pre-generation input,
@@ -1247,6 +1337,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if passages and _is_qualitative_web_comparison(question, plan, sources):
                 packet = _include_literal_comparison_sources(
                     question, packet, evidence, sources)
+            if deep:
+                previous_proposal=json.dumps(packet,ensure_ascii=False)[:1800]
             answer = _work(plan, packet, evidence, execute, external, numeric_evidence)
             # Report the selected reasoning path even when no sandbox or Z3
             # subprocess was needed. Chrome E2E verifies this observable mode.
@@ -1255,7 +1347,13 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             # trusted Z3 compiler. A model veto cannot overturn an actual
             # successfully executed deterministic arithmetic result.
             steps.append("validation_checker")
-            if passages and _is_qualitative_web_comparison(question, plan, sources):
+            status("critic",attempt+1)
+            if deep and external and plan["tool"]=="direct_reasoning":
+                norm=lambda n: re.sub(r"\s+","",n)
+                supported={norm(m[0]) for value in evidence.values() for m in NUMBER.finditer(value)}
+                if any(norm(m[0]) not in supported for m in NUMBER.finditer(packet["answer"])):
+                    raise AgentError("Unbelegte Zahl im Antwortentwurf.")
+            if not deep and passages and _is_qualitative_web_comparison(question, plan, sources):
                 issue = _qualitative_comparison_issue(
                     question, packet["answer"], packet["citations"], evidence, sources)
                 if issue is not None:
@@ -1286,15 +1384,29 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             review_data = ({"question": question, "answer": packet["answer"], "quotes": packet["citations"]}
                            if passages else {"question": question, "plan": plan, "proposal": packet,
                                              "draft": answer})
-            review = ask(WEB_CHECKER if passages else CHECKER, review_data, CHECK_SCHEMA, budget=256)
+            if deep:
+                review_data={"question":question,"plan":plan,"proposal":packet,"draft":answer,"evidence":evidence}
+            review = ask(CHECKER if deep else WEB_CHECKER if passages else CHECKER,
+                         review_data,CHECK_SCHEMA,budget=256)
             if set(review) != {"ok", "issue"} or type(review["ok"]) is not bool or not isinstance(review["issue"], str):
                 raise AgentError("Prüfer lieferte kein gültiges Urteil.")
             if review["ok"] and not review["issue"].strip():
                 return result(answer, checked=True, attempts=attempt+1)
             issue = review["issue"][:350] or "Teilfrage, Beleg oder Bedingung fehlt."
             plan = None  # A wrong tool or missing input requires planning again.
+            if deep:
+                if wiki_hits:
+                    clear_wiki()
+                    if fallback_query and search is not None:
+                        web_query=fallback_query
+                if web_query:
+                    searched=False
         except WebSearchError:
             needed = web_query
+            if deep:
+                issue="Websuche fehlgeschlagen; autorisierte Suchbegriffe korrigieren."
+                plan,searched=None,False
+                continue
             return result("Websuche fehlgeschlagen. Kein Beleg für: " + needed, attempts=attempt+1)
         except (ValueError, TypeError, InvalidOperation, RuntimeError, RecursionError) as exc:
             issue = str(exc)[:350] if isinstance(exc, AgentError) else "Werkzeug oder Modellantwort erreichte eine Grenze."
@@ -1302,4 +1414,12 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     and "answer" in packet):
                 issue = "Der Worker lieferte Freitext. Prüfe die Werkzeugwahl erneut. Für diskrete Zuordnung z3_solver verwenden."
                 plan = None
-    return result("Ich konnte die Aufgabe nicht vollständig absichern. " + issue, attempts=MAX_REPAIRS+1)
+            if deep:
+                plan=None
+                if wiki_hits:
+                    clear_wiki()
+                    if fallback_query and search is not None:
+                        web_query=fallback_query
+                if web_query:
+                    searched=False
+    return result("Ich konnte die Aufgabe nicht vollständig absichern. " + issue, attempts=MAX_REPAIRS+1 if max_attempts is None else max_attempts)
