@@ -34,7 +34,7 @@ class GPUEnvelopeCPU(unittest.TestCase):
         self.assertEqual(kw["device"],0)
     def test_driver_total_used_above_cap_fails_closed(self):
         torch=Mock()
-        torch.cuda.mem_get_info.return_value=(2000*2**20,12000*2**20)
+        torch.cuda.mem_get_info.return_value=(1000*2**20,12000*2**20)
         with self.assertRaisesRegex(RuntimeError,"GPU memory cap"):
             assert_cuda_total_used_below_cap(torch)
         torch.cuda.mem_get_info.return_value=(1500*2**20,12000*2**20)
