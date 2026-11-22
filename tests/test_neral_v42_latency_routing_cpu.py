@@ -48,7 +48,7 @@ class V42ChatLatencyRoutingCPU(unittest.TestCase):
         with patch("neral_evidence_agent.run_evidence_agent", return_value=evidence) as agent:
             result = runtime.answer(conversation("Berechne die Anzahl der Schichtpläne."),
                                     "Amber", force_sandbox=True)
-        self.assertEqual(result["tier"], "Amber")
+        self.assertEqual(result["tier"], "Obsidian")  # explicit 9B escalation is disclosed
         self.assertTrue(agent.called)
         self.assertEqual(agent.call_args.kwargs["force_sandbox"], True)
 
