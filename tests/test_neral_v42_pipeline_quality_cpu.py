@@ -112,6 +112,16 @@ class RepairToolCPU(unittest.TestCase):
         self.assertIsNone(forced_repair_tool("Welche Schlagzeile heute?",local=False,web=False))
 
 
+class TelemetryWebProbeCPU(unittest.TestCase):
+    def test_only_public_web_knowledge_question_triggers_v4(self):
+        from scripts.neral_v42_telemetry_probe import web_query_for_diagnostic
+        self.assertEqual(web_query_for_diagnostic(
+            "knowledge","Was ist eine Sonnenfinsternis?"),
+            "Was ist eine Sonnenfinsternis?")
+        self.assertIsNone(web_query_for_diagnostic("math_logic","Berechne 17 x 23"))
+        self.assertIsNone(web_query_for_diagnostic("everyday","Erkläre thermische Ausdehnung"))
+
+
 class GroundedEvidenceCPU(unittest.TestCase):
     def test_actual_web_agent_bypasses_only_false_missing_quote_veto(self):
         import json
