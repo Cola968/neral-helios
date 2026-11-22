@@ -63,7 +63,9 @@ class RepairToolCPU(unittest.TestCase):
         self.assertEqual(forced_repair_tool("Was ist ein Pulsar?",local=False,web=True),"direct_reasoning")
 
     def test_repair_planner_forces_python_and_executes_not_just_claims(self):
-        from tests.test_neral_v42_obsidian_cpu import QUESTION, GOOD, OK
+        QUESTION = "Ein Paket wiegt 7 kg, ein anderes 12 kg. Bestimme das Gesamtgewicht."
+        GOOD = {"locale":"de","calculations":[{"label":"Gewicht","expr":"u1 + u2","unit":"kg"}],"missing":[]}
+        OK = {"ok":True,"issue":""}
         proposed=[
             {"tool":"direct_reasoning","parts":["ohne Tool"],"search_query":""},
             {"answer":"Schätzung 19","citations":[]},
