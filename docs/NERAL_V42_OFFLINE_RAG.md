@@ -1,8 +1,8 @@
 # NERAL V4.2 CPU-only offline knowledge (experimental)
 
-Do not run setup or deploy during Blind200. No workflow or model changes are needed.
-The feature is disabled by default; enable only in a later approved service launch with
-NERAL_V42_OFFLINE_RAG=1. Explicit web requests remain Web V4. Amber, sandbox,
+Owner-only Kiwix service was installed and verified on loopback 9691 in run 45005018292.
+The feature is enabled by default after owner-approved local Kiwix health verification; disable with
+NERAL_V42_OFFLINE_RAG=0. Explicit web requests remain Web V4. Amber, sandbox,
 attachments, private/personal queries, ambiguous follow-ups and benchmark_isolated
 are unaffected. Automatic web fallback is opted into by this environment setting.
 It applies to short public, standalone knowledge questions, not arbitrary private chat.
