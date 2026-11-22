@@ -1,4 +1,5 @@
 name: NERAL V4.2 single approved 3+3 GPU telemetry with rollback
+# Exact main commit message: title only, no body, before one authorized GPU dispatch.
 on:
   pull_request:
     paths:
