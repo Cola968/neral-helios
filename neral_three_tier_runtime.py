@@ -473,9 +473,12 @@ def _is_free_compute_task(source: object) -> bool:
     source = _original_web_question(source)
     if not source:
         return False
-    # Numbers alone (years, flight identifiers, product versions) are not
-    # consent to a multi-step Python/Z3 job. Only operators or explicit
-    # mathematical/algorithmic language should activate the code path.
+    # A numeric quantity can request a calculation, but numbers embedded in
+    # product or aircraft identifiers (e.g. A320) are not quantities by default.
+    # Preserve numeric-only free-compute contracts without routing identifier
+    # comparisons into the expensive 9B Docker code loop.
+    if re.search(r"(?<!\\w)\\d+(?:[.,]\\d+)?(?!\\w)", source):
+        return True
     # Punctuation and arithmetic symbols express comparisons even without
     # canonical calculation verbs. No model call is a source proof.
     if re.search(r"(?<![<>=!])[<>=](?![=>])|[%€$]|[+×÷]", source):
