@@ -1,0 +1,78 @@
+name: NERAL V4.2 one-time latency root cause (read-only, no inference)
+on:
+  push:
+    branches: [fix/v42-latency-evidence-routing-20261122]
+    paths: [.github/workflows/neral-v42-latency-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect-private-summary-and-idle-gpu:
+    if: ${{ github.event_name == 'push' && github.event.head_commit.message == 'NERAL V4.2 read-only private latency and idle GPU diagnosis' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 8
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Report aggregates only; never read task prompts or answers
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:LOCALAPPDATA 'NERAL-private/artifacts/blind200-partial-run44935727057/private-details.jsonl'
+          if(-not(Test-Path -LiteralPath $path -PathType Leaf)){ throw 'VERIFIED_PRIVATE_BACKUP_MISSING' }
+          $expected='710577DAEFB98046B3265D5BFF902492B04AC3331E43BBA499401B4AE977FDFE'
+          $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+          if($hash -cne $expected){throw 'VERIFIED_BACKUP_SHA256_MISMATCH'}
+          $records=New-Object 'System.Collections.Generic.List[object]'
+          foreach($line in [IO.File]::ReadLines($path)){
+            if(-not $line.Trim()){continue}
+            $r=ConvertFrom-Json -InputObject $line -ErrorAction Stop
+            $records.Add([pscustomobject]@{
+              tier=[string]$r.tier; category=[string]$r.category
+              reason=[string]$r.reason; error_code=[string]$r.error_code
+              http_status=[string]$r.http_status; tool_used=[string]$r.tool_used
+              model_origin=[string]$r.model_origin; model=[string]$r.model
+              latency_s=[double]$r.latency_s
+            })
+          }
+          if($records.Count -ne 421){throw 'UNEXPECTED_RECORD_COUNT'}
+          Write-Host ('ROOTCAUSE_PRIVATE_ROWS '+$records.Count+' SHA256_OK')
+          foreach($tier in @('Amber','Quartz','Obsidian')){
+            $subset=@($records | Where-Object {$_.tier -eq $tier})
+            $withoutTool=@($subset | Where-Object {-not $_.tool_used})
+            $withDirect=@($subset | Where-Object {$_.tool_used -eq 'direct_reasoning'})
+            Write-Host ('TIER tier='+$tier+' count='+$subset.Count+' no_tool='+$withoutTool.Count+' direct_reasoning='+$withDirect.Count)
+            foreach($field in @('reason','error_code','http_status','model_origin','model','tool_used')){
+              $groups=@($subset | Group-Object -Property $field | Sort-Object -Property Count -Descending | Select-Object -First 12)
+              foreach($g in $groups) {
+                $value=([string]$g.Name -replace '[^A-Za-z0-9_.+-]','_')
+                if($value.Length -gt 100){$value=$value.Substring(0,100)}
+                Write-Host ('AGG tier='+$tier+' field='+$field+' value='+$value+' count='+$g.Count)
+              }
+            }
+            foreach($group in @($subset | Group-Object category)){
+              $avg=($group.Group | Measure-Object latency_s -Average).Average
+              $err=@($group.Group | Where-Object {$_.reason -eq 'runtime_error'}).Count
+              $noTool=@($group.Group | Where-Object {-not $_.tool_used}).Count
+              Write-Host ('CATEGORY tier='+$tier+' category='+$group.Name+' n='+$group.Count+' avg_s='+[math]::Round($avg,2)+' runtime_error='+$err+' no_tool='+$noTool)
+            }
+          }
+          foreach($g in @($records | Where-Object {$_.reason -eq 'runtime_error'} | Group-Object tier,error_code,http_status)){
+            $avg=($g.Group | Measure-Object latency_s -Average).Average
+            Write-Host ('RUNTIME_ERROR_CLUSTER group='+([string]$g.Name -replace '[^A-Za-z0-9_, .+-]','_')+' n='+$g.Count+' avg_s='+[math]::Round($avg,2))
+          }
+          Write-Host 'TTFT_AND_TOKENS_PER_SECOND_NOT_RECORDED_IN_V41'
+      - name: Read idle GPU memory and Windows graphics memory counters, no model load
+        run: |
+          $ErrorActionPreference='Stop'
+          $raw=@(& nvidia-smi --query-gpu=name,memory.used,memory.free,memory.total,utilization.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0){Write-Host 'GPU_COUNTERS_UNAVAILABLE'; exit 0}
+          $parts=($raw | Select-Object -First 1) -split ','
+          if($parts.Count -ne 5){Write-Host 'GPU_COUNTER_FORMAT_UNAVAILABLE'; exit 0}
+          $nums=@($parts[1..4] | ForEach-Object {[int]($_.Trim())})
+          Write-Host ('GPU_IDLE_SNAPSHOT used_mib='+$nums[0]+' free_mib='+$nums[1]+' total_mib='+$nums[2]+' util_pct='+$nums[3])
+          Write-Host 'GPU_COUNTER_IS_INSTANTANEOUS_NO_HISTORIC_WDDM_ALLOCATION_PROOF'
