@@ -32,7 +32,8 @@ $approvedV42Diag3 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
   ($env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 diagnosis 20261122' -or
    $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 bottleneck recheck 20261122' -or
     $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 fastpath math evidence 20261122' -or
-    $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122')
+    $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 quartz year final 20261122' -or
+     $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 vram web latency 20261122')
 if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5 -or $approvedV42Diag3)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
