@@ -90,6 +90,24 @@ class RepairToolCPU(unittest.TestCase):
         self.assertIn("required_tool",prompts[3])
         self.assertEqual(prompts[3]["required_tool"],"python_sandbox")
 
+    def test_programming_repair_executes_code_in_real_sandbox_contract(self):
+        from neral_evidence_agent import _work, AgentError
+        import ast
+        self.assertEqual(
+            forced_repair_tool("Schreibe eine Python-Funktion is_prime(n)", local=False, web=False),
+            "python_code_sandbox")
+        plan={"tool":"python_code_sandbox","parts":["Implementiere Funktion"]}
+        packet={"code":"def is_prime(n):\n    return n > 1"}
+        tool=Mock(return_value={"status":"PASSED","output":"NERAL_CODE_SMOKE_OK"})
+        result=_work(plan,packet,{"user":"Schreibe is_prime"},tool,set(),{})
+        self.assertIn("def is_prime",result)
+        self.assertEqual(tool.call_count,1)
+        self.assertIn("NERAL_CODE_SMOKE_OK",tool.call_args.args[0])
+        with self.assertRaises(AgentError):
+            _work(plan,{"code":"def is_prime(n):\n return ("},
+                  {"user":"X"},tool,set(),{})
+        self.assertEqual(tool.call_count,1)
+
     def test_unauthorized_web_repair_is_never_assumed_available(self):
         self.assertIsNone(forced_repair_tool("Welche Schlagzeile heute?",local=False,web=False))
 
@@ -111,6 +129,13 @@ class GroundedEvidenceCPU(unittest.TestCase):
         self.assertTrue(grounded_literal_citations(web_packet,web_evidence,sources,[]))
         sources[0]["page_read"]=False
         self.assertFalse(grounded_literal_citations(web_packet,web_evidence,sources,[]))
+        sources[0]["page_read"]=True
+        self.assertTrue(grounded_literal_citations(
+            {"answer":"Ein Komet besteht aus Eis und Staub.","citations":["p1"]},
+            web_evidence,sources,[],passages={"p1":("web1","Ein Komet besteht aus Eis und Staub.")}))
+        self.assertFalse(grounded_literal_citations(
+            {"answer":"Ein Komet besteht aus Eis und Staub.","citations":["p1"]},
+            web_evidence,sources,[],passages={"p1":("web1","Nicht in Quelle.")}))
         # An unsupported extra statement is NEVER allowed even with one real quote.
         packet["answer"]="Elektrostatik untersucht elektrische Ladungen. Und Pluto ist ein Stern."
         self.assertFalse(grounded_literal_citations(packet,evidence,[],wiki))
