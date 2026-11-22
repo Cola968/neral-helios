@@ -129,6 +129,9 @@ class MandatoryResearchCPU(unittest.TestCase):
         from neral_local_wiki import source_required
         question="In welchem Jahr landete Apollo 11? Belege mit einem wörtlichen Zitat aus einer tatsächlich gelesenen Quelle."
         self.assertTrue(source_required(question))
+        from scripts.neral_v42_telemetry_probe import DIAGNOSTIC_CASES
+        self.assertTrue(source_required(DIAGNOSTIC_CASES[2][1]),
+                        "Full 168-character public telemetry task must route to sources")
         self.assertFalse(source_required("Warum beschlägt ein Spiegel?"))
         self.assertFalse(source_required("Mein Passwort lautet geheim; suche eine Quelle."))
 
