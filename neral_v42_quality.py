@@ -83,33 +83,55 @@ def _explicit_two_stage_stock_steps(prompt):
     return total, total - removed
 
 
-def _source_consistent_stock_stdout(stdout):
-    """Two ordered numeric steps from actual tool stdout; accept only known labels.
-
-    No extra numbers, competing final answers or model-generated explanations.
-    The caller checks both values against the user-source calculation.
-    """
+def _source_consistent_stock_stdout(stdout, *, expected=None, inputs=None):
+    """Only ordered source-consistent numeric stdout; no free-text guesses."""
     if type(stdout) is not str or not 1 <= len(stdout) <= 240:
         return None
     rows = stdout.strip().splitlines()
-    if len(rows) == 1 and rows[0].count(";") == 1:
-        rows = rows[0].split(";")
+    if len(rows) == 1:
+        if rows[0].count(";") == 1:
+            rows = rows[0].split(";")
+        elif rows[0].count(" / ") == 1:
+            rows = rows[0].split(" / ")
+    final_marker = None
+    if len(rows) == 3:
+        final = re.fullmatch(r"(?i)\s*ENDERGEBNIS\s*:\s*([-+]?\d{1,18})\s*", rows[2])
+        if final is None:
+            return None
+        final_marker = int(final.group(1))
+        rows = rows[:2]
     if len(rows) != 2:
         return None
     units = r"(?:\s+(?:Bauteile?|Teile?|St(?:ü|ue)ck))?"
     prefixes = (
-        r"(?:Gesamtlieferung|Gesamtmenge|Gesamtzahl|Lieferung|"
+        r"(?:Gesamt|Gesamtlieferung|Gesamtmenge|Gesamtzahl|Lieferung|"
         r"Zwischenergebnis|Zwischensumme|Subtotal|Total)",
-        r"(?:Restmenge|Restbestand|Rest|Verbleibend|Uebrig|Übrig|Endmenge)",
+        r"(?:Ergebnis|Restmenge|Restbestand|Rest|Verbleibend|Uebrig|Übrig|Endmenge)",
     )
     values = []
     for row, label in zip(rows, prefixes):
-        text = row.strip()
         pattern = rf"(?iu)(?:(?:{label})\s*[:=]\s*)?([-+]?\d{{1,18}}){units}"
-        matched = re.fullmatch(pattern, text)
+        matched = re.fullmatch(pattern, row.strip())
         if matched is None:
-            return None
+            values = []
+            break
         values.append(int(matched.group(1)))
+    if not values:
+        # Require the THREE exact input quantities, not merely plausible totals.
+        if expected is None or inputs is None:
+            return None
+        first = re.fullmatch(r"\s*(\d+)\s*[*×x]\s*(\d+)\s*=\s*(\d+)\s*", rows[0])
+        second = re.fullmatch(r"\s*(\d+)\s*-\s*(\d+)\s*=\s*(\d+)\s*", rows[1])
+        if first is None or second is None:
+            return None
+        a, b, subtotal = (int(x) for x in first.groups())
+        prev, removed, remainder = (int(x) for x in second.groups())
+        if ((a, b, removed) != inputs or prev != subtotal or
+                (subtotal, remainder) != expected):
+            return None
+        values = [subtotal, remainder]
+    if final_marker is not None and final_marker != values[-1]:
+        return None
     return tuple(values)
 
 
@@ -125,11 +147,18 @@ def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
                       r"ermittle|bestimme|ENDERGEBNIS)\b", prompt) is None):
         return None
     value = stdout.strip()
-    if re.fullmatch(r"[-+]?\d{1,18}", value):
-        return "ENDERGEBNIS: " + str(int(value))
     expected = _explicit_two_stage_stock_steps(prompt)
-    actual = _source_consistent_stock_stdout(value)
-    if expected is None or actual != expected:
+    if re.fullmatch(r"[-+]?\d{1,18}", value):
+        if expected is not None and int(value) != expected[-1]:
+            return None
+        return "ENDERGEBNIS: " + str(int(value))
+    if expected is None:
+        return None
+    statement = prompt.split("ENDERGEBNIS:", 1)[0]
+    inputs = tuple(int(token) for token in re.findall(
+        r"(?<![\w])(?:0|[1-9]\d{0,6})(?![\w])", statement))
+    actual = _source_consistent_stock_stdout(value, expected=expected, inputs=inputs)
+    if actual != expected:
         return None
     return "ENDERGEBNIS: " + str(expected[-1])
 
@@ -266,11 +295,7 @@ def _year_quote_supports(question, quote, year):
 
 
 def unique_read_year_source(question, sources):
-    """Find one non-contradictory event-year quote in real read HTTPS pages.
-
-    Return nothing if several years conflict, all matches are only snippets,
-    or a quote merely describes plans/denials. Never infer a benchmark key.
-    """
+    """Literal one- or two-sentence event/year evidence on read HTTPS pages."""
     if _year_event_subject(question) is None or type(sources) is not list:
         return None
     candidates = []
@@ -284,21 +309,35 @@ def unique_read_year_source(question, sources):
         content = source.get("page_text")
         if type(content) is not str or not 1 <= len(content) <= 120000:
             continue
-        for sentence in re.split(r"(?<=[.!?])\s+|\n+", content):
-            quote = sentence.strip()
-            if not 25 <= len(quote) <= 400:
-                continue
-            years = set(_YEAR_TOKEN.findall(quote))
-            if len(years) != 1:
-                continue
-            year = next(iter(years))
-            if _year_quote_supports(question, quote, year):
-                candidates.append({"year": year, "source": f"web{index}",
-                                   "quote": quote, "url": url})
+        # Preserve byte-for-byte source substrings, including the separator.
+        cut = re.compile(r"(?<=[.!?])(?:[ \t]+|\r?\n+)|\r?\n+")
+        spans = []
+        left = 0
+        for match in cut.finditer(content):
+            segment = content[left:match.start()]
+            if segment.strip():
+                start = left + len(segment) - len(segment.lstrip())
+                end = left + len(segment.rstrip())
+                spans.append((start, end))
+            left = match.end()
+        if content[left:].strip():
+            segment = content[left:]
+            spans.append((left + len(segment) - len(segment.lstrip()),
+                          left + len(segment.rstrip())))
+        for i, (start, end) in enumerate(spans):
+            for right in (end, spans[i+1][1] if i+1 < len(spans) else end):
+                quote = content[start:right].strip()
+                if not 25 <= len(quote) <= 400:
+                    continue
+                years = set(_YEAR_TOKEN.findall(quote))
+                if len(years) != 1:
+                    continue
+                year = next(iter(years))
+                if _year_quote_supports(question, quote, year):
+                    candidates.append({"year": year, "source": f"web{index}",
+                                       "quote": quote, "url": url})
     if not candidates or len({row["year"] for row in candidates}) != 1:
         return None
-    # Prefer the shortest literal sentence so a long page cannot bury the
-    # specific event behind unrelated dates or boilerplate.
     return min(candidates, key=lambda row: len(row["quote"]))
 
 
@@ -316,7 +355,7 @@ def year_evidence_verdict(question, packet, evidence, sources, wiki_hits):
         return "invalid_quote"
     answer = packet["answer"].strip()
     years = _YEAR_TOKEN.findall(answer)
-    if len(years) != 1 or not 1 <= len(answer) <= 170:
+    if len(set(years)) != 1 or not 1 <= len(answer) <= 170:
         return "unsupported_year"
     year = years[0]
     event, subject = _year_event_subject(question)
@@ -356,6 +395,35 @@ def year_evidence_verdict(question, packet, evidence, sources, wiki_hits):
             return "unsupported_year"
         supported = True
     return "supported" if supported else "invalid_quote"
+
+
+def year_evidence_subcode(question, packet, evidence, sources, wiki_hits):
+    """Privacy-safe enum explaining the deterministic unsupported-year veto."""
+    if type(packet) is not dict:
+        return "unsupported_year_answer"
+    answer = packet.get("answer")
+    if type(answer) is not str or not 1 <= len(answer) <= 170:
+        return "unsupported_year_answer"
+    years = set(_YEAR_TOKEN.findall(answer))
+    if len(years) != 1:
+        return "unsupported_year_answer"
+    year = next(iter(years))
+    citations = packet.get("citations")
+    if type(citations) is not list:
+        return "unsupported_year_no_passage"
+    for item in citations:
+        if type(item) is dict:
+            quote = item.get("quote")
+            if type(quote) is str and any(y != year for y in _YEAR_TOKEN.findall(quote)):
+                return "unsupported_year_quote_conflict"
+    if unique_read_year_source(question, sources) is None:
+        return "unsupported_year_no_passage"
+    for item in citations:
+        if type(item) is dict:
+            quote = item.get("quote")
+            if type(quote) is str and not _year_quote_supports(question, quote, year):
+                return "unsupported_year_missing_event"
+    return "unsupported_year_no_passage"
 
 
 def checker_veto_class(issue, *, sources=(), wiki_hits=(), executed=None):

@@ -86,6 +86,12 @@ def run(tier, summary_path):
                     "no_external_evidence","tool_not_executed","other_checker_issue",
                     "no_read_page","invalid_quote","unsupported_year","critic_contradiction")
                 else "not_available"),
+            "checker_veto_detail_code": (
+                result.get("checker_veto_detail_code")
+                if result.get("checker_veto_detail_code") in (
+                    "unsupported_year_answer", "unsupported_year_quote_conflict",
+                    "unsupported_year_missing_event", "unsupported_year_no_passage")
+                else "not_available"),
             "vram_peak_mib":max(peaks) if peaks else None,
             "telemetry":diagnostics,
         }

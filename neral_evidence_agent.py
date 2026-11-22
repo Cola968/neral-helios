@@ -263,7 +263,7 @@ def _passages(evidence, query, *, sources=None):
             matching = sum(term in line.casefold() for term in terms)
             if event:
                 years = _YEAR_TOKEN.findall(line)
-                if len(years) == 1 and _year_quote_supports(query, line, years[0]):
+                if len(set(years)) == 1 and _year_quote_supports(query, line, years[0]):
                     matching += 100
             return -matching
         lines = sorted(text.splitlines(), key=score)
@@ -1122,6 +1122,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
         steps.append("file_reader")
     plan = None
     issue = ""
+    veto_detail = None
     executed = None
     actual_tool_calls = 0
     searched = False
@@ -1206,6 +1207,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 "verification_scope": "tool_execution_and_model_review" if checked else "none",
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
                 "actual_tool_calls": actual_tool_calls,
+                "checker_veto_detail_code": veto_detail if not checked else None,
                 "checker_veto_reason_code": (
                     checker_veto_class(issue, sources=sources, wiki_hits=wiki_hits,
                                        executed=executed) if not checked else None),
@@ -1548,10 +1550,14 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             "tool_verified": False,
                             "verification_scope": "read_page_literal_year_not_truth_proof",
                             "source_year_match": True}
+                candidate = None
+                if verdict == "unsupported_year":
+                    from neral_v42_quality import year_evidence_subcode
+                    veto_detail = year_evidence_subcode(
+                        question, packet, evidence, sources, wiki_hits)
                 if verdict in ("invalid_quote", "unsupported_year"):
-                    # Replace a model's incorrect/mis-cited year only when an
-                    # unambiguous literal year is present on an actually read
-                    # HTTPS page. Contradictory sources or missing evidence fail.
+                    # Deterministic two-sentence extraction is tried BEFORE
+                    # any second planner/worker generation.
                     from neral_v42_quality import unique_read_year_source
                     candidate = unique_read_year_source(question, sources)
                     if candidate and candidate["quote"] in evidence.get(candidate["source"], ""):
@@ -1578,6 +1584,12 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     }[verdict]
                     executed = plan["tool"]
                     plan = None
+                    # The same already-read page and unchanged query cannot
+                    # gain new literal evidence by repeating three LLM passes.
+                    if verdict == "unsupported_year" and candidate is None and searched:
+                        return result("Kein eindeutiger wörtlicher Jahresbeleg aus "
+                                      "einer gelesenen Quelle. " + issue,
+                                      attempts=attempt+1)
                     continue
             # Report the selected reasoning path even when no sandbox or Z3
             # subprocess was needed. Chrome E2E verifies this observable mode.

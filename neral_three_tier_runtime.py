@@ -1837,8 +1837,12 @@ class ThreeTierRuntime:
             if tail is not None:
                 # Skip a second model completion which could hallucinate or
                 # emit a conflicting answer after the trusted stdout.
+                # A valid model-authored stdout may itself contain the marker.
+                # Publish exactly one canonical terminal line after all evidence.
+                stdout_rows = [line for line in output.splitlines()
+                               if not re.match(r"(?i)^\s*ENDERGEBNIS\s*:", line)]
                 final = ("Sandbox-Ausgabe (nicht unabhängig geprüft):\n" +
-                         output + "\n\n" + tail)
+                         "\n".join(stdout_rows).rstrip() + "\n\n" + tail)
             else:
                 # A final model response may explain the actual stdout, but never
                 # replaces it: users always see the exact execution evidence.
