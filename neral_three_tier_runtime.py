@@ -24,6 +24,10 @@ import time
 from collections.abc import Mapping
 
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
+from neral_v42_deadline import (
+    DeadlineExceeded, MODE_BUDGETS, canonical_tier, check_deadline,
+    remaining_seconds, should_stop_generation, _REQUEST_DEADLINE,
+)
 
 LUNA = "qwen3.5:4b"
 HELIOS = "qwen3.5:9b+neral-v2-full"
@@ -203,7 +207,9 @@ class FrozenQwen35HF:
             raise ValueError("Amber supports 768 tokens; legacy Luna stays at 96")
         if self.model == HELIOS and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
+        check_deadline()
         self._load()
+        check_deadline()
         generation = {}
         if response_schema is not None:
             from neral_evidence_agent import json_token_filter, prepare_json_tokenizer
@@ -220,16 +226,24 @@ class FrozenQwen35HF:
             encoded = encoded["input_ids"]
         if type(encoded) is not list or not 1 <= len(encoded) <= 4096-max_new_tokens:
             raise ValueError("Bounded local HF context exceeded")
+        check_deadline()
         ids = torch.tensor([encoded], dtype=torch.long, device="cuda")
         try:
+            check_deadline()
+            generation_max_time = (max_time_seconds if max_time_seconds is not None
+                                   else 50.0 if max_new_tokens == 768 else 25.0)
+            if remaining_seconds() is not None:
+                from transformers import StoppingCriteriaList
+                generation["stopping_criteria"] = StoppingCriteriaList([should_stop_generation])
+                generation_max_time = min(generation_max_time, max(.001, remaining_seconds()))
             with torch.inference_mode():
                 output = self._model.generate(
                     input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
-                    max_time=(max_time_seconds if max_time_seconds is not None
-                              else 50.0 if max_new_tokens == 768 else 25.0),
+                    max_time=generation_max_time,
                     use_cache=True,
                     pad_token_id=self._tokenizer.pad_token_id,
                     eos_token_id=self._tokenizer.eos_token_id, **generation)
+            check_deadline()
             produced = output[0, len(encoded):].tolist()
             eos = {self._tokenizer.eos_token_id}
             for special in ("<|im_end|>", "<|endoftext|>"):
@@ -1128,11 +1142,20 @@ class ThreeTierRuntime:
         resolution = resolve_question(turns)
 
         def respond(instruction, payload, budget, schema):
+            check_deadline()
             self._switch(self.helios)
-            return self.helios.respond_chat(
+            result = self.helios.respond_chat(
                 [{"role": "system", "content": instruction},
                  {"role": "user", "content": payload}], max_new_tokens=budget,
                 response_schema=schema)
+            check_deadline()
+            return result
+
+        def deadline_execute(*args, **kwargs):
+            check_deadline()
+            result = self.execute_python(*args, **kwargs)
+            check_deadline()
+            return result
 
         from neral_obsidian_deep import active, _PROGRESS, _SEARCH
         deep = active(tier) and self.evidence_agent and not files
@@ -1154,13 +1177,16 @@ class ThreeTierRuntime:
                             local_lookup = local_wiki_search
         deep_options = ({"deep":True,"progress":_PROGRESS.get(),
                          "local_lookup":local_lookup,"fallback_query":fallback_query} if deep else {})
-        result = run_evidence_agent(resolution.work_question, respond, self.execute_python,
+        check_deadline()
+        result = run_evidence_agent(resolution.work_question, respond, deadline_execute,
                                     web_query=web_query, search=search, files=files,
                                     history=turns[1:-1][-2:], force_sandbox=force_sandbox,
                                     fast_web=True, max_attempts=1 if tier == "Terra" else None, **deep_options)
+        check_deadline()
         if deep:
             attempts = int(result.get("agent_attempts") or 0)
-            result = {**result, "repair_attempts": max(0, attempts - 1),
+            result = {**result, "obsidian_deep": True,
+                      "repair_attempts": max(0, attempts - 1),
                       "repair_success": attempts > 1 and result.get("agent_checked") is True}
         if resolution.is_followup:
             # User-context reconstruction is never independent proof.
@@ -1329,6 +1355,7 @@ class ThreeTierRuntime:
         from neral_everyday_verified import tidy_unverified_model_text
 
         for attempt in range(3):
+            check_deadline()
             # Helios proposes JSON data for Z3; only the trusted builder writes Python.
             try:
                 candidate = self.helios.respond_chat(prompt_turns,
@@ -1843,6 +1870,8 @@ class ThreeTierRuntime:
 
 def _safe_runtime_error_code(exc: Exception) -> str:
     """Categorize local inference failures without exposing text or stack."""
+    if isinstance(exc, DeadlineExceeded):
+        return "request_deadline"
     message = str(exc)
     if isinstance(exc, RuntimeError):
         if "HF token budget exhausted" in message:
@@ -1891,6 +1920,12 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                                        if runtime.helios.loaded else None),
                        quality_improvement_proven=False,
                        obsidian_deep=bool(enabled() and runtime.evidence_agent))
+
+    @app.get("/api/neral/chat/three-tier/availability")
+    def three_tier_availability():
+        # Public loopback-only owner service; no prompt, model text or session data.
+        return jsonify(busy=bool(busy.locked()),
+                       deadline_seconds=MODE_BUDGETS)
 
     @app.get("/api/neral/chat/three-tier/progress/<request_id>")
     def three_tier_progress(request_id):
@@ -1946,7 +1981,12 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatverlauf."), 400
         if not busy.acquire(blocking=False):
-            return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
+            response = jsonify(error="NERAL bearbeitet bereits eine Antwort.",
+                               error_code="server_busy")
+            response.headers["Retry-After"] = "3"
+            return response, 409
+        deadline_token = _REQUEST_DEADLINE.set(
+            time.monotonic() + MODE_BUDGETS[canonical_tier(requested_tier)])
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
         deep_active = active(requested_tier) and runtime.evidence_agent and not web_stage
         owner = session.get("csrf", "") if progress_id else ""
@@ -2004,11 +2044,17 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 result = runtime.answer_with_evidence(
                     turns, requested_tier, web_query=web_query, search=search_service,
                     force_sandbox=payload.get("force_sandbox", False))
+            elif deep_active:
+                # Obsidian retains its full three-loop pipeline after PR #591.
+                result = runtime.answer_with_evidence(
+                    turns, requested_tier, search=search_service,
+                    force_sandbox=payload.get("force_sandbox", False))
             else:
                 result = runtime.answer(
                     turns, requested_tier,
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
+            check_deadline()
             # V3.10: local-only training capture after an independent verifier.
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
@@ -2024,6 +2070,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                             "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True,
                             "benchmark_isolated": _BENCHMARK_ISOLATED.get()})
+        except DeadlineExceeded:
+            return jsonify(error="NERAL hat das Zeitbudget beendet.",
+                           error_code="request_deadline"), 504
         except Exception as exc:
             # This is a bounded failure CLASSIFICATION only, not exception text.
             # User prompts, model completions and stack traces are never returned.
@@ -2036,4 +2085,5 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             _PROGRESS.reset(progress_token)
             _SEARCH.reset(search_token)
             _BENCHMARK_ISOLATED.reset(benchmark_token)
+            _REQUEST_DEADLINE.reset(deadline_token)
             busy.release()
