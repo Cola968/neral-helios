@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from hashlib import sha256
 import http.cookiejar
+import ast
 import json
 import os
 from pathlib import Path
@@ -110,6 +111,11 @@ def grade_python(case,response_text,*,docker_image=IMAGE):
     code=_code_only(response_text)
     if not code or not re.search(r"\bdef\s+"+re.escape(ref["function"])+r"\s*\(",code):
         return "fail","no_required_function"
+    # Reject invalid Python without launching Docker. No untrusted code is run.
+    try:
+        ast.parse(code)
+    except SyntaxError:
+        return "fail", "python_syntax_invalid"
     payload=json.dumps({"code":code,"function":ref["function"],"tests":ref["tests"]})
     cmd=["docker","run","--rm","-i","--pull","never",
          "--network","none","--read-only","--memory","128m",
@@ -167,6 +173,10 @@ def grade_response(case: dict, response: dict, *, docker_image=IMAGE):
             return ("pass","exact_string") if val.casefold()==ref["value"].casefold() else (
                 "fail","string_mismatch")
         result=_exact_text(response["text"],kind)
+        if result is None and kind in ("integer","web_integer","yesno"):
+            # Format failure is not proof of wrong arithmetic. Keep score FAIL,
+            # but distinguish a parser contract mismatch from wrong content.
+            return "fail","exact_output_unparseable"
         expected=ref["value"].casefold() if kind=="yesno" else ref["value"]
         return ("pass","independent_exact") if result==expected else (
             "fail","exact_mismatch")
@@ -193,9 +203,11 @@ class OwnerClient:
         if type(self.csrf) is not str or len(self.csrf)<12:
             raise RuntimeError("Invalid CSRF session")
 
-    def post(self,tier,prompt,history,*,web_query=None):
+    def post(self,tier,prompt,history,*,web_query=None,diagnostic_telemetry=False):
         payload={"tier":tier,"prompt":prompt,"history":history,
                  "benchmark_isolated":True}
+        if diagnostic_telemetry:
+            payload["diagnostic_telemetry"]=True
         if web_query is not None:
             payload["web_query"]=web_query
         request=Request(BASE+"/api/neral/chat/three-tier",

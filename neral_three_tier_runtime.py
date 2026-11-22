@@ -24,6 +24,10 @@ import time
 from collections.abc import Mapping
 
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
+from neral_v42_telemetry import (
+    current as diagnostic_current, begin_request as diagnostic_begin,
+    end_request as diagnostic_end, FirstTokenStopper, timed_tool,
+)
 from neral_v42_deadline import (
     DeadlineExceeded, MODE_BUDGETS, canonical_tier, check_deadline,
     remaining_seconds, should_stop_generation, _REQUEST_DEADLINE,
@@ -208,7 +212,14 @@ class FrozenQwen35HF:
         if self.model == HELIOS and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         check_deadline()
-        self._load()
+        metric = diagnostic_current()
+        already_loaded = self.loaded
+        load_mark = time.monotonic() if metric else None
+        try:
+            self._load()
+        finally:
+            if metric:
+                metric.load(already_loaded, (time.monotonic()-load_mark)*1000, self)
         check_deadline()
         generation = {}
         if response_schema is not None:
@@ -232,17 +243,39 @@ class FrozenQwen35HF:
             check_deadline()
             generation_max_time = (max_time_seconds if max_time_seconds is not None
                                    else 50.0 if max_new_tokens == 768 else 25.0)
+            first_token_observer = (
+                FirstTokenStopper(should_stop_generation) if metric else should_stop_generation)
             if remaining_seconds() is not None:
                 from transformers import StoppingCriteriaList
-                generation["stopping_criteria"] = StoppingCriteriaList([should_stop_generation])
+                generation["stopping_criteria"] = StoppingCriteriaList([first_token_observer])
                 generation_max_time = min(generation_max_time, max(.001, remaining_seconds()))
-            with torch.inference_mode():
-                output = self._model.generate(
-                    input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
-                    max_time=generation_max_time,
-                    use_cache=True,
-                    pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id, **generation)
+            sys_tokens = None
+            if metric:
+                # Only the count, NEVER system text, is retained.
+                sys_tokens = len(self._tokenizer.encode(
+                    str(turns[0].get("content", "")), add_special_tokens=False)) if turns else 0
+                torch.cuda.synchronize(0)
+                torch.cuda.reset_peak_memory_stats(0)
+            generate_started = time.monotonic() if metric else None
+            try:
+                with torch.inference_mode():
+                    output = self._model.generate(
+                        input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
+                        max_time=generation_max_time,
+                        use_cache=True,
+                        pad_token_id=self._tokenizer.pad_token_id,
+                        eos_token_id=self._tokenizer.eos_token_id, **generation)
+            finally:
+                if metric:
+                    torch.cuda.synchronize(0)
+                    ended = time.monotonic()
+                    count = max(0, int(output.shape[-1]) - len(encoded)) if "output" in locals() else None
+                    metric.generation(
+                        input_tokens=len(encoded), system_tokens=sys_tokens,
+                        max_new_tokens=max_new_tokens,
+                        first_token_at=first_token_observer.first_at,
+                        started_at=generate_started, finished_at=ended, count=count)
+                    metric.cuda(torch)
             check_deadline()
             produced = output[0, len(encoded):].tolist()
             eos = {self._tokenizer.eos_token_id}
@@ -1125,7 +1158,7 @@ class ThreeTierRuntime:
             execute_python = run_python_in_docker
         if not callable(execute_python):
             raise ValueError("Docker execution callback missing")
-        self.execute_python = execute_python
+        self.execute_python = timed_tool("python_z3", execute_python)
         if execute_dataset_python is not None and not callable(execute_dataset_python):
             raise ValueError("Dataset Docker callback must be callable")
         self.execute_dataset_python = execute_dataset_python
@@ -1139,6 +1172,7 @@ class ThreeTierRuntime:
                 files=files, force_sandbox=force_sandbox))
         from neral_evidence_agent import run_evidence_agent
         from neral_v41_context import resolve_question
+        search = timed_tool("web_v4", search) if callable(search) else search
         resolution = resolve_question(turns)
 
         def respond(instruction, payload, budget, schema):
@@ -1174,7 +1208,7 @@ class ThreeTierRuntime:
                         if fresh_question(fallback_query):
                             web_query = fallback_query
                         else:
-                            local_lookup = local_wiki_search
+                            local_lookup = timed_tool("kiwix", local_wiki_search)
         deep_options = ({"deep":True,"progress":_PROGRESS.get(),
                          "local_lookup":local_lookup,"fallback_query":fallback_query} if deep else {})
         check_deadline()
@@ -1270,6 +1304,8 @@ class ThreeTierRuntime:
             self.active_backend = None
 
     def _switch(self, chosen):
+        metric = diagnostic_current()
+        start_switch = time.monotonic() if metric else None
         if self.active_backend is chosen:
             return
         if self.active_backend is None:
@@ -1278,6 +1314,8 @@ class ThreeTierRuntime:
         else:
             self.active_backend.unload()
         self.active_backend = chosen
+        if metric:
+            metric.model_switch_ms += (time.monotonic() - start_switch) * 1000
 
     def _verified_source(self, turns: list[dict]) -> dict | None:
         # A complete standalone question remains independently provable even
@@ -1941,16 +1979,24 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
         allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_query",
-                   "benchmark_isolated", "progress_id"}
+                   "benchmark_isolated", "progress_id", "diagnostic_telemetry"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
                 type(payload.get("force_sandbox", False)) is not bool or
                 type(payload.get("benchmark_isolated", False)) is not bool or
+                type(payload.get("diagnostic_telemetry", False)) is not bool or
                 payload.get("tier") not in TIERS and
                 payload.get("tier") not in ("luna", "terra", "helios")):
             return jsonify(error="Ungültiger Amber/Quartz/Obsidian-Modus."), 400
         requested_tier = payload["tier"].capitalize() if payload["tier"] in ("luna", "terra", "helios") else payload["tier"]
+        if payload.get("diagnostic_telemetry") and not payload.get("benchmark_isolated"):
+            return jsonify(error="Telemetrie ist nur im isolierten Diagnosemodus erlaubt."), 400
+        if payload.get("diagnostic_telemetry"):
+            owner_key = session.get("csrf", "")
+            if not owner_key or not hmac.compare_digest(
+                    owner_key, request.headers.get("X-Neral-CSRF", "")):
+                return jsonify(error="Lokale NERAL-Sitzungsprüfung fehlgeschlagen."), 403
         try:
             web_stage = None
             progress_id = payload.get("progress_id")
@@ -1985,6 +2031,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                                error_code="server_busy")
             response.headers["Retry-After"] = "3"
             return response, 409
+        diagnostic, diagnostic_token = (diagnostic_begin()
+                                        if payload.get("diagnostic_telemetry") else (None, None))
         deadline_token = _REQUEST_DEADLINE.set(
             time.monotonic() + MODE_BUDGETS[canonical_tier(requested_tier)])
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
@@ -2002,7 +2050,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             from neral_v41_context import resolve_question
             resolution = resolve_question(turns)
             is_followup = resolution.is_followup
-            from neral_local_wiki import enabled as wiki_enabled, eligible_question, lookup_with_fallback
+            from neral_local_wiki import enabled as wiki_enabled, eligible_question, lookup_with_fallback, local_wiki_search
             auto_knowledge = (not deep_active and wiki_enabled() and runtime.evidence_agent and
                               search_service is not None and
                               requested_tier in ("Quartz", "Terra") and
@@ -2026,7 +2074,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                         search=search_service), "knowledge_route":"web_v4_fallback"}
                 result = lookup_with_fallback(
                     resolution.work_question, web_fallback,
-                    lambda hits: runtime.answer_local_wiki(turns, requested_tier, hits))
+                    lambda hits: runtime.answer_local_wiki(turns, requested_tier, hits),
+                    local=timed_tool("kiwix", local_wiki_search))
             elif note is not None and not deep_active:
                 result = {"text": note["text"], "tier": requested_tier,
                           "mode": requested_tier.upper(),
@@ -2069,16 +2118,19 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify({**result, "verifier_ok": proof_ok,
                             "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True,
-                            "benchmark_isolated": _BENCHMARK_ISOLATED.get()})
+                            "benchmark_isolated": _BENCHMARK_ISOLATED.get(),
+                             **({"telemetry": diagnostic.summary()} if diagnostic else {})})
         except DeadlineExceeded:
             return jsonify(error="NERAL hat das Zeitbudget beendet.",
-                           error_code="request_deadline"), 504
+                           error_code="request_deadline",
+                           **({"telemetry": diagnostic.summary()} if diagnostic else {})), 504
         except Exception as exc:
             # This is a bounded failure CLASSIFICATION only, not exception text.
             # User prompts, model completions and stack traces are never returned.
             return jsonify(
                 error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.",
-                error_code=_safe_runtime_error_code(exc)), 503
+                error_code=_safe_runtime_error_code(exc),
+                **({"telemetry": diagnostic.summary()} if diagnostic else {})), 503
         finally:
             if tracking:
                 progress_registry.finish(owner, progress_id)
@@ -2086,4 +2138,6 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             _SEARCH.reset(search_token)
             _BENCHMARK_ISOLATED.reset(benchmark_token)
             _REQUEST_DEADLINE.reset(deadline_token)
+            if diagnostic_token is not None:
+                diagnostic_end(diagnostic_token)
             busy.release()

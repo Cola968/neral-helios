@@ -83,3 +83,31 @@ $denied=$false
 try { & $guard } catch { $denied=$true }
 if(-not $denied){throw 'V42 smoke5 accepted replay'}
 Write-Host 'PASS V42 smoke5 approval/negative guards'
+
+# Exact single-use 3x2 telemetry: must never authorize unrelated benchmark runs.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V41_BLIND200_APPROVED=''
+$env:NERAL_V42_AB50_APPROVED=''
+$env:NERAL_V42_SMOKE5_APPROVED=''
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 diagnosis 20261122'
+& $guard
+Write-Host 'PASS V42 diag3 exact owner authorization'
+$env:NERAL_V42_DIAG3_PREFLIGHT='failure'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'V42 diag3 accepts failed CPU preflight'}
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='Other merge title'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'V42 diag3 accepts unrelated commit'}
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved telemetry 3x2 diagnosis 20261122'
+$env:GITHUB_RUN_ATTEMPT='2'
+$denied=$false
+try { & $guard } catch { $denied=$true }
+if(-not $denied){throw 'V42 diag3 accepts replay'}
+Write-Host 'PASS V42 diag3 denial and replay'

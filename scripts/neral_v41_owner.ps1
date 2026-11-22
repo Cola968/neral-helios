@@ -24,7 +24,13 @@ $approvedV42Smoke5 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
   $env:NERAL_V42_SMOKE5_APPROVED -ceq 'NERAL-V42-SMOKE5-APPROVED' -and
   $env:NERAL_V42_SMOKE5_PREFLIGHT -ceq 'success' -and
   $env:NERAL_V42_SMOKE5_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved deadline smoke5 20261122'
-if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5)){
+$approvedV42Diag3 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -ceq 'push' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V42_DIAG3_APPROVED -ceq 'NERAL-V42-DIAG3-APPROVED' -and
+  $env:NERAL_V42_DIAG3_PREFLIGHT -ceq 'success' -and
+  $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 diagnosis 20261122'
+if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5 -or $approvedV42Diag3)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
@@ -133,12 +139,12 @@ function StartOwned {
 # model checkpoint or production LoRA weights.
 $files=@('neral_v41_context.py','neral_verified_notes.py',
          'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
-         'neral_v42_deadline.py',
+         'neral_v42_deadline.py','neral_v42_telemetry.py',
          'neral_three_tier_runtime.py','neral_preview_server.py',
          'templates/neral_preview.html',
          'static/neral-preview.js','static/neral-reference-ui.js')
 $backup=Join-Path $env:LOCALAPPDATA ('neral-v41-backup-'+$env:GITHUB_RUN_ID)
-if($approvedV42Smoke5 -and $env:NERAL_V42_SMOKE5_REVERT -ceq '1'){
+if(($approvedV42Smoke5 -or $approvedV42Diag3) -and $env:NERAL_V42_SMOKE5_REVERT -ceq '1'){
   # Same-run rollback after the experimental 5+5 measurement, regardless
   # of pass/fail. Never promote unverified changes to the owner's service.
   if(-not(Test-Path -LiteralPath $backup -PathType Container)){
@@ -157,7 +163,7 @@ if($approvedV42Smoke5 -and $env:NERAL_V42_SMOKE5_REVERT -ceq '1'){
          (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
         throw ('Experiment rollback checksum mismatch: '+$file)
       }
-    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+    }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
       Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
     }else{
       throw ('Experiment rollback source missing: '+$file)
@@ -182,7 +188,7 @@ foreach($file in $files){
     $original=Join-Path $backup $file
     New-Item -ItemType Directory -Path (Split-Path -Parent $original) -Force | Out-Null
     Copy-Item -LiteralPath $installed -Destination $original -ErrorAction Stop
-  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+  }elseif($file -notin @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
     throw ('Expected installed V4 file missing: '+$file)
   }
 }
@@ -215,7 +221,7 @@ try{
   }
   $env:PYTHONPATH=$root
   $py=@('neral_v41_context.py','neral_verified_notes.py',
-        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py',
+        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py',
         'neral_three_tier_runtime.py','neral_preview_server.py')
   & $python -m py_compile @($py|ForEach-Object { Join-Path $root $_ })
   if($LASTEXITCODE -ne 0){throw 'Installed V4.1 Python modules failed syntax check'}
@@ -224,7 +230,7 @@ try{
     throw 'Updated V4.1 service failed owned HTTP200 check'
   }
   Write-Host 'NERAL_V41_STAGED_ON_OWNER_HTTP200'
-  if($approvedV42Smoke5){
+  if($approvedV42Smoke5 -or $approvedV42Diag3){
     # Probe service identity and lock only. The EXACT 5+5 test downstream is
     # the first inference. A cold-model timeout must be measured, not hidden
     # behind an unrelated 7-category deployment prerequisite.
@@ -258,7 +264,7 @@ try{
            (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
           throw ('V4.1 rollback checksum mismatch: '+$file)
         }
-      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py')){
+      }elseif($file -in @('neral_v41_context.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py')){
         Remove-Item -LiteralPath $installed -ErrorAction SilentlyContinue
       }else{
         throw ('Missing original during V4.1 rollback: '+$file)

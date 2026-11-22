@@ -1,0 +1,42 @@
+name: NERAL V4.2 request telemetry CPU contracts
+on:
+  pull_request:
+    paths:
+      - neral_v42_telemetry.py
+      - neral_three_tier_runtime.py
+      - tests/test_neral_v42_telemetry_cpu.py
+      - tests/test_neral_v42_grading_diagnostics_cpu.py
+      - scripts/neral_v41_blind200_live.py
+      - scripts/neral_v41_owner.ps1
+      - tests/test_neral_v41_owner_approval.ps1
+      - scripts/neral_v42_telemetry_probe.py
+      - scripts/neral_v42_private_diagnostic.py
+      - .github/workflows/neral-v42-telemetry-cpu.yml
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt sympy z3-solver
+      - name: Numeric-only telemetry, no-training isolation and existing runtime routing
+        run: |
+          python -m py_compile neral_v42_telemetry.py neral_three_tier_runtime.py scripts/neral_v42_private_diagnostic.py scripts/neral_v41_blind200_live.py scripts/neral_v42_telemetry_probe.py
+          python -m unittest discover -s tests -p test_neral_v42_grading_diagnostics_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v41_blind_live_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_telemetry_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_latency_routing_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v42_obsidian_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
+      - name: Verify exact owner diagnostic approval and denied replay
+        shell: pwsh
+        run: ./tests/test_neral_v41_owner_approval.ps1
+          python -m unittest discover -s tests -p test_neral_v42_deadline_backoff_cpu.py -v
+
