@@ -243,17 +243,39 @@ class FrozenQwen35HF:
             check_deadline()
             generation_max_time = (max_time_seconds if max_time_seconds is not None
                                    else 50.0 if max_new_tokens == 768 else 25.0)
+            first_token_observer = (
+                FirstTokenStopper(should_stop_generation) if metric else should_stop_generation)
             if remaining_seconds() is not None:
                 from transformers import StoppingCriteriaList
-                generation["stopping_criteria"] = StoppingCriteriaList([should_stop_generation])
+                generation["stopping_criteria"] = StoppingCriteriaList([first_token_observer])
                 generation_max_time = min(generation_max_time, max(.001, remaining_seconds()))
-            with torch.inference_mode():
-                output = self._model.generate(
-                    input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
-                    max_time=generation_max_time,
-                    use_cache=True,
-                    pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id, **generation)
+            sys_tokens = None
+            if metric:
+                # Only the count, NEVER system text, is retained.
+                sys_tokens = len(self._tokenizer.encode(
+                    str(turns[0].get("content", "")), add_special_tokens=False)) if turns else 0
+                torch.cuda.synchronize(0)
+                torch.cuda.reset_peak_memory_stats(0)
+            generate_started = time.monotonic() if metric else None
+            try:
+                with torch.inference_mode():
+                    output = self._model.generate(
+                        input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
+                        max_time=generation_max_time,
+                        use_cache=True,
+                        pad_token_id=self._tokenizer.pad_token_id,
+                        eos_token_id=self._tokenizer.eos_token_id, **generation)
+            finally:
+                if metric:
+                    torch.cuda.synchronize(0)
+                    ended = time.monotonic()
+                    count = max(0, int(output.shape[-1]) - len(encoded)) if "output" in locals() else None
+                    metric.generation(
+                        input_tokens=len(encoded), system_tokens=sys_tokens,
+                        max_new_tokens=max_new_tokens,
+                        first_token_at=first_token_observer.first_at,
+                        started_at=generate_started, finished_at=ended, count=count)
+                    metric.cuda(torch)
             check_deadline()
             produced = output[0, len(encoded):].tolist()
             eos = {self._tokenizer.eos_token_id}
