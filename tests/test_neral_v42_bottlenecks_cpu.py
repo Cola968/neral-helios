@@ -48,16 +48,16 @@ class ObsidianFastPathCPU(unittest.TestCase):
 
 class ExactExecutedFinalCPU(unittest.TestCase):
     def test_markdown_and_punctuation_are_unambiguous(self):
-        for text in ("Rechenweg\\nENDERGEBNIS: **345**",
-                     "Rechenweg\\n  ENDERGEBNIS: 345.  ",
-                     "Rechenweg\\nENDERGEBNIS: `345`",
-                     "Rechenweg\\nENDERGEBNIS: __345__"):
+        for text in ("Rechenweg\nENDERGEBNIS: **345**",
+                     "Rechenweg\n  ENDERGEBNIS: 345.  ",
+                     "Rechenweg\nENDERGEBNIS: `345`",
+                     "Rechenweg\nENDERGEBNIS: __345__"):
             with self.subTest(text=text):
                 self.assertEqual(final_marked_value(text), "345")
                 self.assertEqual(_exact_text(text, "integer"), "345")
         for bad in ("ENDERGEBNIS: 345 oder 346",
-                    "ENDERGEBNIS: 345\\nENDERGEBNIS: 346",
-                    "ENDERGEBNIS: 345\\nweitere Erklärungen",
+                    "ENDERGEBNIS: 345\nENDERGEBNIS: 346",
+                    "ENDERGEBNIS: 345\nweitere Erklärungen",
                     "ENDERGEBNIS: **345** und 346"):
             self.assertIsNone(_exact_text(bad, "integer"))
 
@@ -66,7 +66,7 @@ class ExactExecutedFinalCPU(unittest.TestCase):
             "345", succeeded=True, prompt="Berechne den Rest. ENDERGEBNIS: <Wert>"), "ENDERGEBNIS: 345")
         for stdout, good, prompt in (
             ("345", False, "Berechne 345"),
-            ("345\\n346", True, "Berechne den Rest"),
+            ("345\n346", True, "Berechne den Rest"),
             ("345 oder 346", True, "Berechne den Rest"),
             ("345", True, "Schreibe Python-Code für einen Zähler."),
             ("Keine Ausgabe", True, "Berechne den Rest"),
@@ -79,7 +79,7 @@ class ExactExecutedFinalCPU(unittest.TestCase):
         def propose(turns, **kwargs):
             high.loaded=True
             generated.append(turns)
-            return "```python\\nprint(17 * 23 - 46)\\n```"
+            return "```python\nprint(17 * 23 - 46)\n```"
         high.respond_chat=propose
         tool=Mock(return_value={"status":"PASSED","output":"345"})
         runtime.execute_python=tool
