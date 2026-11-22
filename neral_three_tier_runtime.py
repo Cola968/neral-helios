@@ -1979,16 +1979,24 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
         allowed = {"tier", "prompt", "history", "force_sandbox", "web_data", "web_query",
-                   "benchmark_isolated", "progress_id"}
+                   "benchmark_isolated", "progress_id", "diagnostic_telemetry"}
         if (type(payload) is not dict or
                 not {"tier", "prompt"} <= set(payload) or
                 not set(payload) <= allowed or
                 type(payload.get("force_sandbox", False)) is not bool or
                 type(payload.get("benchmark_isolated", False)) is not bool or
+                type(payload.get("diagnostic_telemetry", False)) is not bool or
                 payload.get("tier") not in TIERS and
                 payload.get("tier") not in ("luna", "terra", "helios")):
             return jsonify(error="Ungültiger Amber/Quartz/Obsidian-Modus."), 400
         requested_tier = payload["tier"].capitalize() if payload["tier"] in ("luna", "terra", "helios") else payload["tier"]
+        if payload.get("diagnostic_telemetry") and not payload.get("benchmark_isolated"):
+            return jsonify(error="Telemetrie ist nur im isolierten Diagnosemodus erlaubt."), 400
+        if payload.get("diagnostic_telemetry"):
+            owner_key = session.get("csrf", "")
+            if not owner_key or not hmac.compare_digest(
+                    owner_key, request.headers.get("X-Neral-CSRF", "")):
+                return jsonify(error="Lokale NERAL-Sitzungsprüfung fehlgeschlagen."), 403
         try:
             web_stage = None
             progress_id = payload.get("progress_id")
@@ -2023,6 +2031,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                                error_code="server_busy")
             response.headers["Retry-After"] = "3"
             return response, 409
+        diagnostic, diagnostic_token = (diagnostic_begin()
+                                        if payload.get("diagnostic_telemetry") else (None, None))
         deadline_token = _REQUEST_DEADLINE.set(
             time.monotonic() + MODE_BUDGETS[canonical_tier(requested_tier)])
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
@@ -2108,16 +2118,19 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             return jsonify({**result, "verifier_ok": proof_ok,
                             "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True,
-                            "benchmark_isolated": _BENCHMARK_ISOLATED.get()})
+                            "benchmark_isolated": _BENCHMARK_ISOLATED.get(),
+                             **({"telemetry": diagnostic.summary()} if diagnostic else {})})
         except DeadlineExceeded:
             return jsonify(error="NERAL hat das Zeitbudget beendet.",
-                           error_code="request_deadline"), 504
+                           error_code="request_deadline",
+                           **({"telemetry": diagnostic.summary()} if diagnostic else {})), 504
         except Exception as exc:
             # This is a bounded failure CLASSIFICATION only, not exception text.
             # User prompts, model completions and stack traces are never returned.
             return jsonify(
                 error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.",
-                error_code=_safe_runtime_error_code(exc)), 503
+                error_code=_safe_runtime_error_code(exc),
+                **({"telemetry": diagnostic.summary()} if diagnostic else {})), 503
         finally:
             if tracking:
                 progress_registry.finish(owner, progress_id)
@@ -2125,4 +2138,6 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             _SEARCH.reset(search_token)
             _BENCHMARK_ISOLATED.reset(benchmark_token)
             _REQUEST_DEADLINE.reset(deadline_token)
+            if diagnostic_token is not None:
+                diagnostic_end(diagnostic_token)
             busy.release()
