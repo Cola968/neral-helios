@@ -32,12 +32,16 @@ def _norm(text):
 
 def _exact_text(text,kind):
     from neral_v42_quality import final_marked_value
-    val=str(text).strip().strip("`")
+    val=str(text).strip()
     if "ENDERGEBNIS" in val.upper():
         isolated = final_marked_value(val)
         if isolated is None:
             return None
         val = isolated
+    else:
+        # Only unwrap an unmarked entire code fence. For a marked answer,
+        # stripping the final backtick would corrupt ENDERGEBNIS: `345`.
+        val = val.strip("`")
     if kind in ("integer","web_integer"):
         # Do not award correctness just because the right number is mentioned
         # somewhere among several wrong alternatives or worked-out steps.
