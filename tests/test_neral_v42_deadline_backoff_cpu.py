@@ -77,7 +77,9 @@ class DeadlineAndBackoffCPU(unittest.TestCase):
                 raise ServerBusyError()
             return {"id":item["id"],"grade":"pass","score":1,"latency_ms":200,
                     "http_409_retries":0,"busy_wait_ms":0}
-        with patch("scripts.neral_v42_resumable.wait_until_available",return_value=True):
+        with patch("scripts.neral_v42_resumable.wait_until_available",return_value=True), patch(
+            "scripts.neral_v42_resumable.time.sleep",return_value=None
+        ):
             row=evaluate_with_busy_retries("Quartz",case,client=object(),evaluator=evaluate)
         self.assertEqual(attempts,["x","x"])
         self.assertEqual(row["grade"],"pass")
@@ -86,6 +88,7 @@ class DeadlineAndBackoffCPU(unittest.TestCase):
             with self.assertRaises(ServerBusyError):
                 evaluate_with_busy_retries("Quartz",case,client=object(),evaluator=evaluate,
                                            max_wait_seconds=0)
+        self.assertEqual(attempts,["x","x"])  # not a graded extra attempt
 
     def test_smoke_has_exact_five_distinct_categories(self):
         cases=[{"id":str(i),"prompt":"x","category":cat}
