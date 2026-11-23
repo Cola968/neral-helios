@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '997647cbfa3a720812a7ed99e50c2b44a7b07ecb' }}
+          ref: '4cf440aa21699224024b8b40a8f871d77f34b8fe'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '997647cbfa3a720812a7ed99e50c2b44a7b07ecb' }}
+          ref: '4cf440aa21699224024b8b40a8f871d77f34b8fe'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -122,7 +122,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '997647cbfa3a720812a7ed99e50c2b44a7b07ecb'
+          ref: '4cf440aa21699224024b8b40a8f871d77f34b8fe'
           persist-credentials: false
       - name: Stage only pinned owner V4.2 with SHA256 backup and no inference
         env:
@@ -150,7 +150,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '997647cbfa3a720812a7ed99e50c2b44a7b07ecb'
+          ref: '4cf440aa21699224024b8b40a8f871d77f34b8fe'
           persist-credentials: false
       - name: Quartz exactly three public synthetic probes only
         run: |
@@ -183,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '997647cbfa3a720812a7ed99e50c2b44a7b07ecb'
+          ref: '4cf440aa21699224024b8b40a8f871d77f34b8fe'
           persist-credentials: false
       - name: Obsidian Deep exactly the same three synthetic probes only
         run: |
@@ -216,7 +216,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '997647cbfa3a720812a7ed99e50c2b44a7b07ecb'
+          ref: '4cf440aa21699224024b8b40a8f871d77f34b8fe'
           persist-credentials: false
       - name: Restore exact same-run original owner service, then HTTP200
         env:
