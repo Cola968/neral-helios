@@ -25,9 +25,10 @@ if($owner -notmatch 'Assert-NeralGpuCapacity\s+-Phase\s+PreLoad' -or
    $preflight -notmatch 'Assert-NeralGpuCapacity\s+-Phase\s+PostLoad'){
   throw 'PreLoad/PostLoad capacity phases not wired into their actual owner paths'
 }
-if($owner.IndexOf('StopOwned\n  $changed=$true'.Replace('\n',"`n")) -ge 0){
-  # The live deployment has to stop the previous owner before taking a baseline.
-  if($owner.IndexOf('Write-NeralGpuBaseline') -lt 0){throw 'No pre-load baseline function'}
+# The actual deployment, not merely a helper, must sample after StopOwned
+# and before the only StartOwned invocation in the staging try block.
+if($owner -notmatch '(?s)try\s*\{\s*StopOwned\s*\$changed=\$true\s*Write-NeralGpuBaseline\s*foreach'){
+  throw 'Pre-load GPU baseline must run after StopOwned, before model restart'
 }
 Write-Host 'PASS PRELOAD_9799_ALLOWED_PRELOAD_8499_BLOCKED'
 Write-Host 'PASS POSTLOAD_1979_ALLOWED_POSTLOAD_999_AND_USED_10753_BLOCKED'
