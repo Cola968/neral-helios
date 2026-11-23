@@ -381,3 +381,27 @@ foreach($case in @(
   if(-not $denied){throw 'Pre/Post final 3+3 authorized a replay or unrelated run'}
 }
 Write-Host 'PASS final pre/post approved owner title and replay denial'
+
+# One-shot raw-Qwen35-9B-vs-frozen NERAL1.0. Test auth guard only.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V43_REF50_APPROVED='NERAL-V43-RAW9B-NERAL10-REF50'
+$env:NERAL_V43_REF50_PREFLIGHT='success'
+$env:NERAL_V43_REF50_MERGE_TITLE='NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123'
+& $guard
+foreach($case in @(
+  @{event='pull_request';attempt='1';preflight='success';title='NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123'},
+  @{event='push';attempt='2';preflight='success';title='NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123'},
+  @{event='push';attempt='1';preflight='failure';title='NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123'},
+  @{event='push';attempt='1';preflight='success';title='Not approved'}
+)){
+  $env:GITHUB_EVENT_NAME=$case.event
+  $env:GITHUB_RUN_ATTEMPT=$case.attempt
+  $env:NERAL_V43_REF50_PREFLIGHT=$case.preflight
+  $env:NERAL_V43_REF50_MERGE_TITLE=$case.title
+  $denied=$false
+  try{ & $guard } catch { $denied=$true }
+  if(-not $denied){throw 'V4.3 reference50 allowed replay or other event'}
+}
+Write-Host 'PASS V43 raw9b vs NERAL10 one-time owner authorization'
