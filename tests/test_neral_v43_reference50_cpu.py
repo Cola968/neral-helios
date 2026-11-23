@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from collections import Counter
+from hashlib import sha256
 from pathlib import Path
 
 from scripts.neral_v43_reference50 import generate_cases, seal_cases, verify_seal, aggregate
