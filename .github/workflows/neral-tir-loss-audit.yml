@@ -1,0 +1,59 @@
+name: NERAL TIR loss audit (read-only, no inference)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_hard36_private_audit.py'
+      - 'tests/test_neral_hard36_private_audit.py'
+      - '.github/workflows/neral-tir-loss-audit.yml'
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Existing private Hard36 run ID'
+        required: true
+        default: '42692109832'
+        type: string
+      source_attempt:
+        description: 'Existing private Hard36 attempt'
+        required: true
+        default: '1'
+        type: string
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s tests -p test_neral_hard36_private_audit.py -v
+  private-loss-audit:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 6
+    env:
+      SOURCE_RUN: ${{ inputs.source_run_id }}
+      SOURCE_ATTEMPT: ${{ inputs.source_attempt }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Classify existing private development losses without inference
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:SOURCE_RUN -notmatch '^[0-9]{9,15}$' -or $env:SOURCE_ATTEMPT -notmatch '^[1-9][0-9]{0,2}$') { throw 'Invalid source identifiers' }
+          $root = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $py = Join-Path $root 'training-env-py312\Scripts\python.exe'
+          $folder = 'tir-hard36-private-' + $env:SOURCE_RUN + '-' + $env:SOURCE_ATTEMPT
+          $private = Join-Path (Join-Path $root $folder) 'hard36-private.json'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or -not(Test-Path -LiteralPath $private -PathType Leaf)) { throw 'Local audit prerequisites unavailable' }
+          $env:PYTHONPATH = $env:GITHUB_WORKSPACE
+          & $py -B -m scripts.neral_hard36_private_audit --private-json $private
+          if($LASTEXITCODE -ne 0) { throw 'Private audit failed safely' }
