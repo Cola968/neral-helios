@@ -1,0 +1,30 @@
+name: NERAL owner-requested Windows shutdown
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Exact owner approval to shut down W39-GAMINGPC-Neral now"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  shutdown:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'SHUTDOWN-W39-NOW' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 5
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Shut down owner Windows PC
+        run: |
+          $ErrorActionPreference='Stop'
+          $shutdownExe=Join-Path $env:WINDIR 'System32/shutdown.exe'
+          if(-not (Test-Path -LiteralPath $shutdownExe -PathType Leaf)){throw 'shutdown.exe unavailable'}
+          Write-Host 'OWNER_REQUESTED_WINDOWS_SHUTDOWN_BEGIN'
+          & $shutdownExe /s /t 0
+          if($LASTEXITCODE -ne 0){throw "shutdown.exe failed, exit code: $LASTEXITCODE"}
