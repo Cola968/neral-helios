@@ -482,6 +482,68 @@ def _read_page_subject_heading(subject, page_text):
     return False
 
 
+
+# Match a completed landing event, not nearby equipment ("Landefähre"),
+# approach ("Landeanflug") or unrelated preparation ("Landestellen").
+_LANDING_EVENT_DATED = re.compile(
+    r"(?iu)\b(?:landete(?:n)?|gelandet|landed|landing|"
+    r"landung(?:en)?|mondlandung(?:en)?|moon\s+landing)\b"
+)
+_YEAR_FOLLOWUP_DATE = re.compile(
+    r"(?iu)\b(?:the\s+mission|die\s+mission|sie|it|the\s+flight|"
+    r"der\s+flug)\b"
+)
+_YEAR_FOLLOWUP_OCCURRENCE = re.compile(
+    r"(?iu)\b(?:took\s+place|fand|statt|happened|occurred|"
+    r"was|war|date|datum)\b"
+)
+
+
+def _event_year_literal_sentences(quote):
+    """Split real quote sentences without separating '20. Juli 1969'."""
+    cut = re.compile(r"(?<=[.!?])(?:[ \t]+|\r?\n+)|\r?\n+")
+    month = re.compile(
+        r"(?iu)^[ \t]+(?:Januar|Februar|März|Maerz|April|Mai|"
+        r"Juni|Juli|August|September|Oktober|November|Dezember)\b")
+    spans = []
+    left = 0
+    for match in cut.finditer(quote):
+        if (match.start() >= 2 and quote[match.start()-1] == "."
+                and quote[match.start()-2].isdigit()
+                and month.match(quote[match.start():])):
+            continue
+        part = quote[left:match.start()].strip()
+        if part:
+            spans.append(part)
+        left = match.end()
+    last = quote[left:].strip()
+    if last:
+        spans.append(last)
+    return spans
+
+
+def _landing_year_temporally_attached(quote, year):
+    """Require a date for the landing, not the date of an adjacent other act.
+
+    The year-bearing sentence must name a completed landing, or it must
+    date the immediately preceding landing using an explicit mission
+    coreference. Mere co-occurrence in a two-sentence window is insufficient.
+    No particular event year or named mission is embedded here.
+    """
+    sentences = _event_year_literal_sentences(quote)
+    for i, sentence in enumerate(sentences):
+        if year not in _YEAR_TOKEN.findall(sentence):
+            continue
+        if _LANDING_EVENT_DATED.search(sentence):
+            return True
+        if (i > 0 and _LANDING_EVENT_DATED.search(sentences[i-1])
+                and _YEAR_FOLLOWUP_DATE.search(sentence)
+                and _YEAR_FOLLOWUP_OCCURRENCE.search(sentence)):
+            return True
+    return False
+
+
+
 def _year_quote_supports(question, quote, year, *, page_text=None):
     task = _year_event_subject(question)
     if task is None or not isinstance(quote, str):
@@ -517,6 +579,8 @@ def _year_quote_supports(question, quote, year, *, page_text=None):
     if not years or set(years) != {year}:
         return False
     if re.search(r"(?iu)\b(?:nicht|never|did\s+not|not\s+land|geplant|planned|sollte)\b", quote):
+        return False
+    if event == "land" and not _landing_year_temporally_attached(quote, year):
         return False
     return True
 
