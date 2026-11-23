@@ -463,13 +463,41 @@ def _year_event_subject(question):
     return stem, match[2]
 
 
-def _year_quote_supports(question, quote, year):
+def _read_page_subject_heading(subject, page_text):
+    """Read-page heading only; never use search-result titles or snippets."""
+    if type(page_text) is not str or type(subject) is not str:
+        return False
+    headings = [line.strip() for line in page_text.splitlines()[:4] if line.strip()]
+    for line in headings[:3]:
+        if len(line) > 130:
+            continue
+        # Heading must identify precisely this Apollo mission, not another
+        # mission or a search snippet mentioning Apollo 11 in passing.
+        if re.fullmatch(r"(?iu)" + re.escape(subject) +
+                        r"(?:\s*[-–—:|]\s*[^\\n]{1,75})?", line):
+            missions = {x.casefold() for x in re.findall(
+                r"(?i)\bapollo\s+\d{1,3}\b", line)}
+            if not missions or missions == {subject.casefold()}:
+                return True
+    return False
+
+
+def _year_quote_supports(question, quote, year, *, page_text=None):
     task = _year_event_subject(question)
     if task is None or not isinstance(quote, str):
         return False
     event, subject = task
-    if subject.casefold() not in quote.casefold() or not _YEAR_EVENT[event].search(quote):
+    if not _YEAR_EVENT[event].search(quote):
         return False
+    if subject.casefold() not in quote.casefold():
+        # Ellipsis, deictic pronouns or infobox labels may refer to a literal
+        # heading on the read page, but a search-hit title is never evidence.
+        if (type(page_text) is not str or quote not in page_text or
+                not _read_page_subject_heading(subject, page_text) or
+                not re.search(
+                    r"(?iu)\b(?:die\s+mission|sie|the\s+mission|"
+                    r"it|the\s+crew|landung|mondlandung)\b", quote)):
+            return False
     # A nearby date for another Apollo mission is not evidence for this one.
     # This remains a citation-local check; it never supplies a year itself.
     if event == "land" and re.fullmatch(r"(?i)apollo\s+\d{1,3}", subject):
@@ -482,6 +510,21 @@ def _year_quote_supports(question, quote, year):
     if re.search(r"(?iu)\b(?:nicht|never|did\s+not|not\s+land|geplant|planned|sollte)\b", quote):
         return False
     return True
+
+
+def _subject_mismatch_near_year_window(question, quote, content, spans, index):
+    """Prevent "Sie..." from binding to a different nearby Apollo mission."""
+    event_subject = _year_event_subject(question)
+    if event_subject is None or event_subject[1].casefold() in quote.casefold():
+        return False
+    if not re.fullmatch(r"(?iu)apollo\s+\d{1,3}", event_subject[1]):
+        return False
+    left = spans[max(0, index-2)][0]
+    right = spans[index][0]
+    before = content[left:right]
+    names = {name.casefold() for name in re.findall(
+        r"(?i)\bapollo\s+\d{1,3}\b", before)}
+    return any(name != event_subject[1].casefold() for name in names)
 
 
 def unique_read_year_source(question, sources):
@@ -501,9 +544,18 @@ def unique_read_year_source(question, sources):
             continue
         # Preserve byte-for-byte source substrings, including the separator.
         cut = re.compile(r"(?<=[.!?])(?:[ \t]+|\r?\n+)|\r?\n+")
+        months = re.compile(
+            r"(?iu)^[ \t]+(?:Januar|Februar|März|Maerz|April|Mai|"
+            r"Juni|Juli|August|September|Oktober|November|Dezember)\b")
         spans = []
         left = 0
         for match in cut.finditer(content):
+            # "20. Juli 1969" is one date, not two independent sentences.
+            if (match.start() >= 2 and
+                    content[match.start()-1] == "." and
+                    content[match.start()-2].isdigit() and
+                    months.match(content[match.start():])):
+                continue
             segment = content[left:match.start()]
             if segment.strip():
                 start = left + len(segment) - len(segment.lstrip())
@@ -535,7 +587,14 @@ def unique_read_year_source(question, sources):
                 if len(years) != 1:
                     continue
                 year = next(iter(years))
-                if _year_quote_supports(question, quote, year):
+                if _year_quote_supports(question, quote, year,
+                                        page_text=content):
+                    # When the subject is inferred from the actual heading,
+                    # an adjacent reference to another Apollo mission vetoes
+                    # pronoun attribution, even if that name fell outside quote.
+                    if _subject_mismatch_near_year_window(
+                            question, quote, content, spans, i):
+                        continue
                     candidates.append({"year": year, "source": f"web{index}",
                                        "quote": quote, "url": url})
     if not candidates or len({row["year"] for row in candidates}) != 1:
@@ -593,7 +652,8 @@ def year_evidence_verdict(question, packet, evidence, sources, wiki_hits):
                 quote not in evidence.get(key, "") or
                 quote not in source.get("page_text", "")):
             return "invalid_quote"
-        if not _year_quote_supports(question, quote, year):
+        if not _year_quote_supports(
+                question, quote, year, page_text=source.get("page_text")):
             return "unsupported_year"
         supported = True
     return "supported" if supported else "invalid_quote"
@@ -623,8 +683,18 @@ def year_evidence_subcode(question, packet, evidence, sources, wiki_hits):
     for item in citations:
         if type(item) is dict:
             quote = item.get("quote")
-            if type(quote) is str and not _year_quote_supports(question, quote, year):
-                return "unsupported_year_missing_event"
+            if type(quote) is str:
+                key = item.get("source")
+                page_text = None
+                if type(key) is str and re.fullmatch(r"web[1-9]\d*", key):
+                    idx = int(key[3:]) - 1
+                    if (type(sources) is list and idx < len(sources) and
+                            type(sources[idx]) is dict and
+                            sources[idx].get("page_read") is True):
+                        page_text = sources[idx].get("page_text")
+                if not _year_quote_supports(
+                        question, quote, year, page_text=page_text):
+                    return "unsupported_year_missing_event"
     return "unsupported_year_no_passage"
 
 
