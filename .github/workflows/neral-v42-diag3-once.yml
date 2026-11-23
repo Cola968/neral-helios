@@ -1,8 +1,9 @@
 name: NERAL V4.2 single approved 3+3 GPU telemetry with rollback
 # Exact main commit message: title only, no body, before one authorized GPU dispatch.
-# One-time owner-approved source-pinned run: ALL jobs checkout V4.2 baseline 29b29822c8005fd5605fafdd2a79747570d6e71c.
+# One-time owner-approved source-pinned run: ALL jobs checkout V4.2 baseline 09aecb09be4256e46c7f7a50a4314e7c72754db9.
 # This workflow-only trigger commit must never alter the six measured source probes.
-# 2026-11-23 second authorized single 3+3 after owner import repair: exact source baseline 29b29822c8005fd5605fafdd2a79747570d6e71c.
+# 2026-11-23 owner authorized exact post-PR610-611 3+3, source-pinned, no Blind200/AB50.
+# 2026-11-23 second authorized single 3+3 after owner import repair: exact source baseline 09aecb09be4256e46c7f7a50a4314e7c72754db9.
 on:
   pull_request:
     paths:
@@ -35,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          ref: '09aecb09be4256e46c7f7a50a4314e7c72754db9'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -68,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          ref: '09aecb09be4256e46c7f7a50a4314e7c72754db9'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -109,7 +110,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          ref: '09aecb09be4256e46c7f7a50a4314e7c72754db9'
           persist-credentials: false
       - name: Stage only pinned owner V4.2 with SHA256 backup and no inference
         env:
@@ -137,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          ref: '09aecb09be4256e46c7f7a50a4314e7c72754db9'
           persist-credentials: false
       - name: Quartz exactly three public synthetic probes only
         run: |
@@ -170,7 +171,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          ref: '09aecb09be4256e46c7f7a50a4314e7c72754db9'
           persist-credentials: false
       - name: Obsidian Deep exactly the same three synthetic probes only
         run: |
@@ -203,7 +204,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          ref: '09aecb09be4256e46c7f7a50a4314e7c72754db9'
           persist-credentials: false
       - name: Restore exact same-run original owner service, then HTTP200
         env:
