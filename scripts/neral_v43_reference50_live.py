@@ -125,6 +125,46 @@ def _root(outdir):
     return verify_seal(sealed,manifest),json.loads(manifest.read_text("utf-8"))
 
 
+
+RECOVERY_PARENT_RUN="45264946953"
+RECOVERY_SEALED_SHA256="a7c8e033b157e320d198da81793c052c3978ba61af4a63f22a909887afc4b43e"
+
+
+def verify_recovery_preflight(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256):
+    """Read-only proof: completed original 50, untouched raw half, exact seal."""
+    if (outdir.name!=RECOVERY_PARENT_RUN
+            or outdir.parent.name!="v43-reference50"
+            or outdir.is_symlink()
+            or (outdir/"manifest.json").is_symlink()):
+        raise ValueError("Refuse recovery outside original owner-only run")
+    cases,manifest=_root(outdir)
+    if manifest.get("sha256")!=expected_sha:
+        raise ValueError("Original sealed 50-case digest mismatch")
+    if any((outdir/name).exists() or (outdir/name).is_symlink()
+           for name in ("raw9b-50.jsonl","summary.json","baseline-receipt.json")):
+        raise ValueError("Raw run already attempted or baseline already sealed")
+    stage=outdir/"neral10-50.jsonl"
+    if not stage.is_file() or stage.is_symlink() or stage.stat().st_size>2000000:
+        raise ValueError("Original NERAL50 private result missing or invalid")
+    rows=[json.loads(line) for line in stage.read_text("utf-8").splitlines() if line.strip()]
+    source={c["id"]:c for c in cases}
+    if len(rows)!=50 or len({r.get("id") for r in rows})!=50:
+        raise ValueError("Original NERAL50 not complete and unique")
+    for row in rows:
+        c=source.get(row.get("id"))
+        if (c is None
+                or row.get("engine")!="neral10_obsidian"
+                or row.get("source_commit")!=FROZEN
+                or row.get("category")!=c["category"]
+                or row.get("prompt_sha256")!=sha256(c["prompt"].encode("utf-8")).hexdigest()
+                or row.get("grade") not in ("pass","fail","ungraded")
+                or row.get("http_status")!=200
+                or row.get("benchmark_isolated") is not True
+                or type(row.get("latency_ms")) is not int
+                or not isinstance(row.get("model_text"),str)):
+            raise ValueError("Original NERAL50 identity or scoring invalid")
+    return True
+
 def prepare(outdir):
     if outdir.exists():
         raise FileExistsError("Run-id baseline directory already exists")
@@ -347,10 +387,11 @@ def finish(outdir):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--phase",choices=("prepare","neral","raw","finish"),required=True)
+    parser.add_argument("--phase",choices=("prepare","neral","raw","finish","recovery-preflight"),required=True)
     parser.add_argument("--private-dir",type=Path,required=True)
     args=parser.parse_args()
-    {"prepare":prepare,"neral":neral,"raw":raw,"finish":finish}[args.phase](args.private_dir)
+    {"prepare":prepare,"neral":neral,"raw":raw,"finish":finish,
+     "recovery-preflight":verify_recovery_preflight}[args.phase](args.private_dir)
 
 
 if __name__=="__main__":
