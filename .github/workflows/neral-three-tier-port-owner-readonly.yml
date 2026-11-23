@@ -89,3 +89,38 @@ jobs:
             ' compared_files='+$checked+' mismatches='+$mismatches+
             ' http200='+($http.Trim() -eq '200'))
           Write-Host 'NERAL_DIAG3_READONLY_NO_FILE_OR_PROCESS_MUTATION'
+
+
+      - name: Classify NERAL startup fault from known service stderr without printing logs
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $logs=@(
+            (Join-Path $root 'local_state/neral-three-tier-error.log'),
+            (Join-Path $root 'local_state/neral-three-tier.log'))
+          $codes=@()
+          $found=0
+          foreach($log in $logs){
+            if(Test-Path -LiteralPath $log -PathType Leaf){
+              $found++
+              $tail=([string[]](Get-Content -LiteralPath $log -Tail 100 -ErrorAction SilentlyContinue)) -join ' '
+              if($tail -match '(?i)(?:out of memory|cuda oom|cuda.*memory|gpu memory cap|insufficient free gpu)'){$codes+='gpu_memory'}
+              if($tail -match '(?i)(?:module.?not.?found|cannot import|importerror)'){$codes+='import_failure'}
+              if($tail -match '(?i)(?:snapshot.*missing|adapter.*mismatch|checkpoint.*missing|model.*not.*found)'){$codes+='model_path_or_hash'}
+              if($tail -match '(?i)(?:no module named waitress|waitress.*missing)'){$codes+='web_dependency'}
+              if($tail -match '(?i)(?:traceback|exception|error:)'){$codes+='python_exception'}
+              if($tail -match '(?i)(?:port 9690.*belegt|address already in use|address.*in use)'){$codes+='port_conflict'}
+            }
+          }
+          $gpu=@(& nvidia-smi.exe --query-gpu=memory.used,memory.free --format=csv,noheader,nounits 2>$null)
+          $vramValid=($LASTEXITCODE -eq 0 -and $gpu.Count -eq 1 -and [string]$gpu[0] -match '^\s*(\d+)\s*,\s*(\d+)\s*$')
+          $used=if($vramValid){[int]$Matches[1]}else{-1}
+          $free=if($vramValid){[int]$Matches[2]}else{-1}
+          Write-Host ('NERAL_DIAG3_READONLY_STARTUP_CLASS task_state='+[string]$task.State+
+            ' task_last_result='+[int]$info.LastTaskResult+
+            ' stderr_logs_present='+$found+
+            ' error_classes='+((@($codes|Select-Object -Unique)) -join ',')+
+            ' gpu_used_mib='+$used+' gpu_free_mib='+$free)
+          $global:LASTEXITCODE=0
