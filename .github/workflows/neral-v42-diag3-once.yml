@@ -10,6 +10,8 @@ on:
       - .github/workflows/neral-v42-diag3-once.yml
       - scripts/build_neral_1_0_preview.py
       - scripts/neral_v42_telemetry_probe.py
+      - scripts/neral_v42_apollo_real_html_cpu.py
+      - tests/test_neral_v42_deploy_manifest_cpu.py
       - scripts/neral_v41_owner.ps1
       - neral_evidence_agent.py
       - tests/test_neral_v42_bottlenecks_cpu.py
@@ -36,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '1d334825971082dd7a56c564a4e293847dd8b33e' }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -48,6 +50,7 @@ jobs:
       - name: All standalone-release regression tests, including real ZIP imports
         run: |
           python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
+          python -m unittest discover -s tests -p test_neral_v42_deploy_manifest_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_fastpath_math_evidence_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_remaining_failures_cpu.py -v
@@ -69,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '1d334825971082dd7a56c564a4e293847dd8b33e' }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -78,6 +81,7 @@ jobs:
       - name: Quality, Deep real repair, telemetry, API and knowledge provenance
         run: |
           python -m py_compile neral_v42_telemetry.py neral_v42_quality.py neral_evidence_agent.py neral_obsidian_deep.py neral_three_tier_runtime.py scripts/neral_v42_telemetry_probe.py
+          python -m unittest discover -s tests -p test_neral_v42_deploy_manifest_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_bottlenecks_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_fastpath_math_evidence_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v42_remaining_failures_cpu.py -v
@@ -92,6 +96,8 @@ jobs:
           python -m unittest discover -s tests -p test_neral_three_tier_api.py -v
           python -m unittest discover -s tests -p test_neral_evidence_agent.py -v
           python -m unittest discover -s tests -p test_neral_web_v4_cpu.py -v
+      - name: Real Wikipedia Apollo 11 HTML CPU analysis
+        run: python -m scripts.neral_v42_apollo_real_html_cpu
       - name: Prove exact approvedV42Diag3 and rejection of replay/unrelated push
         shell: pwsh
         run: ./tests/test_neral_v41_owner_approval.ps1
