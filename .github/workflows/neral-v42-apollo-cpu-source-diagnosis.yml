@@ -27,7 +27,7 @@ jobs:
       - name: Checkout immutable NERAL production commit
         uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           path: pinned
           persist-credentials: false
       - name: Read exact public Apollo Web V4 search and Kiwix without inference
