@@ -16,6 +16,8 @@ import statistics
 import subprocess
 import time
 import gc
+import errno
+import socket
 from typing import Any
 
 from scripts.neral_v41_blind200_live import OwnerClient, grade_response, IMAGE
@@ -70,6 +72,44 @@ def make_record(case,engine,response,*,grade,reason,elapsed,
         "cuda_reserved_peak_mib":cuda_reserved_mib,
         "benchmark_isolated":True,
     }
+
+
+def ensure_port_unbound():
+    """Require the NERAL socket to be truly unbound; HTTP 503 is NOT absence."""
+    try:
+        sock=socket.create_connection(("127.0.0.1",9690),timeout=2.0)
+    except ConnectionRefusedError:
+        return True
+    except OSError as exc:
+        if getattr(exc,"errno",None) in (errno.ECONNREFUSED,10061):
+            return True
+        raise RuntimeError("Port 9690 status unknown; raw model refused") from None
+    else:
+        sock.close()
+        raise RuntimeError("Port 9690 is occupied; raw GPU run refused")
+
+
+def _sha256_file(path:Path)->str:
+    with path.open("rb") as input_file:
+        return sha256(input_file.read()).hexdigest()
+
+
+_BASELINE_FILES=("sealed50.jsonl","manifest.json","raw9b-50.jsonl",
+                 "neral10-50.jsonl","summary.json")
+
+
+def verify_result_seal(outdir:Path):
+    """Validate the owner-local complete SHA256 receipt; never reveal contents."""
+    receipt_path=outdir/"baseline-receipt.json"
+    report=json.loads(receipt_path.read_text("utf-8"))
+    if (report.get("source_commit")!=FROZEN
+            or set(report.get("files_sha256",{}))!=set(_BASELINE_FILES)
+            or report.get("complete_pairs")!=50):
+        raise ValueError("Incomplete reference50 receipt")
+    for item,expected in report["files_sha256"].items():
+        if _sha256_file(outdir/item)!=expected:
+            raise ValueError("Reference50 result seal mismatch")
+    return True
 
 
 def _root(outdir):
@@ -141,7 +181,10 @@ def neral(outdir):
             status["adapter_loaded"]=result.get("adapter_loaded")
             status["model_generated"]=result.get("model_generated")
             status["source_commit"]=FROZEN
-            sink.write(json.dumps(status,sort_keys=True)+"\n")
+            # Raw replies are required for subsequent independent human review.
+            # The owner-local result file is NEVER copied to GitHub artifacts.
+            status["model_text"]=str(result.get("text",""))[:16000]
+            sink.write(json.dumps(status,sort_keys=True,ensure_ascii=False)+"\n")
             sink.flush()
             rows.append(status)
             print("NERAL_V43_REF50_NERAL_PROGRESS "+str(i)+"/50",flush=True)
@@ -214,13 +257,8 @@ def raw(outdir):
     cases,_=_root(outdir)
     validate_engine_identity("raw_qwen35_9b",checkpoint=CHECKPOINT,adapter_loaded=False)
     verify_docker_grader()
-    # Caller must have stopped the authenticated owner: no overlapping 9B.
-    try:
-        OwnerClient().get("/")
-    except (OSError,RuntimeError):
-        pass
-    else:
-        raise RuntimeError("Port 9690 still active; refuse concurrent raw 9B")
+    # Check TCP ownership, not an HTTP status: a 503 still occupies port 9690.
+    ensure_port_unbound()
     output=outdir/"raw9b-50.jsonl"
     if output.exists():raise FileExistsError("Raw baseline already attempted")
     torch,tokenizer,model=_raw_model()
@@ -240,7 +278,9 @@ def raw(outdir):
                 row=make_record(case,"raw_qwen35_9b",response,
                                 grade=grade,reason=reason,elapsed=elapsed,
                                 total_peak_mib=total,cuda_reserved_mib=reserved)
-                sink.write(json.dumps(row,sort_keys=True)+"\n")
+                row["source_commit"]=FROZEN
+                row["model_text"]=answer
+                sink.write(json.dumps(row,sort_keys=True,ensure_ascii=False)+"\n")
                 sink.flush()
                 print("NERAL_V43_REF50_RAW_PROGRESS "+str(i)+"/50",flush=True)
     finally:
@@ -262,10 +302,24 @@ def finish(outdir):
     summary["raw_model_id"]="Qwen3.5-9B HF NF4 without PEFT adapter"
     summary["neral_model_id"]="NERAL 1.0 Obsidian frozen source "+FROZEN
     summary["human_review_pending"]=True
+    # Results are write-once, and all five private-source artifacts receive a
+    # final digest receipt. The public summary has no prompts or model text.
+    summary["raw_results_sha256"]=_sha256_file(outdir/"raw9b-50.jsonl")
+    summary["neral_results_sha256"]=_sha256_file(outdir/"neral10-50.jsonl")
     summary_path=outdir/"summary.json"
     with summary_path.open("x",encoding="utf-8") as sink:
         json.dump(summary,sink,sort_keys=True,indent=2)
-    print("NERAL_V43_REF50_100_RESULTS_SEALED "+manifest["sha256"],flush=True)
+    receipt={
+        "source_commit":FROZEN,"complete_pairs":50,
+        "files_sha256":{name:_sha256_file(outdir/name) for name in _BASELINE_FILES},
+        "status":"sealed_complete",
+    }
+    receipt_path=outdir/"baseline-receipt.json"
+    with receipt_path.open("x",encoding="utf-8") as sink:
+        json.dump(receipt,sink,sort_keys=True,indent=2)
+    verify_result_seal(outdir)
+    print("NERAL_V43_REF50_100_RESULTS_SEALED "+
+          _sha256_file(receipt_path),flush=True)
     return summary
 
 
