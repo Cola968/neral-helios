@@ -84,7 +84,7 @@ class VramIsolationCPU(unittest.TestCase):
             parse_compute_rows("not a pid, 100 MiB")
 
     def test_wddm_bracketed_na_is_not_parse_error(self):
-        self.assertEqual(parse_compute_rows("111, [N/A]\\n333, 1500 MiB\\n"), 
+        self.assertEqual(parse_compute_rows("111, [N/A]\n333, 1500 MiB\n"), 
                          {111: None, 333: 1500})
 
     def test_wddm_unknown_uses_measured_cuda_telemetry_as_fallback(self):
