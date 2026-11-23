@@ -89,6 +89,7 @@ jobs:
             ' compared_files='+$checked+' mismatches='+$mismatches+
             ' http200='+($http.Trim() -eq '200'))
           Write-Host 'NERAL_DIAG3_READONLY_NO_FILE_OR_PROCESS_MUTATION'
+          $global:LASTEXITCODE=0
 
 
       - name: Classify NERAL startup fault from known service stderr without printing logs
