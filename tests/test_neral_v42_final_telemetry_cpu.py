@@ -83,6 +83,24 @@ class VramIsolationCPU(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_compute_rows("not a pid, 100 MiB")
 
+    def test_wddm_bracketed_na_is_not_parse_error(self):
+        self.assertEqual(parse_compute_rows("111, [N/A]\n333, 1500 MiB\n"), 
+                         {111: None, 333: 1500})
+
+    def test_wddm_unknown_uses_measured_cuda_telemetry_as_fallback(self):
+        snapshot={"neral_process_mib":None,
+                  "process_memory_status":"wddm_memory_unreported",
+                  "system_total_mib":11500}
+        self.assertFalse(validate_owner_snapshot(snapshot, process_cap_mib=9500))
+        self.assertTrue(validate_owner_snapshot(
+            snapshot, process_cap_mib=9500, cuda_reserved_mib=7800))
+        self.assertFalse(validate_owner_snapshot(
+            snapshot, process_cap_mib=9500, cuda_reserved_mib=9800))
+        self.assertFalse(validate_owner_snapshot(
+            {"neral_process_mib":None,
+             "process_memory_status":"nvidia_compute_query_unavailable"},
+            process_cap_mib=9500,cuda_reserved_mib=7600))
+
     def test_process_and_system_usage_are_separate(self):
         calls=[]
         def fake_run(args, **kwargs):

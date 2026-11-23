@@ -24,7 +24,7 @@ def parse_compute_rows(raw: str) -> dict[int, int | None]:
         if not line or "No running processes found" in line:
             continue
         match = re.fullmatch(
-            r"(?i)(\d+)\s*,\s*(\d+|N/A|Not Supported)\s*(?:MiB)?\s*", line)
+            r"(?i)(\d+)\s*,\s*(\d+|\[?N/A\]?|\[?Not Supported\]?)\s*(?:MiB)?\s*", line)
         if not match:
             raise ValueError("Unparseable compute-app memory sample")
         pid = int(match[1])
@@ -86,9 +86,22 @@ def read_vram_snapshot(owner_pids, *, runner=subprocess.run):
     }
 
 
-def validate_owner_snapshot(snapshot, *, process_cap_mib=_CAP):
-    """Only owner VRAM proves the 9,500 MiB gate; total VRAM is descriptive."""
-    owner = snapshot.get("neral_process_mib") if isinstance(snapshot, dict) else None
-    return (type(owner) is int and owner >= 0
-            and type(process_cap_mib) is int and process_cap_mib > 0
-            and owner < process_cap_mib)
+def validate_owner_snapshot(snapshot, *, process_cap_mib=_CAP, cuda_reserved_mib=None):
+    """Prefer exact NVML process memory; on WDDM, use measured CUDA reserve.
+
+    WDDM may report per-process [N/A]. A CUDA value is a narrower
+    application-level measurement, never mislabeled as total process VRAM.
+    A missing measurement cannot become zero or a successful gate.
+    """
+    if not isinstance(snapshot, dict):
+        return False
+    if type(process_cap_mib) is not int or process_cap_mib <= 0:
+        return False
+    owner = snapshot.get("neral_process_mib")
+    if type(owner) is int and owner >= 0:
+        return owner < process_cap_mib
+    if snapshot.get("process_memory_status") not in (
+            "wddm_memory_unreported", "owner_process_not_reported"):
+        return False
+    return (type(cuda_reserved_mib) in (int, float)
+            and 0 < cuda_reserved_mib < process_cap_mib)
