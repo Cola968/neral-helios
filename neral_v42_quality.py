@@ -246,7 +246,7 @@ def _source_checked_final_stock_number(stdout, *, expected, inputs):
         return None
     if not role_ok(
             r"\b(?:Rest|Ergebnis|Endergebnis)\s+"
-            r"(?:ist|beträgt|lautet)\s*(\d{1,18})",
+            r"(?:(?:ist|beträgt|lautet)\s+)?(\d{1,18})",
             remainder):
         return None
     if not role_ok(
