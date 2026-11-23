@@ -355,3 +355,29 @@ foreach($case in @(
   if(-not $denied){throw 'WDDM final title accepted replay, PR or unrelated push'}
 }
 Write-Host 'PASS WDDM single approved push and strict replay denial'
+
+# Last explicitly owner-approved pre-load/post-load 3+3, exactly one main push.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved prepost capacity 3x2 20261123'
+& $guard
+foreach($case in @(
+  @{ref='refs/heads/main';event='push';attempt='2';preflight='success';title='NERAL V4.2 owner-approved prepost capacity 3x2 20261123'},
+  @{ref='refs/heads/main';event='pull_request';attempt='1';preflight='success';title='NERAL V4.2 owner-approved prepost capacity 3x2 20261123'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='failure';title='NERAL V4.2 owner-approved prepost capacity 3x2 20261123'},
+  @{ref='refs/heads/other';event='push';attempt='1';preflight='success';title='NERAL V4.2 owner-approved prepost capacity 3x2 20261123'},
+  @{ref='refs/heads/main';event='push';attempt='1';preflight='success';title='Unrelated'}
+)){
+  $env:GITHUB_REF=$case.ref
+  $env:GITHUB_EVENT_NAME=$case.event
+  $env:GITHUB_RUN_ATTEMPT=$case.attempt
+  $env:NERAL_V42_DIAG3_PREFLIGHT=$case.preflight
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$case.title
+  $denied=$false
+  try{ & $guard }catch{ $denied=$true }
+  if(-not $denied){throw 'Pre/Post final 3+3 authorized a replay or unrelated run'}
+}
+Write-Host 'PASS final pre/post approved owner title and replay denial'
