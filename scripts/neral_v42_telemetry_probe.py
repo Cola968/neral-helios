@@ -100,7 +100,11 @@ def _owner_gpu_preflight():
         marker = re.search(r"NERAL_GPU_PREFLIGHT_REASON:([a-z0-9_]{3,64})",
                            outcome.stderr or "")
         reason = marker.group(1) if marker else "unclassified_preflight_error"
-        raise RuntimeError("Read-only GPU preflight refused: " + reason)
+        # One measured integer is useful when the free-memory gate rejects.
+        # Never surface raw stderr; it can include local paths or PIDs.
+        scalar = re.search(r"\bfree_mib=(\d{1,6})\b", outcome.stderr or "")
+        free_mib = (" free_mib=" + scalar.group(1)) if scalar else ""
+        raise RuntimeError("Read-only GPU preflight refused: " + reason + free_mib)
     try:
         row = json.loads(outcome.stdout)
         ids = row["owner_pids"]
