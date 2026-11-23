@@ -1447,6 +1447,19 @@ class ThreeTierRuntime:
         source = turns[-1]["content"]
         constraint_mode = not sandbox_files and _is_constraint_task(source)
         count_mode = constraint_mode and _is_constraint_count(source)
+        # Restrict the canonical final-print guidance to proven two-stage
+        # arithmetic inputs; generic coding and data paths are unaffected.
+        from neral_v42_quality import _explicit_two_stage_stock_steps
+        stock_endline = (
+            not constraint_mode and not sandbox_files and
+            _explicit_two_stage_stock_steps(source) is not None)
+        stock_code_hint = (
+            "\nBei dieser zweistufigen Ganzzahlaufgabe: Setze ergebnis "
+            "nach Berechnung und assert-Prüfung auf den exakten Endwert. "
+            "Nutze als allerletzte Ausgabezeile "
+            "print(f\"ENDERGEBNIS: {ergebnis}\") und danach keinen "
+            "weiteren print-Aufruf. "
+            if stock_endline else "")
         base = [{"role": "system", "content": (
             turns[0]["content"] +
             (_Z3_CONSTRAINT_SYSTEM if constraint_mode else
@@ -1457,6 +1470,7 @@ class ThreeTierRuntime:
                (_source_relational_equations(source) or "")
                if _is_relational_word_problem(source)
                else _CODE_ONLY_SYSTEM +
+                    stock_code_hint +
                     _source_german_euro_guidance(source) +
                     _source_person_nights_hint(source) +
                     _source_birthday_probability_hint(source) +
