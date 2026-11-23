@@ -194,6 +194,91 @@ def _source_consistent_stock_stdout(stdout, *, expected=None, inputs=None):
 
 
 
+def _source_checked_final_stock_number(stdout, *, expected, inputs):
+    """Fallback for prose stdout: all observed integers must fit source math.
+
+    Never endorse an arbitrary final number: the source defines the expected
+    total/remainder, every printed integer must be one of the given quantities
+    or its independently calculated steps, and role-labelled contradictions
+    veto the answer regardless of where the final matching number occurs.
+    """
+    if not isinstance(stdout, str) or not 1 <= len(stdout) <= 1600:
+        return None
+    text = stdout.strip()
+    if not text or re.search(r"(?<!\d)\d+[.,]\d+(?!\d)", text):
+        return None  # decimal values are not the exact integer stock task
+    # Preserve strictness of existing two-labelled stdout contract.
+    if re.search(r"(?iu)\bAntwort\s*:", text):
+        return None
+    marker_count = len(re.findall(r"(?i)\bENDERGEBNIS\s*:", text))
+    if marker_count:
+        if marker_count != 1 or not re.fullmatch(
+                r"(?i)ENDERGEBNIS\s*:\s*\d{1,18}",
+                text.splitlines()[-1].strip()):
+            return None
+
+    values = [int(v) for v in re.findall(
+        r"(?<![\w.,])\d{1,18}(?![\w]|[.,]\d)", text)]
+    if not 1 <= len(values) <= 20 or values[-1] != expected[-1]:
+        return None
+    allowed = set(inputs) | set(expected)
+    if any(v not in allowed for v in values):
+        return None
+
+    # Check explicitly assigned roles, even when a wrong value would also be
+    # a legitimate number in a *different* step (e.g. Rest: 391).
+    def role_ok(pattern, wanted):
+        for item in re.finditer(pattern, text, flags=re.I | re.U):
+            if int(item.group(1)) != wanted:
+                return False
+        return True
+
+    total, remainder = expected
+    if not role_ok(
+            r"\b(?:Gesamt(?:lieferung|menge|zahl)?|Lieferung|"
+            r"Zwischensumme|Subtotal|Total)\s*[:=]\s*(\d{1,18})",
+            total):
+        return None
+    if not role_ok(
+            r"\b(?:Ergebnis|Endergebnis|Rest(?:menge|bestand)?|"
+            r"Verbleibend|Uebrig|Übrig)\s*[:=]\s*(\d{1,18})",
+            remainder):
+        return None
+    if not role_ok(
+            r"\b(?:Rest|Ergebnis|Endergebnis)\s+"
+            r"(?:ist|beträgt|lautet)\s*(\d{1,18})",
+            remainder):
+        return None
+    if not role_ok(
+            r"\b(?:Nach\s+(?:Abzug|Abgabe)\s+von)\s*(\d{1,18})",
+            inputs[2]):
+        return None
+    if not role_ok(
+            r"\b(?:bleiben|verbleiben|noch\s+übrig)\s*(\d{1,18})",
+            remainder):
+        return None
+    if not role_ok(
+            r"\b(?:Gesamt(?:lieferung|menge|zahl)?|Zwischensumme)"
+            r"\s+(?:lautet|beträgt|ist)\s*(\d{1,18})",
+            total):
+        return None
+    if not role_ok(
+            r"\b(?:wurden|es\s+gab)\s*(\d{1,18})\s+"
+            r"(?:Bauteile|Teile|St(?:ü|ue)ck)\b",
+            total):
+        return None
+
+    # An explicitly printed arithmetic identity must also be true:
+    # a following corrected-looking number must not excuse a wrong equation.
+    for match in re.finditer(
+            r"(?<!\d)(\d{1,18})\s*[*×x]\s*(\d{1,18})"
+            r"\s*-\s*(\d{1,18})\s*=\s*(\d{1,18})", text):
+        a, b, removed, result = (int(v) for v in match.groups())
+        if (a, b, removed) != inputs or result != a*b-removed:
+            return None
+    return expected
+
+
 def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
     """One canonical final only from successful, source-consistent tool stdout.
 
@@ -217,6 +302,9 @@ def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
     inputs = tuple(int(token) for token in re.findall(
         r"(?<![\w])(?:0|[1-9]\d{0,6})(?![\w])", statement))
     actual = _source_consistent_stock_stdout(value, expected=expected, inputs=inputs)
+    if actual != expected:
+        actual = _source_checked_final_stock_number(
+            value, expected=expected, inputs=inputs)
     if actual != expected:
         return None
     return "ENDERGEBNIS: " + str(expected[-1])
