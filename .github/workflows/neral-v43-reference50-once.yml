@@ -10,6 +10,7 @@ on:
       - scripts/neral_v43_reference50_live.py
       - scripts/neral_v43_reference50_freeze_guard.py
       - scripts/neral_v43_reference50_raw_owner.ps1
+      - scripts/neral_v43_reference50_restore.ps1
       - scripts/neral_v41_owner.ps1
       - tests/test_neral_v43_reference50_cpu.py
       - tests/test_neral_v43_reference50_live_cpu.py
@@ -183,9 +184,33 @@ jobs:
           $env:NERAL_V43_REF50_PRIVATE=Join-Path $env:LOCALAPPDATA ('NERAL-private/v43-reference50/'+$env:GITHUB_RUN_ID)
           & .\scripts\neral_v43_reference50_raw_owner.ps1
           if($LASTEXITCODE -ne 0){throw 'Raw reference50 incomplete, no retry'}
+  restore-after-raw:
+    needs: [restore-after-neral,raw50]
+    if: ${{ always() && needs.restore-after-neral.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Independent idempotent original-owner restore, even after failed raw process
+        env:
+          NERAL_V43_REF50_APPROVED: NERAL-V43-RAW9B-NERAL10-REF50
+          NERAL_V43_REF50_MERGE_TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v43_reference50_restore.ps1
+          if($LASTEXITCODE -ne 0){throw 'V4.3 independent raw rollback failed'}
   finalize:
-    needs: raw50
-    if: ${{ needs.raw50.result == 'success' }}
+    needs: [raw50,restore-after-raw]
+    if: ${{ needs.raw50.result == 'success' && needs.restore-after-raw.result == 'success' }}
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 12
     concurrency:
