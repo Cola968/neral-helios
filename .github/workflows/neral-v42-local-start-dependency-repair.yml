@@ -1,0 +1,195 @@
+name: NERAL V4.2 original local service dependency recovery (no benchmark)
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: [.github/workflows/neral-v42-local-start-dependency-repair.yml]
+permissions:
+  contents: read
+jobs:
+  restore-original-owner:
+    if: github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL owner local missing imports only repair 20261123'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 12
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '29b29822c8005fd5605fafdd2a79747570d6e71c'
+          persist-credentials: false
+      - name: Preflight backup, exact missing modules, task, port, GPU cap and isolated dependency dir
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $backup=Join-Path $env:LOCALAPPDATA 'neral-v41-backup-45199017715'
+          $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $webdeps=Join-Path $root 'local_state/three-tier-web-deps'
+          if(-not(Test-Path -LiteralPath $backup -PathType Container) -or
+             -not(Test-Path -LiteralPath $service -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not(Test-Path -LiteralPath (Join-Path $webdeps 'waitress/__init__.py') -PathType Leaf)){
+            throw 'Pinned backup, original service or isolated Python/webdeps absent'
+          }
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State -ne 'Ready' -or @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
+            throw 'Not an idle verified original NERAL task; no changes'
+          }
+          $st=[IO.File]::ReadAllText($service)
+          if($st -notmatch '(?i)-m\s+neral_preview_server' -or
+             $st -notmatch 'NERAL_V3_AGENT_ENABLED' -or
+             $st -notmatch '--experimental-three-tier-hf' -or
+             $st -notmatch 'three-tier-web-deps'){
+            throw 'Unexpected service startup; no changes'
+          }
+          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
+            throw '9690 occupied; no changes'
+          }
+          $files=@('neral_v41_context.py','neral_verified_notes.py',
+            'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+            'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
+            'neral_three_tier_runtime.py','neral_preview_server.py',
+            'templates/neral_preview.html','static/neral-preview.js','static/neral-reference-ui.js')
+          $matched=0
+          foreach($file in $files){
+            $old=Join-Path $backup $file
+            if(Test-Path -LiteralPath $old -PathType Leaf){
+              $installed=Join-Path $root $file
+              if(-not(Test-Path -LiteralPath $installed -PathType Leaf) -or
+                 (Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash -ne
+                 (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash){
+                throw 'Original file/backup SHA mismatch; no changes'
+              }
+              $matched++
+            }
+          }
+          if($matched -ne 10){throw 'Expected exactly 10 intact original backup files'}
+          foreach($file in @('neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py')){
+            if((Test-Path -LiteralPath (Join-Path $root $file)) -or
+               (Test-Path -LiteralPath (Join-Path $backup $file)) -or
+               -not(Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE $file) -PathType Leaf)){
+              throw 'Expected missing module state changed or pinned source unavailable'
+            }
+          }
+          $v=@(& nvidia-smi.exe --query-gpu=memory.used,memory.free,memory.total --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or
+             [string]$v[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'GPU numeric preflight unavailable'
+          }
+          $used=[int]$Matches[1]
+          if($used -gt 10752){throw 'GPU envelope already exceeded'}
+          Write-Host ('NERAL_OWNER_REPAIR_PREFLIGHT_GREEN original_sha256_files='+$matched+
+            ' exactly_three_missing_modules=True gpu_used_mib='+$used)
+      - name: Restore only three absent V4.2 Python modules and isolated format package
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $webdeps=Join-Path $root 'local_state/three-tier-web-deps'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $pkg=Join-Path $webdeps 'lmformatenforcer/__init__.py'
+          if(-not(Test-Path -LiteralPath $pkg -PathType Leaf)){
+            $old=$ErrorActionPreference
+            try{
+              $ErrorActionPreference='Continue'
+              $messages=@(& $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir --quiet --target $webdeps 'lm-format-enforcer==0.11.3' 2>&1)
+              $exit=$LASTEXITCODE
+            }finally{$ErrorActionPreference=$old}
+            if($exit -ne 0){throw ('Isolated package install failed exit='+$exit)}
+          }
+          $added=@()
+          try{
+            foreach($file in @('neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py')){
+              $src=Join-Path $env:GITHUB_WORKSPACE $file
+              $dst=Join-Path $root $file
+              if(Test-Path -LiteralPath $dst){throw 'Refuse overwrite installed original'}
+              Copy-Item -LiteralPath $src -Destination $dst -ErrorAction Stop
+              $added+=,$dst
+              if((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash -ne
+                 (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash){
+                throw 'Pinned copied module SHA mismatch'
+              }
+            }
+            $probe=Join-Path $env:RUNNER_TEMP ('neral-owner-cpu-only-import-'+$env:GITHUB_RUN_ID+'.py')
+            if(Test-Path -LiteralPath $probe){throw 'CPU preflight file exists'}
+            $content=@'
+          import sys
+          from pathlib import Path
+          root,web = sys.argv[1:3]
+          sys.path[:0] = [web,root]
+          from lmformatenforcer import JsonSchemaParser
+          import neral_v42_deadline, neral_v42_telemetry, neral_v42_quality
+          import neral_preview_server, neral_three_tier_runtime
+          from neral_agent_autonomy import OllamaLocalBackend
+          from waitress import serve
+          print("NERAL_OWNER_CPU_IMPORTS_VERIFIED_NO_MODEL_LOADED")
+          '@
+            [IO.File]::WriteAllText($probe,$content,[Text.Encoding]::UTF8)
+            try{
+              $errfile=Join-Path $env:RUNNER_TEMP ('neral-import-errors-'+$env:GITHUB_RUN_ID+'.txt')
+              $out=@(& $py -B $probe $root $webdeps 2>$errfile)
+              $exit=$LASTEXITCODE
+              $global:LASTEXITCODE=0
+              if($exit -ne 0){
+                $err=([string[]](Get-Content -LiteralPath $errfile -Tail 12 -ErrorAction SilentlyContinue)) -join ' '
+                if($err -match 'No module named\s+[''"]?([\w.]+)'){throw ('CPU dependency missing: '+$Matches[1])}
+                if($err -match 'cannot import name\s+[''"]?([\w]+)'){throw ('CPU import name missing: '+$Matches[1])}
+                throw ('CPU import preflight failed exit '+$exit)
+              }
+              if(-not(@($out) -contains 'NERAL_OWNER_CPU_IMPORTS_VERIFIED_NO_MODEL_LOADED')){
+                throw 'CPU import gate did not confirm loading'
+              }
+              Write-Host 'NERAL_OWNER_CPU_IMPORTS_VERIFIED_NO_MODEL_LOADED'
+            }finally{
+              Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $errfile -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host 'NERAL_OWNER_ONLY_THREE_MISSING_MODULES_REPAIRED'
+          }catch{
+            foreach($file in $added){
+              Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+            }
+            throw
+          }
+      - name: Restart original scheduled task once and check owned HTTP200
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -ne 'Ready' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*') -or
+             @(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'Original owner identity/state changed since CPU preflight'
+          }
+          Start-ScheduledTask -TaskName $name -ErrorAction Stop
+          Write-Host 'NERAL_OWNER_ORIGINAL_SCHEDULED_TASK_STARTED_ONCE_NO_BENCHMARK'
+          $ready=$false
+          for($i=0;$i -lt 90;$i++){
+            Start-Sleep -Seconds 2
+            $code=@(& curl.exe --noproxy '*' --silent --connect-timeout 2 --max-time 5 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+            $ok=($LASTEXITCODE -eq 0 -and ($code -join '').Trim() -eq '200')
+            $global:LASTEXITCODE=0
+            if($ok){$ready=$true;break}
+          }
+          if(-not $ready){throw 'Owner original start still did not reach HTTP200'}
+          $listen=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction Stop)
+          if($listen.Count -ne 1){throw 'Unexpected listener count'}
+          $child=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$listen[0].OwningProcess) -ErrorAction Stop
+          $parent=if($child){Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$child.ParentProcessId) -ErrorAction Stop}else{$null}
+          foreach($proc in @($child,$parent)){
+            if($null -eq $proc -or [string]$proc.Name -notmatch '(?i)^pythonw?\.exe$' -or
+               [string]$proc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+               [string]$proc.CommandLine -notmatch '--experimental-three-tier-hf'){
+              throw 'HTTP listener does not belong to pinned original NERAL worker'
+            }
+          }
+          Write-Host 'NERAL_OWNER_ORIGINAL_HTTP200_RESTORED_NO_TEST_PROMPTS'
+          $global:LASTEXITCODE=0
