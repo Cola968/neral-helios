@@ -655,6 +655,42 @@ class GermanApolloYearContextCPU(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(self._candidate(text))
 
+    def test_real_article_style_planning_and_commemoration_years(self):
+        """Only an actual landing date can certify the event, not adjacent years."""
+        from neral_v42_quality import unique_read_year_source, _year_quote_supports
+        page = (
+            "Apollo 11 war die fünfte bemannte Mission und die erste mit einer Mondlandung. "
+            "Die Mission einschließlich Mondlandung am 20. Juli 1969 verlief erfolgreich. "
+            "Damit erreichte die NASA das 1961 vorgegebene Ziel.\n"
+            "Apollo 11 war die G-Mission, deren Ziel die erste bemannte Landung war.\n"
+            "Die Planungsphase für Apollo 11 begann 1965 nach der Entwicklung der Fahrzeuge.\n"
+            "1971 brachte die Münzprägeanstalt eine 1-Dollar-Münze heraus. "
+            "Zur Erinnerung an die Mondlandung von Apollo 11 trug sie das Missionsemblem.\n"
+            "In einer Fernsehserie kam ein Landeanflug vor. "
+            "Im Juli 2022 wurde die Jacke aus der Mission Apollo 11 versteigert."
+        )
+        candidate = unique_read_year_source(YEAR, [{**PAGE, "page_text": page}])
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["year"], "1969")
+        self.assertIn(candidate["quote"], page)
+        for wrong_year, context in (
+            ("1965", "Apollo 11 war die G-Mission, deren Ziel die erste bemannte Landung war. "
+                     "Die Planungsphase für Apollo 11 begann 1965."),
+            ("1971", "1971 brachte die Münzprägeanstalt eine Münze heraus. "
+                     "Zur Erinnerung an die Mondlandung von Apollo 11 trug sie das Missionsemblem."),
+            ("2022", "In einer Fernsehserie kam ein Landeanflug vor. "
+                     "Im Juli 2022 wurde die Jacke aus der Mission Apollo 11 versteigert."),
+        ):
+            with self.subTest(year=wrong_year):
+                self.assertFalse(_year_quote_supports(YEAR, context, wrong_year))
+
+    def test_two_sentence_explicit_mission_date_remains_valid(self):
+        from neral_v42_quality import unique_read_year_source
+        text = "Apollo 11 landed the first humans on the Moon.\nThe mission took place in July 1969."
+        candidate = unique_read_year_source(YEAR, [{**PAGE, "page_text": text}])
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["year"], "1969")
+
     def test_conflicting_landing_years_on_read_page_are_rejected(self):
         text = ("Apollo 11\nMondlandung: 20. Juli 1969.\n"
                 "Mondlandung: 20. Juli 1970.")
