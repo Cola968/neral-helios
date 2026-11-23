@@ -80,7 +80,7 @@ class LiveReferenceCPU(unittest.TestCase):
                             elapsed=1,total_peak_mib=8000)
                         row["source_commit"]="c0a6be607a0797908e101db460e3ac297a70f088"
                         row["model_text"]="SECRET"
-                        output.write(json.dumps(row,ensure_ascii=False,sort_keys=True)+"\\n")
+                        output.write(json.dumps(row,ensure_ascii=False,sort_keys=True)+"\n")
             summary=finish(folder)
             self.assertEqual(summary["pairs"],50)
             self.assertTrue(verify_result_seal(folder))
