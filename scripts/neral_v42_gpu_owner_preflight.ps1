@@ -137,7 +137,13 @@ try {
   if($message -match 'NERAL_GPU_PREFLIGHT_REASON:([a-z0-9_]+)'){
     $reason=$Matches[1]
   }
-  # Only categorical error code; never report PIDs, local paths or command lines.
-  [Console]::Error.WriteLine('NERAL_GPU_PREFLIGHT_REASON:'+$reason)
+  # Only an enum and safe hardware scalar, never PIDs, local paths,
+  # process names or command lines. The unavailable sentinel is -1.
+  $freeValue=-1
+  $freeRecord=Get-Variable -Name free -Scope 0 -ErrorAction SilentlyContinue
+  if($null -ne $freeRecord -and $freeRecord.Value -is [int]){
+    $freeValue=[int]$freeRecord.Value
+  }
+  [Console]::Error.WriteLine('NERAL_GPU_PREFLIGHT_REASON:'+$reason+' free_mib='+$freeValue)
   exit 21
 }
