@@ -84,6 +84,8 @@ def main():
         "source_variant": "canonical_html" if selected == ARTICLE else "wikipedia_rest_html",
         "html_bytes": size,
         "parsed_body_characters": len(full_visible),
+        "excerpt_first_lines": excerpt.splitlines()[:8],
+        "excerpt_prefix": excerpt[:1000],
         "extracted_characters": len(excerpt),
         "full_body_has_1961": bool(re.search(r"(?<!\d)1961(?!\d)", full_visible)),
         "full_body_has_1969": bool(re.search(r"(?<!\d)1969(?!\d)", full_visible)),
