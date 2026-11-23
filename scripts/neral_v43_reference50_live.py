@@ -16,7 +16,6 @@ import statistics
 import subprocess
 import time
 import gc
-import errno
 import socket
 from typing import Any
 
@@ -75,18 +74,23 @@ def make_record(case,engine,response,*,grade,reason,elapsed,
 
 
 def ensure_port_unbound():
-    """Require the NERAL socket to be truly unbound; HTTP 503 is NOT absence."""
+    """Prove the local NERAL endpoint is available by binding, not connecting.
+
+    On Windows a just-stopped server can produce timeout or unrecognized
+    WinError from connect(), even after Get-NetTCPConnection confirms no
+    listener. A bind test avoids treating connection errors as port state.
+    Unknown bind failures remain fatal. On Windows use exclusive address
+    ownership to avoid falsely accepting another socket's shared binding.
+    """
     try:
-        sock=socket.create_connection(("127.0.0.1",9690),timeout=2.0)
-    except ConnectionRefusedError:
-        return True
-    except OSError as exc:
-        if getattr(exc,"errno",None) in (errno.ECONNREFUSED,10061):
-            return True
-        raise RuntimeError("Port 9690 status unknown; raw model refused") from None
-    else:
-        sock.close()
-        raise RuntimeError("Port 9690 is occupied; raw GPU run refused")
+        with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
+            exclusive=getattr(socket,"SO_EXCLUSIVEADDRUSE",None)
+            if exclusive is not None:
+                probe.setsockopt(socket.SOL_SOCKET,exclusive,1)
+            probe.bind(("127.0.0.1",9690))
+    except OSError:
+        raise RuntimeError("Port 9690 not provably unbound; raw model refused") from None
+    return True
 
 
 def _sha256_file(path:Path)->str:
