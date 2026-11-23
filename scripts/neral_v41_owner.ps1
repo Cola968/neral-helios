@@ -195,7 +195,7 @@ function StartOwned {
 # Never mutate original dataset, 97-example note store, frozen private holdout,
 # model checkpoint or production LoRA weights.
 $files=@('neral_v41_context.py','neral_verified_notes.py',
-         'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+         'neral_evidence_agent.py','neral_page_reader.py','neral_obsidian_deep.py','neral_local_wiki.py',
          'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
          'neral_three_tier_runtime.py','neral_preview_server.py',
          'templates/neral_preview.html',
@@ -279,7 +279,7 @@ try{
   }
   $env:PYTHONPATH=$root
   $py=@('neral_v41_context.py','neral_verified_notes.py',
-        'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
+        'neral_evidence_agent.py','neral_page_reader.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
         'neral_three_tier_runtime.py','neral_preview_server.py')
   & $python -m py_compile @($py|ForEach-Object { Join-Path $root $_ })
   if($LASTEXITCODE -ne 0){throw 'Installed V4.1 Python modules failed syntax check'}
