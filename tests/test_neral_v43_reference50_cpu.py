@@ -38,14 +38,22 @@ class Reference50ContractCPU(unittest.TestCase):
     def test_aggregate_rejects_missing_or_duplicate_and_ungrounded_scores(self):
         cases=generate_cases(self.SEED)
         rows=[{"id":c["id"],"category":c["category"],"engine":"raw_qwen35_9b","grade":"pass",
+               "prompt_sha256":sha256(c["prompt"].encode()).hexdigest(),
                "latency_ms":100,"vram_total_peak_mib":8500} for c in cases]
         rows += [{"id":c["id"],"category":c["category"],"engine":"neral10_obsidian","grade":"pass",
+                  "prompt_sha256":sha256(c["prompt"].encode()).hexdigest(),
                   "latency_ms":120,"vram_total_peak_mib":8900} for c in cases]
         stats=aggregate(cases,rows)
         self.assertEqual(stats["observations"],100)
         self.assertEqual(stats["pairs"],50)
         with self.assertRaises(ValueError): aggregate(cases,rows[:-1])
         with self.assertRaises(ValueError): aggregate(cases,rows+[rows[0]])
+        altered=[dict(x) for x in rows]
+        altered[0]["prompt_sha256"]="0"*64
+        with self.assertRaises(ValueError):aggregate(cases,altered)
+        altered=[dict(x) for x in rows]
+        altered[0]["category"]="knowledge" if altered[0]["category"]!="knowledge" else "everyday"
+        with self.assertRaises(ValueError):aggregate(cases,altered)
 
     def test_reject_weak_seed(self):
         with self.assertRaises(ValueError): generate_cases("1234")
