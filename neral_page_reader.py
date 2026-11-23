@@ -552,7 +552,7 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
             })
         return rows
 
-    result = fetch_batch(selected_hits[:3])
+    result = fetch_batch(selected_hits)
     if not focused or len(result) >= 2 or tried >= 3:
         return result
 
