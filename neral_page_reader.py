@@ -10,7 +10,9 @@ from html.parser import HTMLParser
 from ipaddress import ip_address
 from urllib.parse import urljoin, urlsplit
 
-from neral_web_search import safe_result_url
+from neral_web_search import (safe_result_url, numbered_query_subject,
+                              search_topic_terms, topical_search_hit,
+                              ranked_topic_hits)
 
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
@@ -483,32 +485,101 @@ def fetch_and_extract(url, query=""):
     return None
 
 
-def read_top_pages(hits, query, *, fetch=fetch_and_extract):
-    """Return up to three unique results in rank order within one deadline."""
-    sources = {}
-    for hit in hits:
-        url = safe_result_url(hit.get("url"))
-        if url and url not in sources:
-            sources[url] = hit
-        if len(sources) == 3:
-            break
-    tasks = {url: _executor.submit(fetch, url, query) for url in sources}
-    done, pending = wait(tasks.values(), timeout=TIMEOUT)
-    for task in pending:
-        task.cancel()
-    result = []
-    for url, task in tasks.items():
-        page = task.result() if task in done else None
-        hit = sources[url]
-        result.append({"url": page["url"] if page else url,
-                       "title": str(hit.get("title", ""))[:160],
-                       "snippet": str(hit.get("snippet", ""))[:350],
-                       "page_text": (_complete_text_clip(page["text"]) or page["text"][:MAX_TEXT]) if page else "",
-                       "year_clip_code": (page.get("year_clip_code")
-                                          if page and page.get("year_clip_code") in _YEAR_CLIP_CODES
-                                          else "not_available"),
-                       "page_read": page is not None, "reachable": page is not None,
-                       "discovered": True})
+def read_top_pages(hits, query, *, fetch=fetch_and_extract,
+                   wiki_fallback=None):
+    """Read at most three selected HTTPS pages; filter ambiguous names first.
+
+    In focused numbered-name searches, metadata selects *which pages to
+    open*, but only the actual HTTPS body can establish relevance or a quote.
+    If fewer than two relevant pages survive, consult the genuine Wikipedia
+    search provider. Search snippets never enter page_text or the verifier.
+    """
+    subject = numbered_query_subject(query)
+    focused = bool(subject and search_topic_terms(query))
+    selected_hits = ranked_topic_hits(hits, query) if focused else (
+        hits if isinstance(hits, list) else [])
+    seen = set()
+    tried = 0
+
+    def fetch_batch(batch):
+        nonlocal tried
+        sources = {}
+        for hit in batch:
+            if not isinstance(hit, dict):
+                continue
+            url = safe_result_url(hit.get("url"))
+            if url and url not in seen:
+                seen.add(url)
+                sources[url] = hit
+            if len(sources) >= 3 - tried:
+                break
+        tried += len(sources)
+        tasks = {url: _executor.submit(fetch, url, query) for url in sources}
+        done, pending = wait(tasks.values(), timeout=TIMEOUT)
+        for task in pending:
+            task.cancel()
+        rows = []
+        for url, task in tasks.items():
+            try:
+                page = task.result() if task in done else None
+            except (OSError, ValueError, TypeError, RuntimeError):
+                page = None
+            hit = sources[url]
+            if focused:
+                # A themed-looking *search result* can still redirect to an
+                # unrelated page. Require actual read text to match both the
+                # complete numbered subject and an independent context signal.
+                if not page or not topical_search_hit({
+                    "title":str(page.get("text", ""))[:160],
+                    "snippet":str(page.get("text", ""))[160:1700],
+                    "url":page.get("url") or url,
+                }, query):
+                    continue
+            rows.append({
+                "url": page["url"] if page else url,
+                "title": str(hit.get("title", ""))[:160],
+                "snippet": str(hit.get("snippet", ""))[:350],
+                "page_text": (
+                    (_complete_text_clip(page["text"]) or page["text"][:MAX_TEXT])
+                    if page else ""),
+                "year_clip_code": (
+                    page.get("year_clip_code") if page and
+                    page.get("year_clip_code") in _YEAR_CLIP_CODES
+                    else "not_available"),
+                "page_read": page is not None,
+                "reachable": page is not None,
+                "discovered": True,
+            })
+        return rows
+
+    result = fetch_batch(selected_hits[:3])
+    if not focused or len(result) >= 2 or tried >= 3:
+        return result
+
+    # The existing real DE/EN Wikipedia HTTPS search is a discovery step,
+    # not a source of asserted answers. Stay within the three-page read cap.
+    # Tests may inject a deterministic fake search, never fake page evidence.
+    def wikipedia_candidates():
+        if wiki_fallback is not None:
+            return wiki_fallback(subject) if callable(wiki_fallback) else []
+        from neral_web_search import WebSearch, WebSearchError
+        engine = WebSearch()
+        found = []
+        for language in ("de", "en"):
+            try:
+                found.extend(engine.search_wikipedia(
+                    subject, language=language))
+            except (WebSearchError, OSError, ValueError):
+                continue
+            if len(ranked_topic_hits(found, query)) >= 2:
+                break
+        return found
+
+    wiki_hits = ranked_topic_hits(wikipedia_candidates(), query)
+    fresh = [hit for hit in wiki_hits
+             if safe_result_url(hit.get("url")) not in seen]
+    if fresh:
+        result.extend(fetch_batch(fresh[:3-tried]))
     return result
 
 
