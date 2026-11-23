@@ -103,6 +103,19 @@ class MainText(HTMLParser):
             line for part in "".join(parts).splitlines()
             if (line := " ".join(part.split()))))
         full = "\n".join(lines)
+        if len(full) > MAX_TEXT:
+            # A whole HTML <p> can be longer than the entire excerpt.
+            # Retain intact literal sentences so a date at its end remains
+            # eligible for selection instead of clipping the paragraph head.
+            expanded = []
+            for line in lines:
+                if len(line) > 600 and re.search(r"[.!?]\s+", line):
+                    expanded.extend(part for part in
+                                    re.split(r"(?<=[.!?])\s+", line) if part)
+                else:
+                    expanded.append(line)
+            lines = list(dict.fromkeys(expanded))
+            full = "\n".join(lines)
         if len(full) <= MAX_TEXT:
             self.year_clip_code = _bounded_year_clip_code(query, full, full)
             return full
@@ -155,8 +168,51 @@ class MainText(HTMLParser):
         ranked = sorted(range(len(lines)),
                         key=lambda i: (-priority(lines[i], i) -
                                        (20 if i in year_pairs else 0), i))
+        # Reserve a bounded amount of the excerpt for one or more *literal*
+        # event/year windows before ranking undated keyword-heavy paragraphs.
+        # The later source verifier still decides whether the window proves
+        # the requested event; extraction itself makes no historical claim.
+        dated_groups = []
+        target = re.search(r"(?i)\bapollo\s+(\d{1,3})\b", query)
+        requested_mission = ("apollo " + str(int(target.group(1)))) if target else None
+        year_pattern = r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)"
+        event_pattern = re.compile(
+            r"(?iu)\b(?:land\w*|mondland\w*|moon\s+landing|"
+            r"touchdown|founded|founded\s+in|gegründet|"
+            r"launched|gestartet|ereignis\w*)\b")
+        for i in range(len(lines)):
+            for width in (1, 2, 3):
+                indices = tuple(range(i, min(i + width, len(lines))))
+                if len(indices) != width:
+                    continue
+                joined = "\n".join(lines[j] for j in indices)
+                if len(joined) > 750 or not re.search(year_pattern, joined):
+                    continue
+                if not event_pattern.search(joined):
+                    continue
+                names = set("apollo " + str(int(x)) for x in
+                            re.findall(r"(?i)\bapollo\s+(\d{1,3})\b", joined))
+                if requested_mission:
+                    if names != {requested_mission}:
+                        continue
+                elif sum(term in joined.casefold() for term in terms) < 2:
+                    continue
+                dated_groups.append(indices)
+                break
         selected = set()
         remaining = MAX_TEXT
+        reserved = min(1200, MAX_TEXT // 3)
+        priority_order = []
+        for indices in dated_groups:
+            missing = [j for j in indices if j not in selected]
+            space = sum(len(lines[j]) + 1 for j in missing)
+            if space <= remaining and space <= reserved:
+                selected.update(missing)
+                priority_order.extend(missing)
+                remaining -= space
+                reserved -= space
+            if reserved < 80:
+                break
         # A query's named Apollo mission + landing + year in one literal line
         # is more useful than dozens of high-keyword, undated table-of-contents
         # lines. Promote the real source span without creating or rewriting it.
@@ -174,10 +230,25 @@ class MainText(HTMLParser):
                         len(line) <= 600):
                     preferred.append(i)
         for i in preferred[:3]:
+            if i in selected:
+                continue
             space = len(lines[i]) + 1
             if space <= remaining:
                 selected.add(i)
+                priority_order.append(i)
                 remaining -= space
+        # Preserve a literal year-bearing line when no event/year window
+        # was found. This is not a source citation: the downstream verifier
+        # will reject unrelated years and non-contiguous events.
+        if (not priority_order and re.search(r"(?i)\b(?:year|jahr)\b", query)):
+            for i, line in enumerate(lines):
+                if len(line) <= 600 and re.search(year_pattern, line):
+                    space = len(line) + 1
+                    if space <= remaining:
+                        selected.add(i)
+                        priority_order.append(i)
+                        remaining -= space
+                    break
         for i in ranked:
             indices = year_pairs.get(i, (i,))
             missing = [j for j in indices if j not in selected]
@@ -188,12 +259,12 @@ class MainText(HTMLParser):
             if remaining < 80:
                 break
         # A single long relevant paragraph still provides an excerpt.
-        if not selected or (ranked and len(lines[ranked[0]]) >= MAX_TEXT):
+        if not selected:
             excerpt = _complete_text_clip(lines[ranked[0]], MAX_TEXT)
         else:
             # Place quoted, dated source lines first, then retain source order
             # for remaining context. All characters still come from the page.
-            first = [i for i in preferred[:3] if i in selected]
+            first = list(dict.fromkeys(i for i in priority_order if i in selected))
             others = [i for i in sorted(selected) if i not in first]
             excerpt = "\n".join(lines[i] for i in first + others)
         self.year_clip_code = _bounded_year_clip_code(query, full, excerpt)
