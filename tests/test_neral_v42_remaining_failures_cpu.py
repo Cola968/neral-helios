@@ -661,5 +661,127 @@ class GermanApolloYearContextCPU(unittest.TestCase):
         self.assertIsNone(self._candidate(text))
 
 
+
+class SearchTopicAndWikipediaFallbackCPU(unittest.TestCase):
+    """Synthetic public Apollo search; no network, no model, no Blind200 data."""
+
+    APOLLO_QUERY = "Apollo 11 erste bemannte Mondlandung Jahr NASA"
+    BAD_HITS = [
+        {"title": "Dein Optiker & Akustiker | Apollo",
+         "url": "https://www.apollo.de/", "snippet": "Brillen und Kontaktlinsen"},
+        {"title": "The AI GTM System | Apollo",
+         "url": "https://www.apollo.io/", "snippet": "Sales intelligence"},
+        {"title": "Apollo News",
+         "url": "https://apollo-news.net/", "snippet": "Aktuelle Nachrichten 2026"},
+    ]
+    GOOD_HIT = {"title": "Apollo 11 – NASA Mondlandung",
+                "url": "https://de.wikipedia.org/wiki/Apollo_11",
+                "snippet": "Die NASA-Mission Apollo 11 brachte Menschen auf den Mond."}
+    GOOD_TEXT = "Apollo 11\nDie Mission landete auf dem Mond am 20. Juli 1969."
+
+    def test_query_rewriter_retains_numbered_entity_and_final_anchors(self):
+        from neral_web_search import rewrite_search_query
+        query = rewrite_search_query(self.APOLLO_QUERY)
+        self.assertIn("Apollo 11", query)
+        for word in ("Mondlandung", "Jahr", "NASA"):
+            self.assertIn(word, query)
+        self.assertLessEqual(len(query.split()), 8)
+        self.assertNotIn("1969", query)
+
+    def test_mixed_bing_aliases_do_not_consume_three_read_slots(self):
+        from neral_page_reader import read_top_pages
+        from neral_v42_quality import unique_read_year_source
+        opened = []
+        def fake_fetch(url, query):
+            opened.append(url)
+            return {"url": url, "text": self.GOOD_TEXT,
+                    "year_clip_code": "year_preserved_in_extract"}
+        rows = read_top_pages(self.BAD_HITS + [self.GOOD_HIT], self.APOLLO_QUERY,
+                              fetch=fake_fetch, wiki_fallback=lambda q: [])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(opened, [self.GOOD_HIT["url"]])
+        self.assertIsNotNone(unique_read_year_source(YEAR, rows))
+
+    def test_only_aliases_trigger_wikipedia_fallback_and_source_quote(self):
+        from neral_page_reader import read_top_pages
+        from neral_v42_quality import unique_read_year_source, year_source_pipeline_code
+        opened = []
+        fallback_requests = []
+        def fake_fetch(url, query):
+            opened.append(url)
+            return {"url": url, "text": self.GOOD_TEXT,
+                    "year_clip_code": "year_preserved_in_extract"}
+        def wikipedia(query):
+            fallback_requests.append(query)
+            return [self.GOOD_HIT]
+        pages = read_top_pages(self.BAD_HITS, self.APOLLO_QUERY,
+                               fetch=fake_fetch, wiki_fallback=wikipedia)
+        self.assertEqual(opened, [self.GOOD_HIT["url"]])
+        self.assertEqual(len(fallback_requests), 1)
+        self.assertEqual(pages[0]["url"], self.GOOD_HIT["url"])
+        candidate = unique_read_year_source(YEAR, pages)
+        self.assertIsNotNone(candidate)
+        self.assertIn(candidate["quote"], pages[0]["page_text"])
+        self.assertEqual(year_source_pipeline_code(
+            YEAR, pages, {"web1": pages[0]["page_text"]}),
+            "candidate_available")
+
+    def test_relevant_metadata_but_off_topic_page_uses_wikipedia(self):
+        from neral_page_reader import read_top_pages
+        false_hit = {"title": "Apollo 11 Moon landing", "url": "https://example.org/page",
+                     "snippet": "The Apollo 11 mission landed astronauts on the Moon"}
+        opened = []
+        def fake_fetch(url, query):
+            opened.append(url)
+            text = ("A new public product unrelated to space exploration."
+                    if url == false_hit["url"] else self.GOOD_TEXT)
+            return {"url": url, "text": text,
+                    "year_clip_code": "year_preserved_in_extract"}
+        rows = read_top_pages([false_hit], self.APOLLO_QUERY, fetch=fake_fetch,
+                              wiki_fallback=lambda q: [self.GOOD_HIT])
+        self.assertIn(self.GOOD_HIT["url"], opened)
+        self.assertTrue(any("1969" in p["page_text"] for p in rows if p["page_read"]))
+
+    def test_web_search_calls_existing_wikipedia_fallback_with_bad_bing_hits(self):
+        from neral_web_search import WebSearch
+        class FakeResponse:
+            headers = {"Content-Type": "text/html"}
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, n): return b"<html>no hits</html>"
+        class FakeOpener:
+            def open(self, req, timeout):
+                return FakeResponse()
+        lookup = []
+        def wiki(self_, query, on_provider=None, language="de"):
+            lookup.append((query, language))
+            return ([self.GOOD_HIT] if language == "de" else [
+                {"title": "Apollo 11 - Moon landing NASA",
+                 "url": "https://en.wikipedia.org/wiki/Apollo_11",
+                 "snippet": "NASA mission Apollo 11 reached the Moon"}])
+        with patch("neral_web_search.parse_search_results", return_value=[]), \
+             patch("neral_web_search.parse_bing_rss", return_value=self.BAD_HITS), \
+             patch.object(WebSearch, "search_wikipedia", new=wiki):
+            results = WebSearch(opener=FakeOpener()).search(self.APOLLO_QUERY)
+        self.assertTrue(lookup)
+        self.assertIn("Apollo 11", lookup[0][0])
+        self.assertTrue(any("wikipedia.org" in hit["url"] for hit in results["results"][:3]))
+        self.assertFalse(any(hit["url"].startswith("https://www.apollo.")
+                             for hit in results["results"][:3]))
+
+    def test_no_sneaking_in_wrong_mission_or_year(self):
+        from neral_page_reader import read_top_pages
+        from neral_v42_quality import unique_read_year_source
+        wrong = {"title": "Apollo 12 lunar mission",
+                 "url": "https://en.wikipedia.org/wiki/Apollo_12",
+                 "snippet": "NASA Apollo 12 landed on the Moon"}
+        def fake_fetch(url, query):
+            return {"url": url, "text": "Apollo 12 landed on the Moon in 1969.",
+                    "year_clip_code": "year_preserved_in_extract"}
+        rows = read_top_pages(self.BAD_HITS+[wrong], self.APOLLO_QUERY,
+                              fetch=fake_fetch, wiki_fallback=lambda q: [])
+        self.assertIsNone(unique_read_year_source(YEAR, rows))
+
+
 if __name__=="__main__":
     unittest.main()
