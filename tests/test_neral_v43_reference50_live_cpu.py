@@ -67,7 +67,7 @@ class LiveReferenceCPU(unittest.TestCase):
                 ensure_port_unbound()
 
     def test_windows_exclusive_address_use_is_set_if_supported(self):
-        with patch("socket.SO_EXCLUSIVEADDRUSE",value=0xFFFFFFFB,create=True), \
+        with patch("socket.SO_EXCLUSIVEADDRUSE",0xFFFFFFFB,create=True), \
              patch("socket.socket") as constructor:
             probe=constructor.return_value.__enter__.return_value
             self.assertTrue(ensure_port_unbound())
