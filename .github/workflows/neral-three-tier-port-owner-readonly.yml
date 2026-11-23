@@ -125,3 +125,38 @@ jobs:
             ' error_classes='+((@($codes|Select-Object -Unique)) -join ',')+
             ' gpu_used_mib='+$used+' gpu_free_mib='+$free)
           $global:LASTEXITCODE=0
+
+
+      - name: Read-only pinned launch script and bounded startup log classifier
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $text=if(Test-Path -LiteralPath $service -PathType Leaf){[IO.File]::ReadAllText($service)}else{''}
+          $candidates=@()
+          foreach($dir in @($root,(Join-Path $root 'local_state'),(Join-Path $root 'logs'))){
+            if(Test-Path -LiteralPath $dir -PathType Container){
+              $candidates+=@(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+                Where-Object {$_.Name -match '(?i)(error|stderr|startup|service|three-tier|preview).*\.log$' } |
+                Select-Object -First 10)
+            }
+          }
+          $candidates=@($candidates | Sort-Object FullName -Unique)
+          $err=@()
+          foreach($entry in $candidates){
+            $raw=([string[]](Get-Content -LiteralPath $entry.FullName -Tail 160 -ErrorAction SilentlyContinue)) -join ' '
+            if($raw -match '(?i)(?:out of memory|cuda.*memory|insufficient free gpu)'){$err+='gpu_memory'}
+            if($raw -match '(?i)(?:module.?not.?found|cannot import|importerror)'){$err+='import_failure'}
+            if($raw -match '(?i)(?:adapter.*mismatch|snapshot.*missing|checkpoint.*missing|model.*not.*found)'){$err+='model_or_adapter'}
+            if($raw -match '(?i)(?:waitress.*missing|no module named waitress)'){$err+='waitress'}
+            if($raw -match '(?i)(?:traceback|exception|error:)'){$err+='python_exception'}
+            if($raw -match '(?i)(?:port.*9690.*used|address already in use)'){$err+='port_conflict'}
+            if($raw -match '(?i)(?:No module named|FileNotFoundError|PermissionError)'){$err+='missing_file_or_permission'}
+          }
+          Write-Host ('NERAL_DIAG3_SERVICE_START_CLASS service_file_present='+($text.Length -gt 0)+
+            ' invokes_python='+($text -match '(?i)(?:python|neral_preview_server)')+
+            ' has_log_redirect='+($text -match '(?i)(?:RedirectStandardError|2>)')+
+            ' selected_logs='+$candidates.Count+
+            ' sanitized_errors='+((@($err|Select-Object -Unique)) -join ','))
+          Write-Host 'NERAL_DIAG3_READONLY_NO_START_ATTEMPT'
+          $global:LASTEXITCODE=0
