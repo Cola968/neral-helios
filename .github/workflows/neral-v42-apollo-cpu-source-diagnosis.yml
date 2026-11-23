@@ -1,0 +1,49 @@
+name: NERAL Apollo 11 CPU-only read-page / Kiwix forensic
+on:
+  push:
+    branches: [diag/v42-apollo-source-only-20261123]
+    paths:
+      - .github/workflows/neral-v42-apollo-cpu-source-diagnosis.yml
+permissions:
+  contents: read
+concurrency:
+  group: neral-v32-exclusive-local-9690
+  cancel-in-progress: false
+jobs:
+  inspect-only:
+    if: github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL Apollo CPU source-only read diagnosis once 20261123'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout isolated diagnostic script only
+        uses: actions/checkout@v4
+        with:
+          ref: diag/v42-apollo-source-only-20261123
+          path: diag
+          persist-credentials: false
+      - name: Checkout immutable NERAL production commit
+        uses: actions/checkout@v4
+        with:
+          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          path: pinned
+          persist-credentials: false
+      - name: Read exact public Apollo Web V4 search and Kiwix without inference
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_PINNED_SOURCE=Join-Path $env:GITHUB_WORKSPACE 'pinned'
+          $env:CUDA_VISIBLE_DEVICES='-1'
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:HF_HUB_OFFLINE='1'
+          $python='D:/neral-qlora/venv/Scripts/python.exe'
+          $probe=Join-Path $env:GITHUB_WORKSPACE 'diag/scripts/neral_v42_apollo_source_only_diagnostic.py'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $probe -PathType Leaf) -or
+             -not(Test-Path -LiteralPath (Join-Path $env:NERAL_PINNED_SOURCE 'neral_v42_quality.py') -PathType Leaf)){
+            throw 'Pinned source or CPU probe unavailable'
+          }
+          & $python -B $probe
+          if($LASTEXITCODE -ne 0){throw 'Public CPU source diagnosis failed'}
+          Write-Host 'NERAL_APOLLO_DIAG_NO_GPU_NO_SERVICE_CHANGE_NO_BLIND200'
