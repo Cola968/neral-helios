@@ -1,0 +1,102 @@
+name: NERAL original owner recovery after aborted approved diag3
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: [.github/workflows/neral-diag3-original-owner-recovery.yml]
+permissions:
+  contents: read
+jobs:
+  restore-original:
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'NERAL owner restore original service after unsuccessful 3+3 20261123'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 8
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify prior owner files, then start only original scheduled task once
+        run: |
+          $ErrorActionPreference='Stop'
+          $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $backup=Join-Path $env:LOCALAPPDATA 'neral-v41-backup-45199017715'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          if(-not(Test-Path -LiteralPath $backup -PathType Container) -or
+             -not(Test-Path -LiteralPath $service -PathType Leaf)){
+            throw 'Original owner or same-run backup not present; no restart'
+          }
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*') -or
+             [string]$task.State -ne 'Ready'){
+            throw 'Expected original scheduled task identity/state mismatch; no restart'
+          }
+          $startup=[IO.File]::ReadAllText($service)
+          if($startup -notmatch 'NERAL_V3_AGENT_ENABLED' -or
+             $startup -notmatch '(?i)-m\s+neral_preview_server' -or
+             $startup -notmatch '--experimental-three-tier-hf'){
+            throw 'Unexpected original scheduled task content; no restart'
+          }
+          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
+            throw 'Port 9690 already has a listener: preserve that process'
+          }
+          $files=@('neral_v41_context.py','neral_verified_notes.py',
+            'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+            'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
+            'neral_three_tier_runtime.py','neral_preview_server.py',
+            'templates/neral_preview.html','static/neral-preview.js','static/neral-reference-ui.js')
+          $count=0
+          foreach($file in $files){
+            $original=Join-Path $backup $file
+            if(Test-Path -LiteralPath $original -PathType Leaf){
+              $installed=Join-Path $root $file
+              if(-not(Test-Path -LiteralPath $installed -PathType Leaf)){
+                throw 'Installed original file missing; no restart'
+              }
+              if((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash -ne
+                 (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash){
+                throw 'Original file modified since backup; no restart'
+              }
+              $count++
+            }
+          }
+          if($count -lt 10){throw 'Backup incomplete; no restart'}
+          $gpu=@(& nvidia-smi.exe --query-gpu=memory.used,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or
+             [string]$gpu[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'GPU numeric preflight unavailable; no restart'
+          }
+          $used=[int]$Matches[1]
+          if($used -gt 10752){throw 'VRAM hard cap exceeded; no restart'}
+          Write-Host ('NERAL_DIAG3_ORIGINAL_FILES_SHA256_MATCH='+$count+' GPU_BASELINE_MIB='+$used)
+          Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          Write-Host 'NERAL_DIAG3_ORIGINAL_SCHEDULED_TASK_STARTED_ONCE'
+          $ready=$false
+          for($i=0;$i -lt 90;$i++){
+            Start-Sleep -Seconds 2
+            $code=(& curl.exe --noproxy '*' --silent --connect-timeout 2 --max-time 5 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join ''
+            $success=($LASTEXITCODE -eq 0 -and $code.Trim() -eq '200')
+            $global:LASTEXITCODE=0
+            if($success){$ready=$true;break}
+          }
+          if(-not $ready){throw 'Original scheduled task started once but HTTP200 did not recover'}
+          $listeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction Stop)
+          if($listeners.Count -ne 1){throw 'Recovered endpoint has unexpected listener identity'}
+          $proc=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$listeners[0].OwningProcess) -ErrorAction Stop
+          $parent=if($null -ne $proc){Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$proc.ParentProcessId) -ErrorAction Stop}else{$null}
+          foreach($p in @($proc,$parent)){
+            if($null -eq $p -or [string]$p.Name -notmatch '(?i)^pythonw?\.exe$' -or
+               [string]$p.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+               [string]$p.CommandLine -notmatch '--experimental-three-tier-hf' -or
+               [string]$p.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*'){
+              throw 'Recovered listener not pinned original NERAL; no success marker'
+            }
+          }
+          Write-Host 'NERAL_DIAG3_ORIGINAL_OWNER_RESTORED_HTTP200'
+          $global:LASTEXITCODE=0
