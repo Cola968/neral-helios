@@ -1,0 +1,78 @@
+name: NERAL V4.2 recovered original owner persistence and VRAM read-only check
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: [.github/workflows/neral-v42-owner-postrecover-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  verify-original-owner:
+    if: github.event_name == 'push' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL owner post-recovery read-only HTTP VRAM confirmation 20261123'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Check existing service port, task, backup hashes and driver VRAM only
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $backup=Join-Path $env:LOCALAPPDATA 'neral-v41-backup-45199017715'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+          $old=@('neral_v41_context.py','neral_verified_notes.py',
+            'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+            'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
+            'neral_three_tier_runtime.py','neral_preview_server.py',
+            'templates/neral_preview.html','static/neral-preview.js','static/neral-reference-ui.js')
+          $same=0
+          foreach($file in $old){
+            $a=Join-Path $backup $file;$b=Join-Path $root $file
+            if(Test-Path -LiteralPath $a -PathType Leaf){
+              if(-not(Test-Path -LiteralPath $b -PathType Leaf) -or
+                 (Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash -ne
+                 (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash){
+                throw 'Existing original file changed'
+              }
+              $same++
+            }
+          }
+          if($same -ne 10){throw 'Original backup mismatch'}
+          $new=@('neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py')
+          foreach($file in $new){
+            if(-not(Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf)){
+              throw 'Recovered dependency missing'
+            }
+          }
+          $v=@(& nvidia-smi.exe --query-gpu=memory.used,memory.free,memory.total --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or
+             [string]$v[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'Driver telemetry unavailable'
+          }
+          $used=[int]$Matches[1];$free=[int]$Matches[2]
+          if($used -gt 10752){throw 'Driver-wide VRAM exceeds hard envelope'}
+          $listen=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction Stop)
+          if($listen.Count -ne 1){throw 'Missing or duplicate NERAL listener'}
+          $child=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$listen[0].OwningProcess) -ErrorAction Stop
+          $parent=if($child){Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$child.ParentProcessId) -ErrorAction Stop}else{$null}
+          foreach($proc in @($child,$parent)){
+            if($null -eq $proc -or [string]$proc.Name -notmatch '(?i)^pythonw?\.exe$' -or
+               [string]$proc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+               [string]$proc.CommandLine -notmatch '--experimental-three-tier-hf'){
+              throw 'Listener identity mismatch'
+            }
+          }
+          $code=@(& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 7 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null)
+          if($LASTEXITCODE -ne 0 -or ($code -join '').Trim() -ne '200'){
+            throw 'Original owner did not respond HTTP 200'
+          }
+          Write-Host ('NERAL_OWNER_POSTRECOVERY_METRICS task_state='+[string]$task.State+
+            ' last_result='+[int]$info.LastTaskResult+
+            ' old_files_hash_match='+$same+
+            ' recovered_modules='+$new.Count+
+            ' gpu_used_mib='+$used+' gpu_free_mib='+$free+
+            ' http_code=200')
+          Write-Host 'NERAL_OWNER_POSTRECOVERY_HTTP200_ALIVE_GPU_WITHIN_CAP'
+          $global:LASTEXITCODE=0
