@@ -2,6 +2,7 @@ name: NERAL V4.2 single approved 3+3 GPU telemetry with rollback
 # Exact main commit message: title only, no body, before one authorized GPU dispatch.
 # One-time owner-approved source-pinned run: ALL jobs checkout V4.2 baseline 29b29822c8005fd5605fafdd2a79747570d6e71c.
 # This workflow-only trigger commit must never alter the six measured source probes.
+# 2026-11-23 second authorized single 3+3 after owner import repair: exact source baseline 29b29822c8005fd5605fafdd2a79747570d6e71c.
 on:
   pull_request:
     paths:
