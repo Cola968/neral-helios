@@ -84,24 +84,82 @@ def _explicit_two_stage_stock_steps(prompt):
 
 
 def _source_consistent_stock_stdout(stdout, *, expected=None, inputs=None):
-    """Only ordered source-consistent numeric stdout; no free-text guesses."""
+    """Accept only tightly bounded, arithmetic-checked stdout grammars.
+
+    Every observed numeric operand must agree with the independent extraction
+    from the current user question. No free-form final-number guessing.
+    """
     if type(stdout) is not str or not 1 <= len(stdout) <= 240:
         return None
-    rows = stdout.strip().splitlines()
+    value = stdout.strip()
+
+    # One complete equation is a valid *single* result, but only if all
+    # three operands exactly match the source and the calculation is true.
+    if expected is not None and inputs is not None:
+        equation = re.fullmatch(
+            r"\s*(\d{1,18})\s*[*×x]\s*(\d{1,18})\s*-\s*"
+            r"(\d{1,18})\s*=\s*(\d{1,18})\s*", value)
+        if equation is not None:
+            a, b, removed, last = (int(x) for x in equation.groups())
+            return (expected if (a, b, removed) == inputs and
+                    a * b - removed == last == expected[-1] else None)
+
+        # Realistic explanation, still a closed grammar with exactly the
+        # subtotal, source removal and final value. No arbitrary commentary.
+        prose = re.fullmatch(
+            r"(?iu)Die\s+Gesamtlieferung\s+beträgt\s+(\d{1,18})"
+            r"\s+Bauteile?\.\s+Nach\s+Abgabe\s+von\s+(\d{1,18})"
+            r"\s+Bauteilen?\s+bleiben\s+(\d{1,18})"
+            r"\s+Bauteile?\s+übrig\.?", value)
+        if prose is not None:
+            subtotal, removed, last = (int(x) for x in prose.groups())
+            return (expected if (subtotal, last) == expected and
+                    removed == inputs[2] else None)
+
+    rows = value.splitlines()
     if len(rows) == 1:
         if rows[0].count(";") == 1:
             rows = rows[0].split(";")
         elif rows[0].count(" / ") == 1:
             rows = rows[0].split(" / ")
+        else:
+            # A comma separates two labelled fields, never a decimal or an
+            # unconstrained third result. Both labels are parsed again below.
+            rows = re.split(
+                r",\s+(?=(?:Ergebnis|Restmenge|Restbestand|Rest|"
+                r"Verbleibend|Uebrig|Übrig|Endmenge)\s*[:=])",
+                rows[0], maxsplit=1, flags=re.I)
+
     final_marker = None
     if len(rows) == 3:
-        final = re.fullmatch(r"(?i)\s*ENDERGEBNIS\s*:\s*([-+]?\d{1,18})\s*", rows[2])
+        final = re.fullmatch(
+            r"(?i)\s*ENDERGEBNIS\s*:\s*([-+]?\d{1,18})\s*", rows[2])
         if final is None:
             return None
         final_marker = int(final.group(1))
         rows = rows[:2]
     if len(rows) != 2:
         return None
+
+    if expected is not None and inputs is not None:
+        explanation = re.fullmatch(
+            r"(?iu)\s*Nach\s+Abgabe\s+von\s+(\d{1,18})"
+            r"(?:\s+Bauteilen?)?\s+bleiben\s+(\d{1,18})"
+            r"(?:\s+Bauteile?)?\s+übrig\.?\s*", rows[1])
+        if explanation is not None:
+            first = re.fullmatch(
+                r"(?iu)\s*(?:Gesamt|Gesamtlieferung|Gesamtmenge|"
+                r"Gesamtzahl|Lieferung)\s*[:=]\s*(\d{1,18})"
+                r"(?:\s+Bauteile?)?\s*", rows[0])
+            if first is None:
+                return None
+            removed, last = (int(x) for x in explanation.groups())
+            subtotal = int(first.group(1))
+            if ((subtotal, last) != expected or removed != inputs[2] or
+                    final_marker is not None and final_marker != last):
+                return None
+            return expected
+
     units = r"(?:\s+(?:Bauteile?|Teile?|St(?:ü|ue)ck))?"
     prefixes = (
         r"(?:Gesamt|Gesamtlieferung|Gesamtmenge|Gesamtzahl|Lieferung|"
@@ -117,7 +175,6 @@ def _source_consistent_stock_stdout(stdout, *, expected=None, inputs=None):
             break
         values.append(int(matched.group(1)))
     if not values:
-        # Require the THREE exact input quantities, not merely plausible totals.
         if expected is None or inputs is None:
             return None
         first = re.fullmatch(r"\s*(\d+)\s*[*×x]\s*(\d+)\s*=\s*(\d+)\s*", rows[0])
@@ -127,12 +184,14 @@ def _source_consistent_stock_stdout(stdout, *, expected=None, inputs=None):
         a, b, subtotal = (int(x) for x in first.groups())
         prev, removed, remainder = (int(x) for x in second.groups())
         if ((a, b, removed) != inputs or prev != subtotal or
-                (subtotal, remainder) != expected):
+                (subtotal, remainder) != expected or a*b != subtotal or
+                subtotal-removed != remainder):
             return None
         values = [subtotal, remainder]
     if final_marker is not None and final_marker != values[-1]:
         return None
     return tuple(values)
+
 
 
 def exact_executed_numeric_tail(stdout, *, succeeded, prompt):
