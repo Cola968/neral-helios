@@ -1,0 +1,31 @@
+name: NERAL V4.3 original 50 read-only recovery metadata audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/neral-v43-reference50-readonly-owner-audit.yml
+permissions:
+  contents: read
+jobs:
+  owner-readonly-audit:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event.head_commit.message == 'fix(v43): scored HTTP failures and one-time original baseline audit' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 12
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read-only original 50 metadata validation; no model load and no private data upload
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase recovery-preflight --private-dir $folder
+          if($LASTEXITCODE -ne 0){throw 'Private original50 metadata audit failed; no GPU may start'}
+          Write-Host 'NERAL_V43_REF50_READONLY_ORIGINAL50_PRECHECK_PASS_SHA256_LOCKED_NO_GPU'

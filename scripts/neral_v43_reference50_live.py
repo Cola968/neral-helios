@@ -152,13 +152,22 @@ def verify_recovery_preflight(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256)
         raise ValueError("Original NERAL50 not complete and unique")
     for row in rows:
         c=source.get(row.get("id"))
+        http_status=row.get("http_status")
+        # Original neral() counts a transport/HTTP error as an immutable
+        # scored FAIL, not an incomplete experiment. Reject contradictions.
+        valid_http=(type(http_status) is int and (
+            (http_status==200 and row.get("reason")!="http_failure")
+            or (http_status!=409
+                and (http_status==0 or 400<=http_status<=599)
+                and row.get("grade")=="fail"
+                and row.get("reason")=="http_failure")))
         if (c is None
                 or row.get("engine")!="neral10_obsidian"
                 or row.get("source_commit")!=FROZEN
                 or row.get("category")!=c["category"]
                 or row.get("prompt_sha256")!=sha256(c["prompt"].encode("utf-8")).hexdigest()
                 or row.get("grade") not in ("pass","fail","ungraded")
-                or row.get("http_status")!=200
+                or not valid_http
                 or row.get("benchmark_isolated") is not True
                 or type(row.get("latency_ms")) is not int
                 or not isinstance(row.get("model_text"),str)):
