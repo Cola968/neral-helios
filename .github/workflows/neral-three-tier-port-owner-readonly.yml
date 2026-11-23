@@ -54,3 +54,38 @@ jobs:
           }
           Write-Host ('NERAL_PR558_PORT_OWNER_SAFE_FLAGS '+($out|ConvertTo-Json -Compress -Depth 5))
           Write-Host 'NERAL_PR558_READONLY_NO_PROCESS_TOUCHED'
+
+
+      - name: Read-only post-failure owner HTTP and original-backup integrity flags
+        run: |
+          $ErrorActionPreference='Stop'
+          $backup=Join-Path $env:LOCALAPPDATA 'neral-v41-backup-45199017715'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $files=@('neral_v41_context.py','neral_verified_notes.py',
+            'neral_evidence_agent.py','neral_obsidian_deep.py','neral_local_wiki.py',
+            'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
+            'neral_three_tier_runtime.py','neral_preview_server.py',
+            'templates/neral_preview.html','static/neral-preview.js','static/neral-reference-ui.js')
+          $backupPresent=Test-Path -LiteralPath $backup -PathType Container
+          $checked=0
+          $mismatches=0
+          if($backupPresent){
+            foreach($path in $files){
+              $src=Join-Path $backup $path
+              $dst=Join-Path $root $path
+              if(Test-Path -LiteralPath $src -PathType Leaf){
+                $checked++
+                if(-not(Test-Path -LiteralPath $dst -PathType Leaf)){
+                  $mismatches++
+                }elseif((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash -ne
+                         (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash){
+                  $mismatches++
+                }
+              }
+            }
+          }
+          $http=(& curl.exe --noproxy '*' --silent --connect-timeout 2 --max-time 5 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/' 2>$null) -join ''
+          Write-Host ('NERAL_DIAG3_READONLY_POSTFAIL_FLAGS backup_present='+$backupPresent+
+            ' compared_files='+$checked+' mismatches='+$mismatches+
+            ' http200='+($http.Trim() -eq '200'))
+          Write-Host 'NERAL_DIAG3_READONLY_NO_FILE_OR_PROCESS_MUTATION'
