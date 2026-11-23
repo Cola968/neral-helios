@@ -535,6 +535,100 @@ _QUERY_STOP = frozenset((
 ))
 
 
+# The same bounded, metadata-only relevance policy is shared by the search
+# stage and the actual page reader. Neither title nor snippet is evidence.
+_NUMBERED_SUBJECT = re.compile(
+    r"(?iu)\b([^\W\d_][\w.-]{1,35})\s+(\d{1,4})\b"
+)
+_DOMAIN_SYNONYMS = {
+    # Small language-level synonym groups, not answers or known benchmark data.
+    "mondlandung": ("moon", "lunar", "moonlanding", "landing", "landed", "mond"),
+    "moon": ("mond", "lunar", "moonlanding", "mondlandung"),
+    "raumfahrt": ("spaceflight", "spacecraft", "space mission", "space"),
+    "flughafen": ("airport", "airfield", "aeroport"),
+    "airport": ("flughafen", "aeroport"),
+    "jahr": ("year", "date"),
+    "year": ("jahr", "date"),
+    "bemannte": ("crewed", "manned", "human", "humans", "astronauts"),
+    "erste": ("first", "initial"),
+}
+
+
+def numbered_query_subject(query):
+    """Return a literal name+number from the user's query, never a result."""
+    if not isinstance(query, str):
+        return None
+    match = _NUMBERED_SUBJECT.search(query)
+    return " ".join(match.groups()) if match else None
+
+
+def search_topic_terms(query):
+    """Distinct user-supplied context terms excluding name, number and stops."""
+    subject = numbered_query_subject(query)
+    if not subject:
+        return ()
+    rest = re.sub(re.escape(subject), " ", query, flags=re.I)
+    return tuple(dict.fromkeys(
+        token.casefold() for token in re.findall(r"(?u)[^\W_]+", rest)
+        if len(token) >= 3 and token.casefold() not in _QUERY_STOP
+        and token.casefold() not in {"erste", "first", "jahr", "year"}
+    ))
+
+
+def topical_search_hit(hit, query):
+    """Conservative two-signal metadata relevance for numbered subjects.
+
+    A full numbered subject is mandatory. One independent source-topic
+    signal must match in title, snippet or decoded path. Exact Wikipedia
+    article path for that subject is an acceptable *read candidate*, never
+    accepted as a factual citation without page text.
+    """
+    if not isinstance(hit, dict):
+        return False
+    subject = numbered_query_subject(query)
+    terms = search_topic_terms(query)
+    if not subject or not terms:
+        return True  # Avoid changing generic or single-subject search behavior.
+    url = safe_result_url(hit.get("url"))
+    if not url:
+        return False
+    from urllib.parse import unquote
+    parsed = urlsplit(url)
+    path = unquote(parsed.path).replace("_", " ")
+    subject_pattern = re.compile(
+        r"(?iu)(?<!\w)" + re.escape(subject).replace(r"\ ", r"[\s_-]+") + r"(?!\w)"
+    )
+    plain = " ".join((str(hit.get("title") or "")[:200],
+                      str(hit.get("snippet") or "")[:420], path[:250])).casefold()
+    if not subject_pattern.search(plain):
+        return False
+    words = set(re.findall(r"(?u)[^\W_]+", plain))
+    for token in terms:
+        synonyms = (token,) + _DOMAIN_SYNONYMS.get(token, ())
+        if any((variant.casefold() in words or
+                (len(variant) >= 5 and variant.casefold() in plain))
+               for variant in synonyms):
+            return True
+    host = (parsed.hostname or "").casefold()
+    # The canonical subject article is an appropriate *candidate* to read.
+    if host in ("de.wikipedia.org", "en.wikipedia.org"):
+        path_subject = re.sub(r"[_\s-]+", " ", path.rsplit("/", 1)[-1]).strip()
+        return path_subject.casefold() == subject.casefold()
+    return False
+
+
+def ranked_topic_hits(hits, query):
+    """Filter only ambiguous numbered subjects; never invent a source hit."""
+    if not isinstance(hits, list):
+        return []
+    subject = numbered_query_subject(query)
+    terms = search_topic_terms(query)
+    if not subject or not terms:
+        return [hit for hit in hits[:MAX_RESULTS] if isinstance(hit, dict)]
+    return [hit for hit in hits[:MAX_RESULTS]
+            if topical_search_hit(hit, query)]
+
+
 def rewrite_search_query(query: str) -> str:
     """Compress explicit search questions before any external provider request.
 
@@ -576,7 +670,7 @@ def rewrite_search_query(query: str) -> str:
             len(w) >= 2 and w.casefold() not in _QUERY_STOP
         ]
         if keywords:
-            q = " ".join(keywords[:5])
+            q = " ".join(keywords[:8])
     if fresh and not re.search(r"\b(?:aktuell|2026|news)\b", q, re.I):
         q += " aktuell"
     q = " ".join(q.split())
@@ -627,7 +721,7 @@ class WebSearch:
         except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
-    def search_wikipedia(self, query: str, on_provider=None) -> list[dict[str, str]]:
+    def search_wikipedia(self, query: str, on_provider=None, language="de") -> list[dict[str, str]]:
         """Keyless DE Wikipedia reference fallback for the exact consented query.
 
         Search metadata only. URLs are constructed from article titles with a
@@ -639,9 +733,11 @@ class WebSearch:
         cleaned = _clean(query, MAX_QUERY_CHARS+1)
         if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
             raise WebSearchInputError("Ungültiger Suchbegriff.")
+        if language not in ("de", "en"):
+            raise WebSearchInputError("Nur Wikipedia DE/EN ist erlaubt.")
         if on_provider is not None:
-            on_provider("Wikipedia DE")
-        endpoint="https://de.wikipedia.org/w/api.php"
+            on_provider("Wikipedia " + language.upper())
+        endpoint="https://"+language+".wikipedia.org/w/api.php"
         url=(endpoint+"?action=query&list=search&srsearch="+quote_plus(cleaned)
              +"&format=json&srlimit=10")
         req=Request(url, headers={
@@ -668,7 +764,7 @@ class WebSearch:
                 title=_clean(str(hit.get("title","")),180)
                 if not title or any(c in title for c in "<>\\"):
                     continue
-                article="https://de.wikipedia.org/wiki/"+quote(title.replace(" ","_"),safe="_(),:-")
+                article="https://"+language+".wikipedia.org/wiki/"+quote(title.replace(" ","_"),safe="_(),:-")
                 safe=safe_result_url(article)
                 if not safe or safe in seen:
                     continue
@@ -792,6 +888,34 @@ class WebSearch:
                 if ddg_problem and bing_problem:
                     raise WebSearchError("Websuche derzeit bei allen Anbietern nicht verfügbar.") from None
                 results=[]
+
+        # Numbered names are ambiguous: a keyword-only match like "Apollo"
+        # must not make an optician or sales platform an astronomy source.
+        # Fallback comes from a *real* Wikipedia search endpoint, never from
+        # a guessed or constructed article URL. Nothing here certifies facts.
+        if numbered_query_subject(cleaned) and search_topic_terms(cleaned):
+            results = ranked_topic_hits(results, cleaned)
+            if len(results) < 2:
+                subject_query = numbered_query_subject(cleaned)
+                seen = {x.get("url") for x in results}
+                for language in ("de", "en"):
+                    if len(results) >= 2:
+                        break
+                    contacted.append("Wikipedia " + language.upper())
+                    try:
+                        wiki = self.search_wikipedia(
+                            subject_query, on_provider=on_provider, language=language)
+                    except WebSearchError:
+                        continue
+                    for hit in ranked_topic_hits(wiki, cleaned):
+                        if hit.get("url") not in seen:
+                            results.append(hit)
+                            seen.add(hit.get("url"))
+                            if len(results) >= MAX_RESULTS:
+                                break
+                    if wiki:
+                        provider = provider + " + Wikipedia " + language.upper()
+            results = results[:MAX_RESULTS]
 
         return {"query": cleaned, "provider": provider, "providers_contacted": contacted,
                 "external_request": True, "model_generated": False, "results": results,
