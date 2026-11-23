@@ -19,7 +19,7 @@ from neral_identity import build_identity_prompt
 from neral_agent_autonomy import AgentModelError, OllamaCompletionError, OllamaLocalBackend
 
 _SAFE_OLLAMA_ERROR_TEXT = {
-    "token_limit": "Lokale Antwort am Ausgabelimit abgeschnitten. Bitte kürzer fragen oder die Aufgabe aufteilen.",
+    "token_limit": "NERAL hat das Ausgabelimit erreicht, bevor die Antwort fertig war. Die Eingabe war nicht zu lang. Fordere eine kürzere Antwort an oder nutze ein passendes Werkzeug.",
     "incomplete": "Lokale Modellantwort ohne bestätigten Abschluss. Bitte erneut versuchen.",
     "empty_answer": "Das lokale Modell hat keinen fertigen Antworttext geliefert.",
     "timeout": "Das lokale Modell hat die Wartezeit überschritten. Bitte erneut versuchen.",
