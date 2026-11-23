@@ -73,7 +73,7 @@ def make_record(case,engine,response,*,grade,reason,elapsed,
     }
 
 
-def ensure_port_unbound():
+def ensure_port_unbound(*,port=9690):
     """Prove the local NERAL endpoint is available by binding, not connecting.
 
     On Windows a just-stopped server can produce timeout or unrecognized
@@ -87,7 +87,7 @@ def ensure_port_unbound():
             exclusive=getattr(socket,"SO_EXCLUSIVEADDRUSE",None)
             if exclusive is not None:
                 probe.setsockopt(socket.SOL_SOCKET,exclusive,1)
-            probe.bind(("127.0.0.1",9690))
+            probe.bind(("127.0.0.1",port))
     except OSError:
         raise RuntimeError("Port 9690 not provably unbound; raw model refused") from None
     return True
