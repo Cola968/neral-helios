@@ -160,3 +160,101 @@ jobs:
             ' sanitized_errors='+((@($err|Select-Object -Unique)) -join ','))
           Write-Host 'NERAL_DIAG3_READONLY_NO_START_ATTEMPT'
           $global:LASTEXITCODE=0
+
+
+      - name: NERAL_START_FORENSICS_20261123 exact task environment and bounded exception frames
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $script=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+          $schtext=(& schtasks.exe /Query /TN $name /FO LIST /V 2>&1) -join ' '
+          $global:LASTEXITCODE=0
+          Write-Host ('NERAL_FORENSIC_TASK state='+[string]$task.State+
+            ' last_result='+[int]$info.LastTaskResult+
+            ' last_run='+$info.LastRunTime.ToString('s')+
+            ' missed_runs='+[int]$info.NumberOfMissedRuns+
+            ' task_principal_type='+[string]$task.Principal.LogonType+
+            ' task_action_executable='+[IO.Path]::GetFileName([string]$task.Actions[0].Execute)+
+            ' task_action_has_service='+([string]$task.Actions[0].Arguments -like '*Start-Neral-Three-Tier-Service.ps1*')+
+            ' schtasks_query_ok='+($schtext.Length -gt 100))
+          $serviceText=if(Test-Path -LiteralPath $script -PathType Leaf){[IO.File]::ReadAllText($script)}else{''}
+          $pattern='(?im)^\s*[^#\r\n]*(Start-Process|RedirectStandard|Out-File|Add-Content|Start-ScheduledTask|python\.exe|neral_preview_server|Write-Error|Write-Host|exit|return)'
+          $patterns=[regex]::Matches($serviceText,$pattern)
+          $clues=@()
+          foreach($m in $patterns){
+            $lineNo=($serviceText.Substring(0,$m.Index).Split([char]10)).Count
+            $command=[regex]::Match($m.Value,'(?i)Start-Process|RedirectStandard\w*|Out-File|Add-Content|Start-ScheduledTask|python\.exe|neral_preview_server|Write-Error|Write-Host|exit|return').Value
+            $clues+=($lineNo.ToString()+':'+$command)
+          }
+          Write-Host ('NERAL_FORENSIC_SERVICE script_exists='+($serviceText.Length -gt 0)+
+            ' length='+$serviceText.Length+
+            ' line_clues='+(($clues|Select-Object -First 35) -join ','))
+          $pyok=Test-Path -LiteralPath $py -PathType Leaf
+          $deps=@{}
+          foreach($d in @('D:/neral-qlora-v2/qwen35-4b-hf/config.json',
+                          'D:/neral-qlora/checkpoint/config.json',
+                          'D:/neral-qlora-v2/v2full-43931510428-1-helios/manifest.json',
+                          (Join-Path $root 'neral_preview_server.py'),
+                          (Join-Path $root 'neral_three_tier_runtime.py'))){
+            $deps[[IO.Path]::GetFileName($d)+'_'+$deps.Count]=(Test-Path -LiteralPath $d -PathType Leaf)
+          }
+          $docker=(Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue)
+          $kiwix=@(Get-NetTCPConnection -LocalPort 9691 -State Listen -ErrorAction SilentlyContinue)
+          $p9690=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $pythonProcs=@(Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction SilentlyContinue)
+          $ours=@($pythonProcs|Where-Object { $_.CommandLine -match 'neral_preview_server' -and $_.CommandLine -match '--experimental-three-tier-hf' })
+          $gpu=@(& nvidia-smi.exe --query-gpu=memory.used,memory.free --format=csv,noheader,nounits 2>$null)
+          $global:LASTEXITCODE=0
+          Write-Host ('NERAL_FORENSIC_ENV venv_python='+$pyok+
+            ' local_files='+($deps|ConvertTo-Json -Compress)+
+            ' docker_service='+$(if($docker){[string]$docker.Status}else{'absent'})+
+            ' kiwix_9691='+$kiwix.Count+
+            ' netstat_9690='+$p9690.Count+
+            ' python_processes='+$pythonProcs.Count+' neral_python_processes='+$ours.Count+
+            ' nvidia_smi_numeric='+($gpu -join ';'))
+          $logs=@()
+          foreach($dir in @($root,(Join-Path $root 'local_state'),
+                  (Join-Path $root 'logs'),(Join-Path (Split-Path $root -Parent) 'local_state'))){
+            if(Test-Path -LiteralPath $dir -PathType Container){
+              $logs+=@(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+                Where-Object {$_.Name -match '(?i)(neral|three|preview|startup|error|stdout|stderr|service).*\.(log|err|out|txt)$'} |
+                Select-Object -First 20)
+            }
+          }
+          $logs=@($logs|Sort-Object FullName -Unique)
+          Write-Host ('NERAL_FORENSIC_LOG_DISCOVERY count='+$logs.Count+
+            ' file_names='+(($logs|ForEach-Object {$_.Name}|Select-Object -First 25)-join ','))
+          foreach($entry in $logs){
+            $lines=@(Get-Content -LiteralPath $entry.FullName -Tail 120 -ErrorAction SilentlyContinue)
+            $errors=@($lines|Where-Object { $_ -match '^(Traceback \(most recent call last\):|[A-Za-z_][\w.]*(Error|Exception):|.*(?:Fatal Python error|PYTHONPATH|CUDA out of memory).*)$' })
+            $frames=@($lines|Where-Object { $_ -match '^\s*File "([^"]+)", line (\d+), in ([^\s]+)' }|Select-Object -Last 7|ForEach-Object {
+              $m=[regex]::Match($_,'^\s*File "([^"]+)", line (\d+), in ([^\s]+)')
+              ([IO.Path]::GetFileName($m.Groups[1].Value)+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value)
+            })
+            $classes=@($errors|ForEach-Object {
+              if($_ -match '^([A-Za-z_][\w.]*(?:Error|Exception)):\s*(.*)$'){
+                $type=$Matches[1];$msg=$Matches[2]
+                if($msg -match '(?i)No module named\s+[''"]?([\w.]+)'){ $type+':missing_module:'+$Matches[1] }
+                elseif($msg -match '(?i)(out of memory|cuda|GPU memory)'){ $type+':cuda_or_memory' }
+                elseif($msg -match '(?i)(cannot import name\s+[''"]?([\w]+))'){ $type+':import_name:'+$Matches[2] }
+                elseif($msg -match '(?i)(WinError\s+\d+)'){ $type+':'+$Matches[1] }
+                else {$type+':details_private'}
+              }else{'traceback_or_fatal'}
+            }|Select-Object -Unique -Last 8)
+            Write-Host ('NERAL_FORENSIC_LOG name='+$entry.Name+' lastwrite='+$entry.LastWriteTime.ToString('s')+
+              ' lines_examined='+$lines.Count+' classes='+(($classes)-join '|')+
+              ' frames='+(($frames)-join '|'))
+          }
+          try{
+            $ev=@(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational'; StartTime=(Get-Date).AddHours(-5)} -MaxEvents 250 -ErrorAction Stop |
+              Where-Object {$_.Message -like ('*'+$name+'*')} | Select-Object -First 16)
+            Write-Host ('NERAL_FORENSIC_TASK_EVENTS count='+$ev.Count+
+              ' ids='+(($ev|ForEach-Object {([string]$_.Id+':'+$_.TimeCreated.ToString('HH:mm:ss'))})-join ','))
+          }catch{
+            Write-Host 'NERAL_FORENSIC_TASK_EVENTS unavailable'
+          }
+          $global:LASTEXITCODE=0
