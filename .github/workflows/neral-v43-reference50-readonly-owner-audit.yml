@@ -8,7 +8,11 @@ permissions:
   contents: read
 jobs:
   owner-readonly-audit:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event.head_commit.message == 'fix(v43): scored HTTP failures and one-time original baseline audit' }}
+    if: >-
+      ${{ github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      github.event.head_commit.message == 'ci(v43): locked read-only owner metadata audit' }}
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 12
     concurrency:
