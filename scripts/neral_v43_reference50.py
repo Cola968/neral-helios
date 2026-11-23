@@ -81,10 +81,18 @@ def generate_cases(secret_hex: str) -> list[dict]:
                 f"letzte Zeile exakt ENDERGEBNIS: <ganze Zahl>.")
         cases.append(_record("math_logic",idx,prompt,grade="independent_exact",
                              reference={"kind":"integer","value":str(total)}))
+    seen_programs=set()
     for idx in range(COUNTS["programming"]):
-        offset=rng.randint(-9,11)
-        divisor=rng.randint(2,7)
-        excluded=rng.randrange(divisor)
+        # A random seed is not permission to duplicate tasks: resample until
+        # every coding fixture has a unique, independent specification.
+        while True:
+            offset=rng.randint(-9,11)
+            divisor=rng.randint(2,7)
+            excluded=rng.randrange(divisor)
+            signature=(offset,divisor,excluded)
+            if signature not in seen_programs:
+                seen_programs.add(signature)
+                break
         def transform(values):
             return sorted(set(v*v+offset for v in values if v%divisor!=excluded))
         tests=[
