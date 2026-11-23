@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from scripts.neral_v43_reference50_live import (
     validate_engine_identity, make_record, store_private, verify_docker_grader,
-    ensure_port_unbound, finish, verify_result_seal,
+    ensure_port_unbound, finish, verify_result_seal, classify_raw_answer_failure,
 )
 from unittest.mock import patch
 from hashlib import sha256
@@ -88,6 +88,16 @@ class LiveReferenceCPU(unittest.TestCase):
             output=folder/"raw9b-50.jsonl"
             output.write_bytes(output.read_bytes()+b" ")
             with self.assertRaises(ValueError):verify_result_seal(folder)
+
+    def test_raw_token_budget_exhaustion_is_a_scored_failure_not_a_gpu_rerun(self):
+        self.assertEqual(
+            classify_raw_answer_failure(RuntimeError("Raw output incomplete or exceeded fixed budget")),
+            "raw_answer_incomplete")
+        self.assertEqual(
+            classify_raw_answer_failure(RuntimeError("Raw response invalid")),
+            "raw_answer_invalid")
+        with self.assertRaises(RuntimeError):
+            classify_raw_answer_failure(RuntimeError("Postload GPU total/headroom safety exceeded"))
 
     def test_docker_grade_image_must_exist_before_any_gpu(self):
         absent=Mock(return_value=subprocess.CompletedProcess(
