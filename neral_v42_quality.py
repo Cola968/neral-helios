@@ -490,12 +490,12 @@ _LANDING_EVENT_DATED = re.compile(
     r"landung(?:en)?|mondlandung(?:en)?|moon\s+landing)\b"
 )
 _YEAR_FOLLOWUP_DATE = re.compile(
-    r"(?iu)\b(?:the\s+mission|die\s+mission|sie|it|the\s+flight|"
+    r"(?iu)\b(?:the\s+mission|die\s+mission|the\s+crew|die\s+besatzung|sie|it|the\s+flight|"
     r"der\s+flug)\b"
 )
 _YEAR_FOLLOWUP_OCCURRENCE = re.compile(
     r"(?iu)\b(?:took\s+place|fand|statt|happened|occurred|"
-    r"was|war|date|datum)\b"
+    r"was|war|date|datum|reached|erreichte|betrat|set\s+foot)\b"
 )
 
 
