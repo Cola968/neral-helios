@@ -90,12 +90,17 @@ def _owner_gpu_preflight():
         outcome = subprocess.run(
             ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
              "-ExecutionPolicy", "Bypass", "-File", str(script)],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             check=False, timeout=25)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError("Read-only GPU owner preflight unavailable") from exc
     if outcome.returncode != 0:
-        raise RuntimeError("Read-only GPU owner/foreign-process preflight refused")
+        # Parse ONLY a bounded machine reason code, never forward Windows
+        # stderr/command lines/paths or raw PID lists to a CI log.
+        marker = re.search(r"NERAL_GPU_PREFLIGHT_REASON:([a-z0-9_]{3,64})",
+                           outcome.stderr or "")
+        reason = marker.group(1) if marker else "unclassified_preflight_error"
+        raise RuntimeError("Read-only GPU preflight refused: " + reason)
     try:
         row = json.loads(outcome.stdout)
         ids = row["owner_pids"]
@@ -114,6 +119,10 @@ def _owner_gpu_preflight():
         "foreign_heavy_gpu_process_count":0,
         "owner_gpu_pid_count": row.get("owner_gpu_pid_count"),
         "system_gpu_preflight_mib":row["system_gpu_preflight_mib"],
+        "driver_free_preflight_mib":row.get("system_gpu_free_preflight_mib"),
+        "wddm_na_memory_rows":row.get("wddm_na_memory_rows", 0),
+        "gui_gpu_process_count":row.get("gui_gpu_process_count", 0),
+        "foreign_llm_compute_process_count":0,
     }
     return tuple(ids), summary
 
@@ -129,11 +138,24 @@ def _peak(snapshots, name):
     return max(values) if values else None
 
 
-def _vram_gate(snapshots):
-    # A single missing WDDM process-value makes the gate unproven.
+def _vram_gate(snapshots, diagnostics=None):
+    # WDDM [N/A] is not zero. Explicitly fall back to *NERAL's* PyTorch
+    # peak CUDA reservation from this HTTP request; never label it as
+    # an exact all-process GPU measurement.
+    reserve = (diagnostics.get("peak_cuda_reserved_mib")
+               if isinstance(diagnostics, dict) else None)
     return bool(snapshots) and all(
-        validate_owner_snapshot(row, process_cap_mib=9500)
+        validate_owner_snapshot(row, process_cap_mib=9500,
+                                cuda_reserved_mib=reserve)
         for row in snapshots)
+
+
+def _vram_basis(snapshots, diagnostics):
+    if not _vram_gate(snapshots, diagnostics):
+        return "unmeasured_or_over_limit"
+    if all(type(row.get("neral_process_mib")) is int for row in snapshots):
+        return "nvidia_process_mib"
+    return "cuda_reserved_wddm_fallback"
 
 
 
@@ -209,10 +231,10 @@ def run(tier, summary_path):
             "vram_peak_mib": _peak(snapshots, "system_total_mib"),
             "vram_total_system_peak_mib": _peak(snapshots, "system_total_mib"),
             "vram_neral_process_peak_mib": _peak(snapshots, "neral_process_mib"),
-            "vram_neral_process_under_9500": _vram_gate(snapshots),
-            "vram_owner_process_memory_status": (
-                "measured" if _vram_gate(snapshots)
-                else "unmeasured_or_over_limit"),
+            "vram_neral_process_under_9500": _vram_gate(snapshots, diagnostics),
+            "vram_owner_process_memory_status": _vram_basis(snapshots, diagnostics),
+            "vram_cuda_reserved_peak_mib": diagnostics.get("peak_cuda_reserved_mib"),
+            "vram_cuda_allocated_peak_mib": diagnostics.get("peak_cuda_allocated_mib"),
             "gpu_preflight": owner_preflight,
             "telemetry":diagnostics,
         }
