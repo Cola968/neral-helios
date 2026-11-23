@@ -453,5 +453,108 @@ class OwnerApolloReaderStageContractCPU(unittest.TestCase):
         optional = owner.split("elseif($file -in @(", 1)[1].split("))", 1)[0]
         self.assertNotIn("'neral_page_reader.py'", optional)
 
+
+class BoundedYearPriorityAndFinalNumericCPU(unittest.TestCase):
+    """New regression scenarios; never read benchmark fixtures or remote URLs."""
+
+    def test_long_article_keeps_literal_apollo_landing_year_window(self):
+        from neral_page_reader import MainText, MAX_TEXT
+        from neral_v42_quality import unique_read_year_source, year_source_pipeline_code
+        undated = "".join(
+            "<p>Apollo 11 NASA lunar landing exploration mission detail "
+            "without chronological dates, section %d. Another undated "
+            "Apollo 11 mission summary.</p>" % i for i in range(180))
+        literal = ("Apollo 11 landed the first humans on the Moon. "
+                   "The crew reached the surface on July 20, 1969.")
+        html = "<main>" + undated + "<p>" + literal + "</p></main>"
+        p = MainText()
+        p.feed(html)
+        excerpt = p.text("Apollo 11 first humans moon landing year NASA")
+        self.assertLessEqual(len(excerpt), MAX_TEXT)
+        self.assertIn(literal, excerpt)
+        self.assertLess(excerpt.index(literal), 900)
+        self.assertEqual(p.year_clip_code, "year_preserved_in_extract")
+        pages = [{"url": URL, "page_read": True, "page_text": excerpt,
+                  "year_clip_code": p.year_clip_code}]
+        self.assertEqual(year_source_pipeline_code(YEAR, pages,
+                                                  {"web1": excerpt}),
+                         "candidate_available")
+        self.assertIsNotNone(unique_read_year_source(YEAR, pages))
+
+    def test_long_single_paragraph_uses_bounded_literal_sentence_window(self):
+        from neral_page_reader import MainText, MAX_TEXT
+        filler = "Apollo 11 mission study without a flight date. " * 180
+        date = "Apollo 11 landed on the Moon on July 20, 1969."
+        html = "<main><p>" + filler + date + "</p></main>"
+        p = MainText()
+        p.feed(html)
+        excerpt = p.text("Apollo 11 moon landing year")
+        self.assertLessEqual(len(excerpt), MAX_TEXT)
+        self.assertIn(date, excerpt)
+        self.assertLess(excerpt.index(date), 900)
+
+    def test_year_priority_never_uses_competing_apollo_mission(self):
+        from neral_page_reader import MainText
+        from neral_v42_quality import unique_read_year_source
+        article = ("<main>" + "<p>Apollo 11 first landing mission overview.</p>" * 140
+                   + "<p>Apollo 12 landed on the Moon in November 1969.</p></main>")
+        p = MainText()
+        p.feed(article)
+        excerpt = p.text("Apollo 11 first landing year")
+        pages = [{"url": URL, "page_read": True, "page_text": excerpt}]
+        self.assertIsNone(unique_read_year_source(YEAR, pages))
+
+    def test_quartz_accepts_free_prose_with_last_independent_end_value(self):
+        from neral_v42_quality import stock_stdout_diagnostic_code
+        outputs = (
+            "Es wurden 391 Bauteile geliefert.\nNach Abzug von 46 bleiben 345 übrig.",
+            "Zuerst gab es 17 Kisten zu je 23 Teilen.\n"
+            "Die Gesamtmenge lautet 391.\nNach Abgabe von 46 sind noch 345 vorhanden.",
+            "Zwischenschritt: 391\n46 Teile abgegeben.\nDer Rest beträgt 345.",
+            "Es ergibt sich 391, danach gehen 46 weg und übrig bleiben 345.",
+        )
+        for output in outputs:
+            with self.subTest(output=output):
+                self.assertEqual(exact_executed_numeric_tail(
+                    output, succeeded=True, prompt=MATH), "ENDERGEBNIS: 345")
+                self.assertEqual(stock_stdout_diagnostic_code(
+                    output, succeeded=True, prompt=MATH), "accepted")
+
+    def test_quartz_final_numeric_fails_closed_for_contradictions(self):
+        bad = (
+            "Es wurden 391 Bauteile geliefert.\nNach Abzug von 46 bleiben 344 übrig.",
+            "Es wurden 392 Bauteile geliefert.\nNach Abzug von 46 bleiben 345 übrig.",
+            "Es wurden 391 Bauteile geliefert.\nNach Abzug von 47 bleiben 345 übrig.",
+            "Rest 346. Nach Prüfung doch 345.",
+            "Rest 391. Nach Korrektur 345.",
+            "Es wurden 391 Bauteile geliefert.\nRest ist 345.\nWeitere Ausgabe 391.",
+            "Achtung: 17 * 23 - 46 = 344, aber die Antwort lautet 345.",
+            "Gesamt: 391\nAntwort: 345",
+        )
+        for output in bad:
+            with self.subTest(output=output):
+                self.assertIsNone(exact_executed_numeric_tail(
+                    output, succeeded=True, prompt=MATH))
+        self.assertIsNone(exact_executed_numeric_tail(
+            "Es wurden 391 Bauteile geliefert.\nNach Abzug von 46 bleiben 345 übrig.",
+            succeeded=False, prompt=MATH))
+
+    def test_stock_code_prompt_requires_terminal_print_only_in_stock_mode(self):
+        runtime, _, high, _ = make_runtime()
+        code_prompts = []
+        def model(turns, **kwargs):
+            high.loaded = True
+            code_prompts.append(turns[0]["content"])
+            return chr(96)*3 + "python\nprint('345')\n" + chr(96)*3
+        high.respond_chat = model
+        runtime.execute_python = Mock(return_value={
+            "status": "PASSED", "output": "345"})
+        runtime.answer([
+            {"role":"system","content":"Beantworte die Frage."},
+            {"role":"user","content": MATH}], "Quartz")
+        self.assertTrue(code_prompts)
+        self.assertIn('print(f"ENDERGEBNIS: {ergebnis}")', code_prompts[0])
+        self.assertIn("allerletzte", code_prompts[0])
+
 if __name__=="__main__":
     unittest.main()
