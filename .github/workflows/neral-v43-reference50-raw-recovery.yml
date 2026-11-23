@@ -1,0 +1,133 @@
+name: NERAL V4.3 reference50 raw-only recovery (manual, sealed parent run)
+on:
+  pull_request:
+    paths:
+      - .github/workflows/neral-v43-reference50-raw-recovery.yml
+      - scripts/neral_v43_reference50_live.py
+      - scripts/neral_v43_reference50_raw_owner.ps1
+      - scripts/neral_v43_reference50_restore.ps1
+      - tests/test_neral_v43_reference50_recovery_cpu.py
+  workflow_dispatch:
+    inputs:
+      original_run_id:
+        description: "Sealed original NERAL 50 run, must be exactly 45264946953"
+        required: true
+        type: string
+      approval:
+        description: "Explicit new GPU approval: V43-RAW50-ONLY-45264946953"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  cpu-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate offline recovery code and original benchmark safeguards
+        run: |
+          python -m py_compile scripts/neral_v43_reference50_live.py scripts/neral_v43_reference50.py tests/test_neral_v43_reference50_recovery_cpu.py
+          python -m unittest discover -s tests -p test_neral_v43_reference50_recovery_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v43_reference50_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v43_reference50_live_cpu.py -v
+          pwsh -NoProfile -File tests/test_neral_v43_reference50_owner_cpu.ps1
+  raw-only:
+    needs: [cpu-preflight]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.original_run_id == '45264946953' && inputs.approval == 'V43-RAW50-ONLY-45264946953' && needs.cpu-preflight.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 125
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_V43_REF50_RECOVERY_APPROVED: V43-RAW50-ONLY-45264946953
+      NERAL_V43_REF50_PARENT_RUN: '45264946953'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read-only verify original SHA-sealed 50 tasks, no raw output yet
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_V43_REF50_PRIVATE=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase recovery-preflight --private-dir $env:NERAL_V43_REF50_PRIVATE
+          if($LASTEXITCODE -ne 0){throw 'Original reference50 safety state invalid; GPU not started'}
+      - name: Run ONLY missing 50 raw Qwen3.5-9B tasks, restore original owner in finally
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_V43_REF50_PRIVATE=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+          & .\scripts\neral_v43_reference50_raw_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Raw-only recovery failed; no automatic retry'}
+  restore-original:
+    needs: [cpu-preflight,raw-only]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.original_run_id == '45264946953' && inputs.approval == 'V43-RAW50-ONLY-45264946953' && needs.cpu-preflight.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_V43_REF50_RECOVERY_APPROVED: V43-RAW50-ONLY-45264946953
+      NERAL_V43_REF50_PARENT_RUN: '45264946953'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Independent idempotent owner restore and HTTP200 confirmation
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v43_reference50_restore.ps1
+          if($LASTEXITCODE -ne 0){throw 'Original NERAL owner not safely restored'}
+  finalize:
+    needs: [raw-only,restore-original]
+    if: ${{ needs.raw-only.result == 'success' && needs.restore-original.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Finalize original 50 matched pairs and SHA-256 seal, require HTTP200
+        run: |
+          $ErrorActionPreference='Stop'
+          $private=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase finish --private-dir $private
+          if($LASTEXITCODE -ne 0){throw 'Incomplete original 100 observations'}
+          $status=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($status -join '').Trim() -ne '200'){throw 'Original owner HTTP200 not restored'}
+          $target=Join-Path $env:RUNNER_TEMP ('neral-v43-recovery-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $target | Out-Null
+          Copy-Item (Join-Path $private 'summary.json') (Join-Path $target 'summary.json')
+          Write-Host 'NERAL_V43_REF50_RECOVERY_100_OBSERVATIONS_SEALED_ORIGINAL_HTTP200'
+      - name: Upload aggregate only (no prompts or raw answers)
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v43-reference50-recovered-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-v43-recovery-${{ github.run_id }}/summary.json
+          retention-days: 90
+          if-no-files-found: error

@@ -8,7 +8,12 @@ $allowed=($env:GITHUB_REF -ceq 'refs/heads/main' -and
           $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
           $env:NERAL_V43_REF50_APPROVED -ceq 'NERAL-V43-RAW9B-NERAL10-REF50' -and
           $env:NERAL_V43_REF50_MERGE_TITLE -ceq 'NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123')
-if(-not $allowed){throw 'Unauthorized V4.3 independent owner rollback'}
+$recoveryApproved=($env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V43_REF50_RECOVERY_APPROVED -ceq 'V43-RAW50-ONLY-45264946953' -and
+  $env:NERAL_V43_REF50_PARENT_RUN -ceq '45264946953')
+if(-not ($allowed -or $recoveryApproved)){throw 'Unauthorized V4.3 independent owner rollback'}
 $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
 $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'

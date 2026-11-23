@@ -10,13 +10,28 @@ $approved=($env:GITHUB_REF -ceq 'refs/heads/main' -and
   $env:NERAL_V43_REF50_APPROVED -ceq 'NERAL-V43-RAW9B-NERAL10-REF50' -and
   $env:NERAL_V43_REF50_PREFLIGHT -ceq 'success' -and
   $env:NERAL_V43_REF50_MERGE_TITLE -ceq 'NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123')
-if(-not $approved){throw 'V4.3 raw baseline requires exact single-use owner approval'}
+$recoveryApproved=($env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V43_REF50_RECOVERY_APPROVED -ceq 'V43-RAW50-ONLY-45264946953' -and
+  $env:NERAL_V43_REF50_PARENT_RUN -ceq '45264946953')
+if(-not ($approved -or $recoveryApproved)){throw 'V4.3 raw baseline requires exact single-use owner approval'}
 if(-not $env:NERAL_V43_REF50_PRIVATE){throw 'Owner-local private reference50 directory absent'}
 $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
 $python='D:/neral-qlora/venv/Scripts/python.exe'
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
 $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
 if(-not (Test-Path -LiteralPath $python -PathType Leaf)){throw 'Pinned offline Python not found'}
+if($recoveryApproved){
+  $expectedPrivate=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+  if([IO.Path]::GetFullPath($env:NERAL_V43_REF50_PRIVATE) -cne
+     [IO.Path]::GetFullPath($expectedPrivate)){
+    throw 'Recovery private path differs from original sealed run'
+  }
+  & $python -m scripts.neral_v43_reference50_live --phase recovery-preflight --private-dir $expectedPrivate
+  if($LASTEXITCODE -ne 0){throw 'Original NERAL 50 did not pass recovery preflight'}
+}
+
 $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
 if(@($task.Actions).Count -ne 1 -or [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
   throw 'Scheduled task identity mismatch'
