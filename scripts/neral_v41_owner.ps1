@@ -39,7 +39,13 @@ $approvedV42Diag3 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
       $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123' -or
       $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved WDDM 3x2 final 20261123' -or
       $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved prepost capacity 3x2 20261123')
-if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5 -or $approvedV42Diag3)){
+$approvedV43Reference50 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
+  $env:GITHUB_EVENT_NAME -ceq 'push' -and
+  $env:GITHUB_RUN_ATTEMPT -ceq '1' -and
+  $env:NERAL_V43_REF50_APPROVED -ceq 'NERAL-V43-RAW9B-NERAL10-REF50' -and
+  $env:NERAL_V43_REF50_PREFLIGHT -ceq 'success' -and
+  $env:NERAL_V43_REF50_MERGE_TITLE -ceq 'NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123'
+if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5 -or $approvedV42Diag3 -or $approvedV43Reference50)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
@@ -47,7 +53,7 @@ $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
 $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
 $src=$env:GITHUB_WORKSPACE
 $python='D:/neral-qlora/venv/Scripts/python.exe'
-if($approvedV42Diag3){
+if($approvedV42Diag3 -or $approvedV43Reference50){
   . (Join-Path $src 'scripts/neral_v42_gpu_capacity.ps1')
 }
 if(-not(Test-Path -LiteralPath $service -PathType Leaf) -or
@@ -126,7 +132,7 @@ function Write-NeralGpuBaseline {
   }
   Write-Host ('NERAL_GPU_BASELINE_MIB used='+$used+' free='+$free+' total='+$total)
   if($used -gt 10752){throw 'GPU memory cap exceeded before NERAL startup'}
-  if($approvedV42Diag3){
+  if($approvedV42Diag3 -or $approvedV43Reference50){
     # StopOwned has already unloaded the old model. This is the ONLY
     # 8500-MiB pre-load gate, before StartOwned loads the new NERAL model.
     Assert-NeralGpuCapacity -Phase PreLoad -FreeMiB $free -UsedMiB $used
@@ -218,7 +224,7 @@ $files=@('neral_v41_context.py','neral_verified_notes.py',
          'templates/neral_preview.html',
          'static/neral-preview.js','static/neral-reference-ui.js')
 $backup=Join-Path $env:LOCALAPPDATA ('neral-v41-backup-'+$env:GITHUB_RUN_ID)
-if(($approvedV42Smoke5 -or $approvedV42Diag3) -and $env:NERAL_V42_SMOKE5_REVERT -ceq '1'){
+if(($approvedV42Smoke5 -or $approvedV42Diag3 -or $approvedV43Reference50) -and $env:NERAL_V42_SMOKE5_REVERT -ceq '1'){
   # Same-run rollback after the experimental 5+5 measurement, regardless
   # of pass/fail. Never promote unverified changes to the owner's service.
   if(-not(Test-Path -LiteralPath $backup -PathType Container)){
@@ -308,7 +314,7 @@ try{
     throw 'Updated V4.1 service failed owned HTTP200 check'
   }
   Write-Host 'NERAL_V41_STAGED_ON_OWNER_HTTP200'
-  if($approvedV42Smoke5 -or $approvedV42Diag3){
+  if($approvedV42Smoke5 -or $approvedV42Diag3 -or $approvedV43Reference50){
     # Probe service identity and lock only. The EXACT 5+5 test downstream is
     # the first inference. A cold-model timeout must be measured, not hidden
     # behind an unrelated 7-category deployment prerequisite.

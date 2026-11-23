@@ -1,0 +1,245 @@
+name: NERAL V4.3 raw Qwen3.5 9B vs frozen NERAL 1.0 50-pair one-shot
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/neral-v43-reference50-once.yml]
+  pull_request:
+    paths:
+      - .github/workflows/neral-v43-reference50-once.yml
+      - scripts/neral_v43_reference50.py
+      - scripts/neral_v43_reference50_live.py
+      - scripts/neral_v43_reference50_freeze_guard.py
+      - scripts/neral_v43_reference50_raw_owner.ps1
+      - scripts/neral_v43_reference50_restore.ps1
+      - scripts/neral_v41_owner.ps1
+      - tests/test_neral_v43_reference50_cpu.py
+      - tests/test_neral_v43_reference50_live_cpu.py
+      - tests/test_neral_v43_reference50_owner_cpu.ps1
+permissions:
+  contents: read
+jobs:
+  cpu-preflight:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate sealed private 50 and original-owner rules (CPU only)
+        run: |
+          python -m pip install -r requirements.txt sympy z3-solver
+          python -m py_compile scripts/neral_v43_reference50.py scripts/neral_v43_reference50_live.py scripts/neral_v43_reference50_freeze_guard.py
+          python -m unittest discover -s tests -p test_neral_v43_reference50_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v43_reference50_live_cpu.py -v
+          pwsh -NoProfile -File tests/test_neral_v43_reference50_owner_cpu.ps1
+          pwsh -NoProfile -File tests/test_neral_v41_owner_approval.ps1
+      - uses: actions/checkout@v4
+        with:
+          ref: 'c0a6be607a0797908e101db460e3ac297a70f088'
+          path: _frozen_neral10
+          persist-credentials: false
+      - name: Match all 19 deployed files byte-for-byte to frozen NERAL 1.0
+        run: python -m scripts.neral_v43_reference50_freeze_guard --candidate . --frozen _frozen_neral10
+  standalone:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event.head_commit.message == 'NERAL V4.3 owner-approved raw9b vs NERAL10 reference50 20261123') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: NERAL 1.0 standalone CPU and ZIP verification
+        run: |
+          python -m pip install -r requirements.txt -r requirements-neral-preview.txt sympy z3-solver
+          python scripts/vendor_katex.py
+          python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
+          python -m unittest discover -s tests -p test_neral_v42_final_telemetry_cpu.py -v
+          pwsh -NoProfile -File tests/test_neral_v43_reference50_owner_cpu.ps1
+      - name: Build real NERAL ZIP, validate integrity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          python -m scripts.build_neral_1_0_preview --out dist/NERAL-1.0-Local-Preview.zip
+          if($LASTEXITCODE -ne 0){throw 'Standalone build failure'}
+          python -c "from zipfile import ZipFile; f=ZipFile('dist/NERAL-1.0-Local-Preview.zip'); assert f.testzip() is None"
+          if($LASTEXITCODE -ne 0){throw 'Standalone ZIP invalid'}
+  owner-deploy:
+    needs: [cpu-preflight, standalone]
+    if: ${{ github.event_name == 'push' && needs.cpu-preflight.result == 'success' && needs.standalone.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 35
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Prepare new private sealed cases and verify preinstalled offline code-grader
+        run: |
+          $ErrorActionPreference='Stop'
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v43-reference50/'+$env:GITHUB_RUN_ID)
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -c "from scripts.neral_v43_reference50_live import verify_docker_grader; verify_docker_grader()"
+          if($LASTEXITCODE -ne 0){throw 'Private offline Docker image preflight failed'}
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase prepare --private-dir $private
+          if($LASTEXITCODE -ne 0){throw 'Fresh 50-case seal failed'}
+      - name: Deploy byte-identical NERAL 1.0 with pre-load gate and same-run backup
+        env:
+          NERAL_V43_REF50_APPROVED: NERAL-V43-RAW9B-NERAL10-REF50
+          NERAL_V43_REF50_PREFLIGHT: ${{ needs.cpu-preflight.result }}
+          NERAL_V43_REF50_MERGE_TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v41_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'NERAL frozen source owner deployment refused'}
+          Write-Host 'NERAL_V43_REF50_FROZEN_OWNER_STAGED_HTTP200'
+  neral50:
+    needs: owner-deploy
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 125
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Exactly 50 isolated frozen NERAL 1.0 Obsidian requests
+        run: |
+          $ErrorActionPreference='Stop'
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v43-reference50/'+$env:GITHUB_RUN_ID)
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase neral --private-dir $private
+          if($LASTEXITCODE -ne 0){throw 'NERAL reference50 incomplete, no retry'}
+  restore-after-neral:
+    needs: [owner-deploy,neral50]
+    if: ${{ always() && needs.owner-deploy.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 25
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Roll back original owner even after failed NERAL run
+        env:
+          NERAL_V43_REF50_APPROVED: NERAL-V43-RAW9B-NERAL10-REF50
+          NERAL_V43_REF50_PREFLIGHT: success
+          NERAL_V43_REF50_MERGE_TITLE: ${{ github.event.head_commit.message }}
+          NERAL_V42_SMOKE5_REVERT: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v41_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Original owner rollback failed'}
+          Write-Host 'NERAL_V43_REF50_AFTER_NERAL_ORIGINAL_HTTP200'
+  raw50:
+    needs: [neral50,restore-after-neral]
+    if: ${{ needs.neral50.result == 'success' && needs.restore-after-neral.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 125
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Authenticated owner unload, raw Qwen3.5-9B 50, finally restore HTTP200
+        env:
+          NERAL_V43_REF50_APPROVED: NERAL-V43-RAW9B-NERAL10-REF50
+          NERAL_V43_REF50_PREFLIGHT: success
+          NERAL_V43_REF50_MERGE_TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_V43_REF50_PRIVATE=Join-Path $env:LOCALAPPDATA ('NERAL-private/v43-reference50/'+$env:GITHUB_RUN_ID)
+          & .\scripts\neral_v43_reference50_raw_owner.ps1
+          if($LASTEXITCODE -ne 0){throw 'Raw reference50 incomplete, no retry'}
+  restore-after-raw:
+    needs: [restore-after-neral,raw50]
+    if: ${{ always() && needs.restore-after-neral.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Independent idempotent original-owner restore, even after failed raw process
+        env:
+          NERAL_V43_REF50_APPROVED: NERAL-V43-RAW9B-NERAL10-REF50
+          NERAL_V43_REF50_MERGE_TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v43_reference50_restore.ps1
+          if($LASTEXITCODE -ne 0){throw 'V4.3 independent raw rollback failed'}
+  finalize:
+    needs: [raw50,restore-after-raw]
+    if: ${{ needs.raw50.result == 'success' && needs.restore-after-raw.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 12
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          persist-credentials: false
+      - name: Seal 50 pairs and verify original service HTTP200
+        run: |
+          $ErrorActionPreference='Stop'
+          $private=Join-Path $env:LOCALAPPDATA ('NERAL-private/v43-reference50/'+$env:GITHUB_RUN_ID)
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase finish --private-dir $private
+          if($LASTEXITCODE -ne 0){throw 'Incomplete 100 observations'}
+          $status=@(& curl.exe --noproxy '*' --silent --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/')
+          if($LASTEXITCODE -ne 0 -or ($status -join '').Trim() -ne '200'){throw 'Original owner HTTP200 not restored'}
+          $target=Join-Path $env:RUNNER_TEMP ('neral-v43-ref50-public-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $target | Out-Null
+          Copy-Item (Join-Path $private 'summary.json') (Join-Path $target 'summary.json')
+          Write-Host 'NERAL_V43_REF50_EXACTLY_100_OBSERVATIONS_OWNER_RESTORED_HTTP200'
+      - name: Upload safe aggregate only, no prompts or model replies
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v43-reference50-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-v43-ref50-public-${{ github.run_id }}/summary.json
+          retention-days: 90
+          if-no-files-found: error
