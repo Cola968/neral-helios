@@ -1,5 +1,8 @@
 name: NERAL V4.3 original 50 read-only recovery metadata audit
 on:
+  pull_request:
+    paths:
+      - .github/workflows/neral-v43-reference50-readonly-owner-audit.yml
   push:
     branches: [main]
     paths:
@@ -7,6 +10,16 @@ on:
 permissions:
   contents: read
 jobs:
+  yaml-syntax:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse YAML with an independent parser, CPU only
+        run: ruby -e "require 'yaml'; YAML.load_file('.github/workflows/neral-v43-reference50-readonly-owner-audit.yml')"
   owner-readonly-audit:
     if: >-
       ${{ github.event_name == 'push' &&
