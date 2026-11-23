@@ -1,0 +1,61 @@
+name: NERAL Android Offline APK
+
+on:
+  pull_request:
+    paths:
+      - 'android-offline/**'
+      - '.github/workflows/neral-android-offline.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: android-offline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-apk:
+    name: Test and build standalone arm64 Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Install Android NDK
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager 'platforms;android-35' 'ndk;27.2.12479018'
+          echo "$ANDROID_HOME/ndk/27.2.12479018/shader-tools/linux-x86_64" >> "$GITHUB_PATH"
+
+      - name: Fetch pinned local inference engine
+        run: |
+          set -euo pipefail
+          mkdir -p android-offline/libs
+          git clone --filter=blob:none https://github.com/tensai-app/llama.kt.git android-offline/libs/llama.kt
+          git -C android-offline/libs/llama.kt checkout --detach 47dde2d0f2b423707cb43e43b62d2aee09309680
+          git -C android-offline/libs/llama.kt submodule update --init third_party/llama.cpp third_party/OpenCL-Headers third_party/OpenCL-ICD-Loader
+
+      - name: Build llama.cpp native sources (offline inference)
+        working-directory: android-offline/libs/llama.kt
+        run: |
+          set -euo pipefail
+          bash scripts/bootstrap.sh
+          bash scripts/build-opencl.sh
+
+      - name: Run Android unit tests and compile APK
+        run: gradle --no-daemon -p android-offline :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NERAL-Android-Offline-Preview-APK
+          path: android-offline/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

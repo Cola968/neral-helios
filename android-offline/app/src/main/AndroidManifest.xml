@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Used only when a user explicitly downloads the model once. Chat stays on-device. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:name=".NeralApplication"
+        android:label="NERAL Offline 0.4"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Optional GPU drivers; declaring them avoids Android 12+ namespace denials. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvulkan.so" android:required="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".NativeChatActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".LauncherActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
