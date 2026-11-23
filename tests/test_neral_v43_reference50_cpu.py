@@ -1,6 +1,7 @@
 """CPU-only benchmark protocol: 50 fresh, matched, locally sealed cases."""
 import json
 import errno
+import socket
 from unittest.mock import MagicMock, patch
 from scripts import neral_v43_reference50_live as live
 import tempfile
@@ -85,6 +86,16 @@ class Reference50ContractCPU(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError,
                                                 "Port 9690"):
                         live.ensure_port_unbound()
+
+    def test_real_port_binding_rejects_active_local_listener(self):
+        # This is a real socket test, not a mocked network/OS response.
+        with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1",0))
+            listener.listen(1)
+            bound_port=listener.getsockname()[1]
+            with self.assertRaisesRegex(RuntimeError,"Port 9690"):
+                live.ensure_port_unbound(port=bound_port)
+        self.assertTrue(live.ensure_port_unbound(port=bound_port))
 
     def test_reject_weak_seed(self):
         with self.assertRaises(ValueError): generate_cases("1234")
