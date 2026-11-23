@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -56,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -90,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - name: Prepare new private sealed cases and verify preinstalled offline code-grader
         run: |
@@ -123,7 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - name: Exactly 50 isolated frozen NERAL 1.0 Obsidian requests
         run: |
@@ -145,7 +145,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - name: Roll back original owner even after failed NERAL run
         env:
@@ -172,7 +172,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - name: Authenticated owner unload, raw Qwen3.5-9B 50, finally restore HTTP200
         env:
@@ -198,7 +198,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - name: Independent idempotent original-owner restore, even after failed raw process
         env:
@@ -222,7 +222,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '93f4617eaa8bbf6a3294c8db0f41f295bf4acebe' }}
+          ref: 'e2393db210c581f1917b27013def1730459c60f8'
           persist-credentials: false
       - name: Seal 50 pairs and verify original service HTTP200
         run: |
