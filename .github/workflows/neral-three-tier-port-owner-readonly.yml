@@ -317,11 +317,20 @@ jobs:
                       summary = "|".join(Path(z.filename).name+":"+str(z.lineno)+":"+z.name for z in frames)
                       print("NERAL_CPU_IMPORT_FAIL",label,n,type(e).__name__,msg[:180],"frames="+summary,flush=True)
           '@
-          Push-Location -LiteralPath $root
+          # Windows PowerShell 5.1 strips nested quotes from native -c arguments.
+          # Use an ephemeral CPU-only script file instead; never write to NERAL data.
+          $probe=Join-Path $env:RUNNER_TEMP ('neral-cpu-import-'+$env:GITHUB_RUN_ID+'.py')
+          if(Test-Path -LiteralPath $probe){throw 'Ephemeral probe already exists'}
+          [IO.File]::WriteAllText($probe,$src,[Text.Encoding]::UTF8)
+          $pref=$ErrorActionPreference
           try{
-            $output=@(& $py -B -c $src $root $web 2>&1)
+            $ErrorActionPreference='Continue'
+            $output=@(& $py -B $probe $root $web 2>&1)
             $code=$LASTEXITCODE
-          }finally{Pop-Location}
+          }finally{
+            $ErrorActionPreference=$pref
+            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+          }
           foreach($line in $output){
             if([string]$line -match '^NERAL_CPU_'){Write-Host ([string]$line)}
           }
