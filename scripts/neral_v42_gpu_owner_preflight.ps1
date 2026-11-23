@@ -2,12 +2,13 @@
 param([switch]$CpuTest)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'neral_v42_gpu_capacity.ps1')
 
 function Deny([string]$code){
   throw ('NERAL_GPU_PREFLIGHT_REASON:'+$code)
 }
 function Inspect-GpuApps {
-  param([string[]]$Rows,[int[]]$Owners,[scriptblock]$ResolveName,[int]$FreeMiB)
+  param([string[]]$Rows,[int[]]$Owners,[scriptblock]$ResolveName,[int]$FreeMiB,[int]$UsedMiB)
   $ownerMap=@{}
   foreach($p in $Owners){$ownerMap[[int]$p]=$true}
   $seen=@{}
@@ -41,7 +42,9 @@ function Inspect-GpuApps {
   }
   if($foreignPython -gt 0){Deny 'foreign_python_compute_active'}
   if($foreignLLM -gt 0){Deny 'foreign_llm_compute_active'}
-  if($FreeMiB -lt 8500){Deny 'driver_free_memory_below_8500_mib'}
+  # This owner has already loaded the model. Only check system-wide cap
+  # and residual KV-cache headroom; 8500 MiB applies solely PRE-load.
+  Assert-NeralGpuCapacity -Phase PostLoad -FreeMiB $FreeMiB -UsedMiB $UsedMiB
   return @{
     foreign_python_gpu_process_count=0
     foreign_heavy_gpu_process_count=0
@@ -57,14 +60,14 @@ if($CpuTest){
   # CPU-only synthetic tests: no driver query or process inspection.
   $names=@{10='python.exe';20='dwm.exe';21='chrome.exe';22='csrss.exe';30='python.exe';40='ollama.exe'}
   $resolve={param($p) $names[[int]$p]}
-  $good=Inspect-GpuApps -Rows @('10, [N/A]','20, [N/A]','21, N/A','22, 142 MiB') -Owners @(10) -ResolveName $resolve -FreeMiB 9000
+  $good=Inspect-GpuApps -Rows @('10, [N/A]','20, [N/A]','21, N/A','22, 142 MiB') -Owners @(10) -ResolveName $resolve -FreeMiB 1979 -UsedMiB 10303
   if($good.gui_gpu_process_count -ne 3 -or $good.wddm_na_memory_rows -ne 3){
     throw 'CPU WDDM GUI/N/A test mismatch'
   }
   Write-Output 'NERAL_WDDM_CPU_GUI_NA_ALLOWED'
   $blocked=$false
   try {
-    $null=Inspect-GpuApps -Rows @('10, [N/A]','30, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 9000
+    $null=Inspect-GpuApps -Rows @('10, [N/A]','30, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 1979 -UsedMiB 10303
   } catch {
     $blocked=$_.Exception.Message -like '*foreign_python_compute_active*'
   }
@@ -72,19 +75,28 @@ if($CpuTest){
   Write-Output 'NERAL_WDDM_CPU_FOREIGN_PYTHON_BLOCKED'
   $blocked=$false
   try {
-    $null=Inspect-GpuApps -Rows @('10, [N/A]','40, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 9000
+    $null=Inspect-GpuApps -Rows @('10, [N/A]','40, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 1979 -UsedMiB 10303
   } catch {
     $blocked=$_.Exception.Message -like '*foreign_llm_compute_active*'
   }
   if(-not $blocked){throw 'CPU foreign LLM block not enforced'}
   $blocked=$false
   try {
-    $null=Inspect-GpuApps -Rows @('10, [N/A]','20, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 8499
+    $null=Inspect-GpuApps -Rows @('10, [N/A]','20, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 999 -UsedMiB 10303
   } catch {
-    $blocked=$_.Exception.Message -like '*driver_free_memory_below_8500_mib*'
+    $blocked=$_.Exception.Message -like '*driver_postload_free_below_1000_mib*'
   }
-  if(-not $blocked){throw 'CPU 8500-MiB driver-free gate not enforced'}
+  if(-not $blocked){throw 'CPU 1000-MiB post-load headroom gate not enforced'}
   Write-Output 'NERAL_WDDM_CPU_LOW_FREE_BLOCKED'
+  $blocked=$false
+  try {
+    $null=Inspect-GpuApps -Rows @('10, [N/A]','20, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 1100 -UsedMiB 10753
+  } catch {
+    $blocked=$_.Exception.Message -like '*driver_postload_used_above_10752_mib*'
+  }
+  if(-not $blocked){throw 'CPU 10752-MiB total used cap not enforced'}
+  Write-Output 'NERAL_WDDM_CPU_SYSTEM_CAP_BLOCKED'
+  Write-Output 'NERAL_WDDM_CPU_POSTLOAD_1979_ALLOWED'
   exit 0
 }
 
@@ -125,7 +137,7 @@ try {
     if($null -eq $process){return ''}
     return [string]$process.Name
   }
-  $report=Inspect-GpuApps -Rows $rows -Owners $owners -ResolveName $resolver -FreeMiB $free
+  $report=Inspect-GpuApps -Rows $rows -Owners $owners -ResolveName $resolver -FreeMiB $free -UsedMiB $used
   $report.owner_pids=@($owners)
   $report.system_gpu_preflight_mib=$used
   $report.system_gpu_free_preflight_mib=$free

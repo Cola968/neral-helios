@@ -37,7 +37,8 @@ $approvedV42Diag3 = $env:GITHUB_REF -ceq 'refs/heads/main' -and
      $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 float tolerance recheck 20261122' -or
       $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved telemetry 3x2 source year math guard 20261122' -or
       $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123' -or
-      $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved WDDM 3x2 final 20261123')
+      $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved WDDM 3x2 final 20261123' -or
+      $env:NERAL_V42_DIAG3_MERGE_TITLE -ceq 'NERAL V4.2 owner-approved prepost capacity 3x2 20261123')
 if(-not ($approvedFeature -or $approvedBlind200 -or $approvedV42AB50 -or $approvedV42Smoke5 -or $approvedV42Diag3)){
   throw 'V4.1 owner deployment requires pinned feature branch or explicitly approved main benchmark'
 }
@@ -46,6 +47,9 @@ $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
 $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
 $src=$env:GITHUB_WORKSPACE
 $python='D:/neral-qlora/venv/Scripts/python.exe'
+if($approvedV42Diag3){
+  . (Join-Path $src 'scripts/neral_v42_gpu_capacity.ps1')
+}
 if(-not(Test-Path -LiteralPath $service -PathType Leaf) -or
    -not(Test-Path -LiteralPath $python -PathType Leaf)){
   throw 'Pinned V4 owner service or isolated Python unavailable'
@@ -122,6 +126,12 @@ function Write-NeralGpuBaseline {
   }
   Write-Host ('NERAL_GPU_BASELINE_MIB used='+$used+' free='+$free+' total='+$total)
   if($used -gt 10752){throw 'GPU memory cap exceeded before NERAL startup'}
+  if($approvedV42Diag3){
+    # StopOwned has already unloaded the old model. This is the ONLY
+    # 8500-MiB pre-load gate, before StartOwned loads the new NERAL model.
+    Assert-NeralGpuCapacity -Phase PreLoad -FreeMiB $free -UsedMiB $used
+    Write-Host ('NERAL_GPU_PRELOAD_CAPACITY_OK free_mib='+$free+' used_mib='+$used)
+  }
 }
 function StopOwned {
   $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop

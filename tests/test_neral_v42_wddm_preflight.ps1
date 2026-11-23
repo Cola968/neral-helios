@@ -5,7 +5,9 @@ $out=@(& (Join-Path $PSScriptRoot '../scripts/neral_v42_gpu_owner_preflight.ps1'
 if($LASTEXITCODE -ne 0 -or
   -not ($out -match 'NERAL_WDDM_CPU_GUI_NA_ALLOWED') -or
   -not ($out -match 'NERAL_WDDM_CPU_FOREIGN_PYTHON_BLOCKED') -or
-  -not ($out -match 'NERAL_WDDM_CPU_LOW_FREE_BLOCKED')){
+  -not ($out -match 'NERAL_WDDM_CPU_LOW_FREE_BLOCKED') -or
+  -not ($out -match 'NERAL_WDDM_CPU_SYSTEM_CAP_BLOCKED') -or
+  -not ($out -match 'NERAL_WDDM_CPU_POSTLOAD_1979_ALLOWED')){
   throw 'WDDM CPU preflight regression missing'
 }
 Write-Host 'PASS final WDDM CPU preflight contracts'
