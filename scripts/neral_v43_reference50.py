@@ -165,9 +165,13 @@ def aggregate(cases, records):
     if len(found)!=100 or set(found)!=keys or len(set(found))!=100:
         raise ValueError("Incomplete, duplicated or foreign baseline results")
     by_engine=defaultdict(list)
+    identities={case["id"]:(case["category"],
+               sha256(case["prompt"].encode("utf-8")).hexdigest()) for case in cases}
     for row in records:
-        if row.get("grade") not in ("pass","fail","ungraded"):
-            raise ValueError("Invalid grade, HTTP200 cannot imply success")
+        if (row.get("grade") not in ("pass","fail","ungraded")
+                or (row.get("category"),row.get("prompt_sha256"))
+                   != identities[row["id"]]):
+            raise ValueError("Grade, category or sealed prompt hash mismatch")
         by_engine[row["engine"]].append(row)
     output={"source_commit":FROZEN,"pairs":50,"observations":100,
             "engines":{},"no_training_capture":True}
