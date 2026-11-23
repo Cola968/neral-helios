@@ -333,3 +333,25 @@ $null=[System.Management.Automation.Language.Parser]::ParseFile(
   [ref]$tok,[ref]$err)
 if($err -and @($err).Count -ne 0){throw 'Final read-only GPU owner preflight PowerShell syntax invalid'}
 Write-Host 'PASS V4.2 final 3+3 authorization, replay denial and GPU preflight syntax'
+
+# WDDM follow-up: one exact approved title may pass; replay and PR may not.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved WDDM 3x2 final 20261123'
+& $guard
+foreach($case in @(
+  @{attempt='2';event='push';title='NERAL V4.2 owner-approved WDDM 3x2 final 20261123'},
+  @{attempt='1';event='pull_request';title='NERAL V4.2 owner-approved WDDM 3x2 final 20261123'},
+  @{attempt='1';event='push';title='Unrelated'}
+)){
+  $env:GITHUB_RUN_ATTEMPT=$case.attempt
+  $env:GITHUB_EVENT_NAME=$case.event
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$case.title
+  $denied=$false
+  try { & $guard } catch { $denied=$true }
+  if(-not $denied){throw 'WDDM final title accepted replay, PR or unrelated push'}
+}
+Write-Host 'PASS WDDM single approved push and strict replay denial'
