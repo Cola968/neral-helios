@@ -194,8 +194,13 @@ function StartOwned {
 
 # Never mutate original dataset, 97-example note store, frozen private holdout,
 # model checkpoint or production LoRA weights.
+# All local neral_*.py dependencies reachable from the evidence agent and
+# page reader are staged and rolled back together. Guarded by the AST CPU test.
 $files=@('neral_v41_context.py','neral_verified_notes.py',
-         'neral_evidence_agent.py','neral_page_reader.py','neral_obsidian_deep.py','neral_local_wiki.py',
+         'neral_evidence_agent.py','neral_page_reader.py','neral_web_search.py',
+         'neral_quantity_plans.py','neral_z3_json_compiler.py',
+         'neral_v32_verifier.py','neral_knowledge_verifier.py',
+         'neral_obsidian_deep.py','neral_local_wiki.py',
          'neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
          'neral_three_tier_runtime.py','neral_preview_server.py',
          'templates/neral_preview.html',
@@ -278,11 +283,14 @@ try{
     }
   }
   $env:PYTHONPATH=$root
-  $py=@('neral_v41_context.py','neral_verified_notes.py',
-        'neral_evidence_agent.py','neral_page_reader.py','neral_obsidian_deep.py','neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py','neral_v42_quality.py',
-        'neral_three_tier_runtime.py','neral_preview_server.py')
+  # Compile precisely the deployed Python manifest, never a stale subset.
+  $py=@($files | Where-Object { $_ -like '*.py' })
   & $python -m py_compile @($py|ForEach-Object { Join-Path $root $_ })
   if($LASTEXITCODE -ne 0){throw 'Installed V4.1 Python modules failed syntax check'}
+  # Isolated Python ignores the CI checkout and PYTHONPATH. Import the *installed*
+  # evidence stack to catch mixed versions before any owner GPU diagnostic.
+  & $python -I -c "import sys; sys.path.insert(0, r'$root'); import neral_page_reader; import neral_evidence_agent"
+  if($LASTEXITCODE -ne 0){throw 'Installed V4.2 evidence import preflight failed'}
   StartOwned
   if(-not(HttpReady) -or $null -eq (ReadOwnedListener)){
     throw 'Updated V4.1 service failed owned HTTP200 check'
