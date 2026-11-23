@@ -37,9 +37,9 @@ class Reference50ContractCPU(unittest.TestCase):
 
     def test_aggregate_rejects_missing_or_duplicate_and_ungrounded_scores(self):
         cases=generate_cases(self.SEED)
-        rows=[{"id":c["id"],"engine":"raw_qwen35_9b","grade":"pass",
+        rows=[{"id":c["id"],"category":c["category"],"engine":"raw_qwen35_9b","grade":"pass",
                "latency_ms":100,"vram_total_peak_mib":8500} for c in cases]
-        rows += [{"id":c["id"],"engine":"neral10_obsidian","grade":"pass",
+        rows += [{"id":c["id"],"category":c["category"],"engine":"neral10_obsidian","grade":"pass",
                   "latency_ms":120,"vram_total_peak_mib":8900} for c in cases]
         stats=aggregate(cases,rows)
         self.assertEqual(stats["observations"],100)
