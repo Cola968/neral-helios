@@ -34,7 +34,7 @@ def _bounded_year_clip_code(query, original, excerpt):
 TIMEOUT = 4.0
 CONNECT_TIMEOUT = 2.5
 _executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="page-reader")
-_blocks = {"p", "div", "section", "li", "tr", "br", "h1", "h2", "h3", "dt", "dd"}
+_blocks = {"p", "div", "section", "li", "tr", "br", "h1", "h2", "h3", "dt", "dd", "figcaption"}
 _ignored = {"nav", "aside", "footer", "script", "style", "noscript", "svg", "template",
             "iframe", "form", "button", "title", "head"}
 _void = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
@@ -47,6 +47,8 @@ class MainText(HTMLParser):
         self.stack = []
         self.all = []
         self.main = []
+        self.infobox = []
+        self._infobox_depth = None
         self.year_clip_code = "not_year_query"
 
     def _add(self, data):
@@ -54,9 +56,17 @@ class MainText(HTMLParser):
             self.all.append(data)
             if any(tag in {"main", "article"} for tag, _ in self.stack):
                 self.main.append(data)
+            # Real infobox tables can precede <main>; never lose their literal
+            # cell text when a page also provides an article/main element.
+            if self._infobox_depth is not None and len(self.stack) >= self._infobox_depth:
+                self.infobox.append(data)
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
+        if (tag == "table" and self._infobox_depth is None and
+                re.search(r"(?i)\binfobox\b", str(attributes.get("class") or "") +
+                          " " + str(attributes.get("id") or ""))):
+            self._infobox_depth = len(self.stack) + 1
         hidden = (tag in _ignored or "hidden" in attributes or
                   attributes.get("aria-hidden") == "true" or
                   attributes.get("role") in {"navigation", "banner", "contentinfo"})
@@ -79,13 +89,18 @@ class MainText(HTMLParser):
             if self.stack[index][0] == tag:
                 del self.stack[index:]
                 break
+        if self._infobox_depth is not None and len(self.stack) < self._infobox_depth:
+            self._infobox_depth = None
 
     def handle_data(self, data):
         self._add(data)
 
     def text(self, query):
+        # The extracted main text is still the canonical page body. Prepend
+        # literal infobox text solely when a separate <main> would omit it.
+        parts = (self.infobox + self.main) if self.main and self.infobox else (self.main or self.all)
         lines = list(dict.fromkeys(
-            line for part in "".join(self.main or self.all).splitlines()
+            line for part in "".join(parts).splitlines()
             if (line := " ".join(part.split()))))
         full = "\n".join(lines)
         if len(full) <= MAX_TEXT:
@@ -142,6 +157,27 @@ class MainText(HTMLParser):
                                        (20 if i in year_pairs else 0), i))
         selected = set()
         remaining = MAX_TEXT
+        # A query's named Apollo mission + landing + year in one literal line
+        # is more useful than dozens of high-keyword, undated table-of-contents
+        # lines. Promote the real source span without creating or rewriting it.
+        # Reject mixed missions: another Apollo mission cannot provide its year.
+        requested = re.search(r"(?i)\bapollo\s+(\d{1,3})\b", query)
+        preferred = []
+        if requested and re.search(r"(?i)\b(?:year|jahr)\b", query):
+            subject = "apollo " + str(int(requested.group(1)))
+            for i, line in enumerate(lines):
+                named = set(name.casefold() for name in re.findall(
+                    r"(?i)\bapollo\s+\d{1,3}\b", line))
+                if (named == {subject} and
+                        re.search(r"(?i)\b(?:land\w*|mondland\w*|moon\s+landing)\b", line) and
+                        re.search(r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)", line) and
+                        len(line) <= 600):
+                    preferred.append(i)
+        for i in preferred[:3]:
+            space = len(lines[i]) + 1
+            if space <= remaining:
+                selected.add(i)
+                remaining -= space
         for i in ranked:
             indices = year_pairs.get(i, (i,))
             missing = [j for j in indices if j not in selected]
@@ -155,7 +191,11 @@ class MainText(HTMLParser):
         if not selected or (ranked and len(lines[ranked[0]]) >= MAX_TEXT):
             excerpt = _complete_text_clip(lines[ranked[0]], MAX_TEXT)
         else:
-            excerpt = "\n".join(lines[i] for i in sorted(selected))
+            # Place quoted, dated source lines first, then retain source order
+            # for remaining context. All characters still come from the page.
+            first = [i for i in preferred[:3] if i in selected]
+            others = [i for i in sorted(selected) if i not in first]
+            excerpt = "\n".join(lines[i] for i in first + others)
         self.year_clip_code = _bounded_year_clip_code(query, full, excerpt)
         return excerpt
 

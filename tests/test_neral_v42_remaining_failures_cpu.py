@@ -321,5 +321,121 @@ class ThreeSentenceYearEvidenceCPU(unittest.TestCase):
         self.assertTrue(result["agent_checked"], result)
         self.assertEqual(result.get("source_year_shortcut"), True)
 
+
+class ApolloInfoboxAndQuartzStdoutRegressionCPU(unittest.TestCase):
+    """Synthetic only: no source URL fetched, no private benchmark cases."""
+
+    def test_apollo_infobox_outside_main_survives_4600_char_window(self):
+        from neral_page_reader import MainText, MAX_TEXT
+        from neral_v42_quality import year_source_pipeline_code, unique_read_year_source
+        date = "Apollo 11 landed on the Moon on 20 July 1969."
+        filler = "".join(
+            "<p>Apollo 11 NASA moon landing mission overview, section %d. "
+            "General information about missions without any year.</p>" % i
+            for i in range(170))
+        html = (
+            '<table class="infobox vevent"><tbody>'
+            '<tr><th scope="row">Landing</th><td>' + date + '</td></tr>'
+            '</tbody></table>'
+            '<main><h1>Apollo 11</h1>' + filler + '</main>')
+        parser = MainText()
+        parser.feed(html)
+        excerpt = parser.text("Apollo 11 NASA moon landing year")
+        self.assertLessEqual(len(excerpt), MAX_TEXT)
+        self.assertIn(date, excerpt)
+        self.assertLess(excerpt.index(date), 800)
+        pages = [{"url": URL, "page_read": True, "page_text": excerpt,
+                  "year_clip_code": parser.year_clip_code}]
+        self.assertEqual(parser.year_clip_code, "year_preserved_in_extract")
+        self.assertEqual(year_source_pipeline_code(YEAR, pages, {"web1": excerpt}),
+                         "candidate_available")
+        candidate = unique_read_year_source(YEAR, pages)
+        self.assertIsNotNone(candidate)
+        self.assertIn(candidate["quote"], excerpt)
+
+    def test_dated_lead_paragraph_after_long_repetitive_content_wins_ranking(self):
+        from neral_page_reader import MainText, MAX_TEXT
+        date = "Apollo 11 landed on the Moon on 20 July 1969."
+        filler = "".join(
+            "<p>NASA Apollo 11 moon landing mission section %d. "
+            "NASA Apollo 11 moon landing mission chronology notes.</p>" % i
+            for i in range(180))
+        markup = "<main>" + filler + "<p>" + date + "</p></main>"
+        parser = MainText()
+        parser.feed(markup)
+        excerpt = parser.text("Apollo 11 NASA moon landing year")
+        self.assertLessEqual(len(excerpt), MAX_TEXT)
+        self.assertIn(date, excerpt)
+        self.assertLess(excerpt.index(date), 800)
+
+    def test_undated_or_different_mission_infobox_never_proves_1969(self):
+        from neral_page_reader import MainText
+        from neral_v42_quality import unique_read_year_source
+        markup = ('<table class="infobox"><tr><th>Landing</th>'
+                  '<td>Apollo 12 landed on the Moon in November 1969.</td>'
+                  '</tr></table><main><p>Apollo 11 was a lunar mission.</p></main>')
+        parser = MainText()
+        parser.feed(markup)
+        excerpt = parser.text("Apollo 11 NASA moon landing year")
+        pages = [{"url": URL, "page_read": True, "page_text": excerpt}]
+        self.assertIsNone(unique_read_year_source(YEAR, pages))
+
+    def test_two_step_stock_stdout_accepts_verified_realistic_single_line_forms(self):
+        from neral_v42_quality import stock_stdout_diagnostic_code
+        valid = (
+            "Gesamt: 391, Rest: 345",
+            "Gesamt: 391; Rest: 345",
+            "17 * 23 - 46 = 345",
+            "17 × 23 - 46 = 345",
+            "Gesamt: 391\nNach Abgabe von 46 Bauteilen bleiben 345 übrig",
+            ("Die Gesamtlieferung beträgt 391 Bauteile. "
+             "Nach Abgabe von 46 Bauteilen bleiben 345 Bauteile übrig."),
+        )
+        for output in valid:
+            with self.subTest(output=output):
+                self.assertEqual(exact_executed_numeric_tail(
+                    output, succeeded=True, prompt=MATH), "ENDERGEBNIS: 345")
+                self.assertEqual(stock_stdout_diagnostic_code(
+                    output, succeeded=True, prompt=MATH), "accepted")
+
+    def test_new_forms_reject_wrong_inputs_contradiction_and_extra_output(self):
+        bad = (
+            "Gesamt: 391, Rest: 346",
+            "Gesamt: 392, Rest: 345",
+            "Gesamt: 391, Rest: 345, Rest: 346",
+            "Gesamt: 391, Rest: 345\nRest: 346",
+            "17 * 23 - 45 = 346",
+            "17 * 24 - 46 = 362",
+            "17 * 23 - 46 = 345; ENDERGEBNIS: 346",
+            "Gesamt: 391\nNach Abgabe von 47 Bauteilen bleiben 345 übrig",
+            ("Die Gesamtlieferung beträgt 391 Bauteile. "
+             "Nach Abgabe von 46 Bauteilen bleiben 344 Bauteile übrig."),
+            "Gesamt: 391\nAntwort: 345",
+        )
+        for output in bad:
+            with self.subTest(output=output):
+                self.assertIsNone(exact_executed_numeric_tail(
+                    output, succeeded=True, prompt=MATH))
+
+    def test_quartz_emits_single_terminal_result_without_second_generation(self):
+        runtime, _, high, _ = make_runtime()
+        generations = []
+        def generation(*args, **kw):
+            generations.append(1)
+            high.loaded = True
+            return chr(96)*3 + "python\nprint('Gesamt: 391, Rest: 345')\n" + chr(96)*3
+        high.respond_chat = generation
+        runtime.execute_python = Mock(return_value={
+            "status": "PASSED", "output": "Gesamt: 391, Rest: 345"})
+        response = runtime.answer([
+            {"role": "system", "content": "Nur die aktuelle Aufgabe"},
+            {"role": "user", "content": MATH}], "Quartz")
+        self.assertTrue(response["sandbox_executed"])
+        lines = [line.strip() for line in response["text"].splitlines() if line.strip()]
+        self.assertEqual(lines[-1], "ENDERGEBNIS: 345")
+        self.assertEqual(lines.count("ENDERGEBNIS: 345"), 1)
+        self.assertEqual(response["math_stdout_diagnostic_code"], "accepted")
+        self.assertEqual(len(generations), 1)
+
 if __name__=="__main__":
     unittest.main()
