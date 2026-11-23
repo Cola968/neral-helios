@@ -336,3 +336,32 @@ jobs:
           }
           Write-Host ('NERAL_IMPORT_PREFLIGHT_CPU_ONLY exit='+$code)
           $global:LASTEXITCODE=0
+
+
+      - name: NERAL_MISSING_MODULE_INVENTORY verify exact optional files and local package cache
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $backup=Join-Path $env:LOCALAPPDATA 'neral-v41-backup-45199017715'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          foreach($name in @('neral_v41_context.py','neral_obsidian_deep.py',
+            'neral_local_wiki.py','neral_v42_deadline.py','neral_v42_telemetry.py',
+            'neral_v42_quality.py','neral_verified_notes.py','neral_verified_training.py')){
+            Write-Host ('NERAL_FILE_STATE '+$name+' installed='+
+              (Test-Path -LiteralPath (Join-Path $root $name) -PathType Leaf)+
+              ' backup='+(Test-Path -LiteralPath (Join-Path $backup $name) -PathType Leaf))
+          }
+          $text=[IO.File]::ReadAllText($service)
+          $flags=[regex]::Matches($text,'--[a-z][a-z0-9-]+')|ForEach-Object {$_.Value}|Select-Object -Unique
+          Write-Host ('NERAL_SERVICE_FLAGS '+(($flags)-join ',')+
+            ' references_webdeps='+($text -match '(?i)(?:three-tier-web-deps|waitress)')+
+            ' env_enable_evidence='+($text -match "(?i)NERAL_V3_AGENT_ENABLED\s*=\s*['""]1"))
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $p=@(& $py -B -m pip show lm-format-enforcer 2>$null)
+          $pipPresent=($LASTEXITCODE -eq 0)
+          $global:LASTEXITCODE=0
+          $cache=@(& $py -B -m pip cache list --format=abspath 2>$null)
+          $cached=@($cache|Where-Object {$_ -match '(?i)lm[-_]format[-_]enforcer'}).Count
+          $global:LASTEXITCODE=0
+          Write-Host ('NERAL_LMFORMAT_PACKAGE pip_installed='+$pipPresent+' cached_wheels='+$cached)
+          $global:LASTEXITCODE=0
