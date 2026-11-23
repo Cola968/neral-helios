@@ -258,3 +258,72 @@ jobs:
             Write-Host 'NERAL_FORENSIC_TASK_EVENTS unavailable'
           }
           $global:LASTEXITCODE=0
+
+
+      - name: NERAL_IMPORT_PREFLIGHT_CPU_ONLY inspect service environment and Python imports
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $web=Join-Path $root 'local_state/three-tier-web-deps'
+          if(-not(Test-Path -LiteralPath $service -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Pinned service or Python unavailable'
+          }
+          $lines=@(Get-Content -LiteralPath $service -ErrorAction Stop)
+          $safe=@()
+          for($i=0;$i -lt $lines.Count;$i++){
+            $line=$lines[$i]
+            if($line -match '^\s*\$env:([A-Za-z_][A-Za-z0-9_]*)\s*='){
+              $safe+=([string]($i+1)+':env:'+ $Matches[1])
+            }
+            if($line -match '(?i)^\s*&.*(?:python|neral_preview_server)'){
+              $safe+=([string]($i+1)+':invoke-python')
+            }
+            if($line -match '(?i)(?:Start-Process|Start-ScheduledTask|RedirectStandardError|2>\S+)'){
+              $safe+=([string]($i+1)+':process-or-redirect')
+            }
+          }
+          Write-Host ('NERAL_SERVICE_ENV_KEYS '+($safe -join ',')+
+            ' web_deps_dir_present='+(Test-Path -LiteralPath $web -PathType Container)+
+            ' waitress_web_deps_present='+(Test-Path -LiteralPath (Join-Path $web 'waitress/__init__.py') -PathType Leaf))
+          $src=@'
+          import os, sys, importlib, importlib.util, traceback, re
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          web = Path(sys.argv[2])
+          os.chdir(root)
+          for label, paths in (("original_path", [str(root)]),
+                               ("with_webdeps", [str(web), str(root)])):
+              sys.path[:] = [x for x in sys.path if x not in (str(root),str(web))]
+              sys.path[:0] = paths
+              names = ("flask","waitress","werkzeug","torch","transformers","peft",
+                       "bitsandbytes","z3","sympy","lmformatenforcer")
+              specs = {}
+              for n in names:
+                  try: specs[n] = importlib.util.find_spec(n) is not None
+                  except Exception: specs[n] = False
+              print("NERAL_CPU_DEP_SPECS",label,",".join(k+"="+str(v) for k,v in specs.items()), flush=True)
+              for n in ("neral_preview_server", "neral_three_tier_runtime", "neral_agent_autonomy"):
+                  if n in sys.modules: del sys.modules[n]
+                  try:
+                      importlib.import_module(n)
+                      print("NERAL_CPU_IMPORT",label,n,"OK",flush=True)
+                  except Exception as e:
+                      msg = re.sub(r'[A-Za-z]:[\\/][^ \n\r\t\'"]+', '<local-path>', str(e))
+                      msg = re.sub(r'(?i)(token|key|password|secret)\s*[:=]\s*\S+',r'\1=<redacted>',msg)
+                      frames = traceback.extract_tb(e.__traceback__)[-7:]
+                      summary = "|".join(Path(z.filename).name+":"+str(z.lineno)+":"+z.name for z in frames)
+                      print("NERAL_CPU_IMPORT_FAIL",label,n,type(e).__name__,msg[:180],"frames="+summary,flush=True)
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            $output=@(& $py -B -c $src $root $web 2>&1)
+            $code=$LASTEXITCODE
+          }finally{Pop-Location}
+          foreach($line in $output){
+            if([string]$line -match '^NERAL_CPU_'){Write-Host ([string]$line)}
+          }
+          Write-Host ('NERAL_IMPORT_PREFLIGHT_CPU_ONLY exit='+$code)
+          $global:LASTEXITCODE=0
