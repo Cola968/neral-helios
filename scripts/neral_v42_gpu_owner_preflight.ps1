@@ -61,7 +61,7 @@ if($CpuTest){
   if($good.gui_gpu_process_count -ne 3 -or $good.wddm_na_memory_rows -ne 3){
     throw 'CPU WDDM GUI/N/A test mismatch'
   }
-  Write-Host 'NERAL_WDDM_CPU_GUI_NA_ALLOWED'
+  Write-Output 'NERAL_WDDM_CPU_GUI_NA_ALLOWED'
   $blocked=$false
   try {
     $null=Inspect-GpuApps -Rows @('10, [N/A]','30, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 9000
@@ -69,7 +69,7 @@ if($CpuTest){
     $blocked=$_.Exception.Message -like '*foreign_python_compute_active*'
   }
   if(-not $blocked){throw 'CPU foreign Python block not enforced'}
-  Write-Host 'NERAL_WDDM_CPU_FOREIGN_PYTHON_BLOCKED'
+  Write-Output 'NERAL_WDDM_CPU_FOREIGN_PYTHON_BLOCKED'
   $blocked=$false
   try {
     $null=Inspect-GpuApps -Rows @('10, [N/A]','40, [N/A]') -Owners @(10) -ResolveName $resolve -FreeMiB 9000
@@ -84,7 +84,7 @@ if($CpuTest){
     $blocked=$_.Exception.Message -like '*driver_free_memory_below_8500_mib*'
   }
   if(-not $blocked){throw 'CPU 8500-MiB driver-free gate not enforced'}
-  Write-Host 'NERAL_WDDM_CPU_LOW_FREE_BLOCKED'
+  Write-Output 'NERAL_WDDM_CPU_LOW_FREE_BLOCKED'
   exit 0
 }
 
