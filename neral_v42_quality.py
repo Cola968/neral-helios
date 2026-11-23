@@ -474,7 +474,7 @@ def _read_page_subject_heading(subject, page_text):
         # Heading must identify precisely this Apollo mission, not another
         # mission or a search snippet mentioning Apollo 11 in passing.
         if re.fullmatch(r"(?iu)" + re.escape(subject) +
-                        r"(?:\s*[-–—:|]\s*[^\\n]{1,75})?", line):
+                        r"(?:\s*[-–—:|]\s*[^\n]{1,75})?", line):
             missions = {x.casefold() for x in re.findall(
                 r"(?i)\bapollo\s+\d{1,3}\b", line)}
             if not missions or missions == {subject.casefold()}:
@@ -492,11 +492,20 @@ def _year_quote_supports(question, quote, year, *, page_text=None):
     if subject.casefold() not in quote.casefold():
         # Ellipsis, deictic pronouns or infobox labels may refer to a literal
         # heading on the read page, but a search-hit title is never evidence.
-        if (type(page_text) is not str or quote not in page_text or
+        if (not re.fullmatch(r"(?iu)apollo\s+\d{1,3}", subject) or
+                type(page_text) is not str or quote not in page_text or
                 not _read_page_subject_heading(subject, page_text) or
                 not re.search(
                     r"(?iu)\b(?:die\s+mission|sie|the\s+mission|"
                     r"it|the\s+crew|landung|mondlandung)\b", quote)):
+            return False
+        # Check the immediately preceding *read-page* context for an
+        # intervening different mission. A correct page title alone cannot
+        # justify attaching "Sie landete..." to Apollo 11 after Apollo 12.
+        start = page_text.find(quote)
+        preceding = page_text[max(0, start - 360):start]
+        if any(name.casefold() != subject.casefold() for name in re.findall(
+                r"(?i)\bapollo\s+\d{1,3}\b", preceding)):
             return False
     # A nearby date for another Apollo mission is not evidence for this one.
     # This remains a citation-local check; it never supplies a year itself.
