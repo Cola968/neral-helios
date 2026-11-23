@@ -745,13 +745,16 @@ class SearchTopicAndWikipediaFallbackCPU(unittest.TestCase):
     def test_web_search_calls_existing_wikipedia_fallback_with_bad_bing_hits(self):
         from neral_web_search import WebSearch
         class FakeResponse:
-            headers = {"Content-Type": "text/html"}
+            def __init__(self, content_type):
+                self.headers = {"Content-Type": content_type}
             def __enter__(self): return self
             def __exit__(self, *args): return False
             def read(self, n): return b"<html>no hits</html>"
         class FakeOpener:
             def open(self, req, timeout):
-                return FakeResponse()
+                mime = ("application/rss+xml"
+                        if "bing.com" in req.full_url else "text/html")
+                return FakeResponse(mime)
         lookup = []
         def wiki(self_, query, on_provider=None, language="de"):
             lookup.append((query, language))
