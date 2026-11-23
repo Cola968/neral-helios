@@ -253,6 +253,19 @@ def _raw_answer(torch,tokenizer,model,prompt):
         del ids
 
 
+def classify_raw_answer_failure(exc:RuntimeError):
+    """Only known answer-level failures become scored misses.
+
+    GPU pressure, CUDA memory, invalid model identities and any unknown
+    infrastructure exception MUST abort the entire one-shot run safely.
+    """
+    if str(exc)=="Raw output incomplete or exceeded fixed budget":
+        return "raw_answer_incomplete"
+    if str(exc)=="Raw response invalid":
+        return "raw_answer_invalid"
+    raise exc
+
+
 def raw(outdir):
     cases,_=_root(outdir)
     validate_engine_identity("raw_qwen35_9b",checkpoint=CHECKPOINT,adapter_loaded=False)
@@ -270,10 +283,15 @@ def raw(outdir):
                     answer,reserved,total=_raw_answer(torch,tokenizer,model,case["prompt"])
                     grade,reason=_score(case,{"text":answer})
                     response={"text":answer}
-                except RuntimeError:
-                    # A GPU pressure failure is never converted to a scored
-                    # answer; do not continue running another GPU question.
-                    raise
+                except RuntimeError as exc:
+                    # Known generation-budget failures count as *misses* for
+                    # exactly this case; model/GPU/owner failures stay fatal.
+                    reason=classify_raw_answer_failure(exc)
+                    grade="fail"
+                    answer=""
+                    response={"text":""}
+                    reserved=None
+                    total=sample_gpu_mb()
                 elapsed=time.monotonic()-started
                 row=make_record(case,"raw_qwen35_9b",response,
                                 grade=grade,reason=reason,elapsed=elapsed,
