@@ -625,6 +625,26 @@ class GermanApolloYearContextCPU(unittest.TestCase):
         text = "Die Mission landete auf dem Mond am 20. Juli 1969."
         self.assertIsNone(self._candidate(text, title="Apollo 11"))
 
+    def test_exact_subject_heading_with_nasa_subtitle(self):
+        text = ("Apollo 11 – NASA\nMission zur Erkundung des Mondes.\n"
+                "Die Mission landete am 20. Juli 1969 auf dem Mond.")
+        candidate = self._candidate(text)
+        self.assertIsNotNone(candidate)
+        self.assertIn("20. Juli 1969", candidate["quote"])
+
+    def test_pronoun_does_not_attach_to_adjacent_apollo_12(self):
+        from neral_v42_quality import year_evidence_verdict
+        quote = "Die Mission landete am 20. Juli 1969 auf dem Mond."
+        text = ("Apollo 11\nApollo 12 wurde hier ebenfalls beschrieben.\n" +
+                quote)
+        self.assertIsNone(self._candidate(text))
+        self.assertEqual(year_evidence_verdict(
+            YEAR, {"answer": "1969", "citations": [
+                {"source": "web1", "quote": quote}]},
+            {"web1": text, "user": YEAR},
+            [{**PAGE, "page_text": text}], []), "unsupported_year")
+
+
     def test_wrong_mission_or_negated_event_cannot_become_year_source(self):
         for text in (
             "Apollo 11\nApollo 12 landete am 20. Juli 1969 auf dem Mond.",
