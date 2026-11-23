@@ -56,14 +56,23 @@ class LiveReferenceCPU(unittest.TestCase):
                 with store_private(path):
                     pass
 
-    def test_port_9690_must_be_unbound_even_when_http_unhealthy(self):
-        with patch("socket.create_connection",side_effect=ConnectionRefusedError):
+    def test_port_9690_requires_exclusive_bind_even_when_http_unhealthy(self):
+        # A failed HTTP/connect probe cannot prove that the TCP port is free.
+        with patch("socket.socket") as constructor:
+            probe=constructor.return_value.__enter__.return_value
             self.assertTrue(ensure_port_unbound())
-        fake=Mock()
-        with patch("socket.create_connection",return_value=fake):
-            with self.assertRaises(RuntimeError):
+            probe.bind.assert_called_once_with(("127.0.0.1",9690))
+            probe.bind.side_effect=OSError(10048,"local address in use")
+            with self.assertRaisesRegex(RuntimeError,"Port 9690"):
                 ensure_port_unbound()
-        self.assertTrue(fake.close.called)
+
+    def test_windows_exclusive_address_use_is_set_if_supported(self):
+        with patch("socket.SO_EXCLUSIVEADDRUSE",0xFFFFFFFB,create=True), \
+             patch("socket.socket") as constructor:
+            probe=constructor.return_value.__enter__.return_value
+            self.assertTrue(ensure_port_unbound())
+            probe.setsockopt.assert_called_once_with(
+                __import__("socket").SOL_SOCKET,0xFFFFFFFB,1)
 
     def test_complete_results_sha_receipt_is_tamper_evident(self):
         with tempfile.TemporaryDirectory() as temp:

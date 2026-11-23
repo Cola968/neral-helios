@@ -5,6 +5,8 @@ on:
     paths:
       - scripts/neral_v43_reference50.py
       - tests/test_neral_v43_reference50_cpu.py
+      - tests/test_neral_v43_reference50_live_cpu.py
+      - scripts/neral_v43_reference50_live.py
       - .github/workflows/neral-v43-reference50-cpu.yml
   pull_request:
     paths:
@@ -15,7 +17,11 @@ permissions:
   contents: read
 jobs:
   benchmark-privacy-cpu:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
@@ -24,5 +30,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m py_compile scripts/neral_v43_reference50.py tests/test_neral_v43_reference50_cpu.py
+      - run: python -m py_compile scripts/neral_v43_reference50.py scripts/neral_v43_reference50_live.py tests/test_neral_v43_reference50_cpu.py tests/test_neral_v43_reference50_live_cpu.py
       - run: python -m unittest discover -s tests -p test_neral_v43_reference50_cpu.py -v
+      - run: python -m unittest discover -s tests -p test_neral_v43_reference50_live_cpu.py -v

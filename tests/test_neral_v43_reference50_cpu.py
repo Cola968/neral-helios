@@ -1,5 +1,9 @@
 """CPU-only benchmark protocol: 50 fresh, matched, locally sealed cases."""
 import json
+import errno
+import socket
+from unittest.mock import MagicMock, patch
+from scripts import neral_v43_reference50_live as live
 import tempfile
 import unittest
 from collections import Counter
@@ -55,6 +59,43 @@ class Reference50ContractCPU(unittest.TestCase):
         altered=[dict(x) for x in rows]
         altered[0]["category"]="knowledge" if altered[0]["category"]!="knowledge" else "everyday"
         with self.assertRaises(ValueError):aggregate(cases,altered)
+
+
+    def test_port_proof_works_when_windows_connect_error_is_ambiguous(self):
+        # Regression: raw50 aborted on Windows despite a stopped listener.
+        # A successful exclusive bind proves that the local endpoint is free;
+        # a connect timeout or unfamiliar WinError must not be our only test.
+        probe=MagicMock()
+        probe.__enter__.return_value=probe
+        with patch.object(live.socket,"create_connection",
+                          side_effect=TimeoutError("Windows connect probe inconclusive")), \
+             patch.object(live.socket,"socket",return_value=probe):
+            self.assertTrue(live.ensure_port_unbound())
+        probe.bind.assert_called_once_with(("127.0.0.1",9690))
+
+    def test_port_proof_refuses_occupied_or_unverifiable_bind(self):
+        for reason in (OSError(errno.EADDRINUSE,"already occupied"),
+                       PermissionError(errno.EACCES,"bind denied")):
+            with self.subTest(reason=str(reason)):
+                probe=MagicMock()
+                probe.__enter__.return_value=probe
+                probe.bind.side_effect=reason
+                with patch.object(live.socket,"create_connection",
+                                  side_effect=ConnectionRefusedError(errno.ECONNREFUSED,"closed")), \
+                     patch.object(live.socket,"socket",return_value=probe):
+                    with self.assertRaisesRegex(RuntimeError,
+                                                "Port 9690"):
+                        live.ensure_port_unbound()
+
+    def test_real_port_binding_rejects_active_local_listener(self):
+        # This is a real socket test, not a mocked network/OS response.
+        with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1",0))
+            listener.listen(1)
+            bound_port=listener.getsockname()[1]
+            with self.assertRaisesRegex(RuntimeError,"Port 9690"):
+                live.ensure_port_unbound(port=bound_port)
+        self.assertTrue(live.ensure_port_unbound(port=bound_port))
 
     def test_reject_weak_seed(self):
         with self.assertRaises(ValueError): generate_cases("1234")
