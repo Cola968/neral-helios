@@ -74,9 +74,15 @@ class CodexSafetyCPU(unittest.TestCase):
         self.assertEqual(result["attempts"],1)
         mock=Mock(side_effect=subprocess.TimeoutExpired(["docker"],5))
         result=run_test_repair_loop("def f(x):\n return x",
-            tests=[],properties=[],runner=mock)
+            tests=[{"function":"f","args":[0],"expected":0}],
+            properties=[],runner=mock)
         self.assertEqual(result["status"],"timeout")
         self.assertLessEqual(result["attempts"],1)
+
+    def test_empty_test_suite_never_claims_verified(self):
+        result=run_test_repair_loop("def f(x): return x",tests=[],properties=[],runner=Mock())
+        self.assertEqual(result["status"],"tests_failed")
+        self.assertEqual(result["attempts"],0)
 
     def test_invalid_properties_rejected_before_docker(self):
         with self.assertRaises(ValueError):
