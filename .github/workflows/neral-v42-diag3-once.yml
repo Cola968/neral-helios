@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '1d334825971082dd7a56c564a4e293847dd8b33e' }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '1d334825971082dd7a56c564a4e293847dd8b33e' }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
