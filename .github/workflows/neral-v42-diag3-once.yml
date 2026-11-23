@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -110,7 +110,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           persist-credentials: false
       - name: Stage only pinned owner V4.2 with SHA256 backup and no inference
         env:
@@ -138,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           persist-credentials: false
       - name: Quartz exactly three public synthetic probes only
         run: |
@@ -171,7 +171,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           persist-credentials: false
       - name: Obsidian Deep exactly the same three synthetic probes only
         run: |
@@ -204,7 +204,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e'
+          ref: '1d334825971082dd7a56c564a4e293847dd8b33e'
           persist-credentials: false
       - name: Restore exact same-run original owner service, then HTTP200
         env:
