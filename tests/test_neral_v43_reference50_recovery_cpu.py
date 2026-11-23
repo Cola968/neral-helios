@@ -53,16 +53,16 @@ class Reference50RawRecoveryCPU(unittest.TestCase):
             stage=folder/"neral10-50.jsonl"
             with stage.open("x",encoding="utf-8") as stream:
                 for row in rows:
-                    stream.write(json.dumps(row)+"\\n")
+                    stream.write(json.dumps(row)+"\n")
             self.assertTrue(verify_recovery_preflight(folder,expected_sha=digest))
             # Any unscored/contradictory error stays fail-closed.
             rows[1]["grade"]="pass"
-            stage.write_text("".join(json.dumps(r)+"\\n" for r in rows),encoding="utf-8")
+            stage.write_text("".join(json.dumps(r)+"\n" for r in rows),encoding="utf-8")
             with self.assertRaises(ValueError):
                 verify_recovery_preflight(folder,expected_sha=digest)
             rows[1]["grade"]="fail"
             rows[1]["reason"]="independent_exact"
-            stage.write_text("".join(json.dumps(r)+"\\n" for r in rows),encoding="utf-8")
+            stage.write_text("".join(json.dumps(r)+"\n" for r in rows),encoding="utf-8")
             with self.assertRaises(ValueError):
                 verify_recovery_preflight(folder,expected_sha=digest)
 
