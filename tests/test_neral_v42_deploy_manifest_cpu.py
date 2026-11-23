@@ -14,7 +14,7 @@ ENTRY_POINTS = ("neral_evidence_agent", "neral_page_reader")
 
 def deployment_manifest() -> list[str]:
     source = OWNER.read_text(encoding="utf-8")
-    matches = re.findall(r"(?ms)^\\$files\\s*=\\s*@\\((.*?)\\)", source)
+    matches = re.findall(r"(?ms)^\$files\s*=\s*@\((.*?)\)", source)
     if len(matches) != 1:
         raise AssertionError("Expected exactly one owner deploy/rollback $files manifest")
     return re.findall(r"'([^']+)'", matches[0])
