@@ -255,7 +255,7 @@ def web_read(question, query):
 def main():
     question,query=real_diag_query()
     emit("NERAL_APOLLO_CPU_DIAG_BEGIN",{
-        "pinned_source_sha":"48c641aea7a3e9e2f9bc0ffc4d9a85dd6545b76e",
+        "pinned_source_sha":"1d334825971082dd7a56c564a4e293847dd8b33e",
         "gpu_inference":False,
         "no_private_or_sealed_data":True,
         "prompt_type":"exact_approved_public_apollo_year",
