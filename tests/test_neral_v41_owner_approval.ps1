@@ -299,3 +299,37 @@ foreach($case in @(
   if(-not $denied){throw 'PR607 accepted unauthorized or repeated diagnostic'}
 }
 Write-Host 'PASS PR607 guard rejects replay, unrelated title, preflight failure and branch'
+
+# Final V4.2 freeze diagnostic: exactly one matching push title may deploy.
+$env:GITHUB_REF='refs/heads/main'
+$env:GITHUB_EVENT_NAME='push'
+$env:GITHUB_RUN_ATTEMPT='1'
+$env:NERAL_V42_DIAG3_PREFLIGHT='success'
+$env:NERAL_V42_DIAG3_APPROVED='NERAL-V42-DIAG3-APPROVED'
+$env:NERAL_V42_DIAG3_MERGE_TITLE='NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123'
+& $guard
+foreach($c in @(
+  @{event='push';attempt='2';token='NERAL-V42-DIAG3-APPROVED';preflight='success';title='NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123';ref='refs/heads/main'},
+  @{event='push';attempt='1';token='NERAL-V42-DIAG3-APPROVED';preflight='failure';title='NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123';ref='refs/heads/main'},
+  @{event='push';attempt='1';token='';preflight='success';title='NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123';ref='refs/heads/main'},
+  @{event='push';attempt='1';token='NERAL-V42-DIAG3-APPROVED';preflight='success';title='Unrelated commit';ref='refs/heads/main'},
+  @{event='pull_request';attempt='1';token='NERAL-V42-DIAG3-APPROVED';preflight='success';title='NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123';ref='refs/heads/main'},
+  @{event='push';attempt='1';token='NERAL-V42-DIAG3-APPROVED';preflight='success';title='NERAL V4.2 owner-approved final telemetry 3x2 freeze 20261123';ref='refs/heads/other'}
+)){
+  $env:GITHUB_REF=$c.ref
+  $env:GITHUB_EVENT_NAME=$c.event
+  $env:GITHUB_RUN_ATTEMPT=$c.attempt
+  $env:NERAL_V42_DIAG3_APPROVED=$c.token
+  $env:NERAL_V42_DIAG3_PREFLIGHT=$c.preflight
+  $env:NERAL_V42_DIAG3_MERGE_TITLE=$c.title
+  $refused=$false
+  try { & $guard } catch { $refused=$true }
+  if(-not $refused){throw 'Final 3+3 accepted unauthorized push or replay'}
+}
+$tok=$null
+$err=$null
+$null=[System.Management.Automation.Language.Parser]::ParseFile(
+  (Resolve-Path (Join-Path $PSScriptRoot '../scripts/neral_v42_gpu_owner_preflight.ps1')),
+  [ref]$tok,[ref]$err)
+if($err -and @($err).Count -ne 0){throw 'Final read-only GPU owner preflight PowerShell syntax invalid'}
+Write-Host 'PASS V4.2 final 3+3 authorization, replay denial and GPU preflight syntax'

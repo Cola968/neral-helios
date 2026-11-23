@@ -1209,7 +1209,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                 "agent_checked": checked, "agent_steps": steps, "agent_attempts": attempts,
                 "actual_tool_calls": actual_tool_calls,
                 "checker_veto_detail_code": veto_detail if not checked else None,
-                "year_source_pipeline_code": year_page_stage if not checked else None,
+                "year_source_pipeline_code": year_page_stage,
                 "checker_veto_reason_code": (
                     checker_veto_class(issue, sources=sources, wiki_hits=wiki_hits,
                                        executed=executed) if not checked else None),
@@ -1399,7 +1399,8 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
             if (provenance_needed and web_query and not files and not wiki_hits and
                     plan["tool"] == "direct_reasoning"):
                 from neral_v42_quality import (
-                    unique_read_year_source, year_evidence_verdict)
+                    unique_read_year_source, year_evidence_verdict,
+                    year_source_pipeline_code)
                 literal_year = unique_read_year_source(question, sources)
                 if (literal_year is not None and
                         literal_year["quote"] in evidence.get(literal_year["source"], "")):
@@ -1413,6 +1414,10 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                             observed_execute, external, {})
                         executed = "direct_reasoning"
                         steps.append("literal_year_read_page")
+                        # Preserve the validated page/quote stage in the live
+                        # response. Never expose raw page text in diagnostics.
+                        year_page_stage = year_source_pipeline_code(
+                            question, sources, evidence)
                         grounded_result = result(
                             grounded_text, checked=True, attempts=attempt+1)
                         return {**grounded_result, "verified": False,
@@ -1420,6 +1425,7 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                                 "verification_scope":
                                     "read_page_literal_year_not_truth_proof",
                                 "source_year_match": True,
+                                "year_quote_in_final": literal_year["quote"] in grounded_text,
                                 "source_year_shortcut": True}
             steps.append("worker")
             exact = quantity_plan(question, evidence)
@@ -1547,11 +1553,19 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                     question, packet, evidence, sources, wiki_hits)
                 if verdict == "supported":
                     executed = plan["tool"]
+                    from neral_v42_quality import year_source_pipeline_code
+                    year_page_stage = year_source_pipeline_code(
+                        question, sources, evidence)
                     accepted = result(answer, checked=True, attempts=attempt+1)
                     return {**accepted, "verified": False, "safe_to_promote": False,
                             "tool_verified": False,
                             "verification_scope": "read_page_literal_year_not_truth_proof",
-                            "source_year_match": True}
+                            "source_year_match": True,
+                            "year_quote_in_final": bool(packet.get("citations")) and all(
+                                isinstance(item, dict) and
+                                isinstance(item.get("quote"), str) and
+                                item["quote"] in answer
+                                for item in packet["citations"])}
                 candidate = None
                 if verdict == "unsupported_year":
                     from neral_v42_quality import year_evidence_subcode
@@ -1575,11 +1589,14 @@ def run_evidence_agent(question, respond, execute, *, web_query=None, search=Non
                                 {"tool": "direct_reasoning"}, grounded,
                                 evidence, observed_execute, external, numeric_evidence)
                             executed = "direct_reasoning"
+                            year_page_stage = year_source_pipeline_code(
+                                question, sources, evidence)
                             accepted = result(grounded_text, checked=True, attempts=attempt+1)
                             return {**accepted, "verified": False, "safe_to_promote": False,
                                     "tool_verified": False,
                                     "verification_scope": "read_page_literal_year_not_truth_proof",
                                     "source_year_match": True,
+                                    "year_quote_in_final": candidate["quote"] in grounded_text,
                                     "source_year_repair": True}
                 if verdict in ("no_read_page", "invalid_quote", "unsupported_year"):
                     issue = {
