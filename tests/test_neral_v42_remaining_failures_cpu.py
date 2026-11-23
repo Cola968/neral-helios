@@ -556,5 +556,110 @@ class BoundedYearPriorityAndFinalNumericCPU(unittest.TestCase):
         self.assertIn('print(f"ENDERGEBNIS: {ergebnis}")', code_prompts[0])
         self.assertIn("allerletzte", code_prompts[0])
 
+
+class GermanApolloYearContextCPU(unittest.TestCase):
+    """Strict synthetic source excerpts, no network and no sealed test data."""
+
+    def _candidate(self, text, **overrides):
+        from neral_v42_quality import unique_read_year_source
+        source = {**PAGE, "page_text": text, **overrides}
+        return unique_read_year_source(YEAR, [source])
+
+    def test_german_ordinal_stays_with_event_and_year(self):
+        from neral_v42_quality import year_source_pipeline_code
+        text = "Apollo 11\nDie Mission landete am 20. Juli 1969 auf dem Mond."
+        found = self._candidate(text)
+        self.assertIsNotNone(found)
+        self.assertEqual(found["year"], "1969")
+        self.assertIn("20. Juli 1969", found["quote"])
+        self.assertIn(found["quote"], text)
+        self.assertEqual(year_source_pipeline_code(
+            YEAR, [{**PAGE, "page_text": text}], {"web1": text}),
+            "candidate_available")
+
+    def test_three_line_german_subject_pronoun_landing(self):
+        text = ("Apollo 11\nDie Mission wurde von der NASA gesteuert.\n"
+                "Sie landete am 20. Juli 1969 auf dem Mond.")
+        candidate = self._candidate(text)
+        self.assertIsNotNone(candidate)
+        self.assertIn("Sie landete am 20. Juli 1969", candidate["quote"])
+        self.assertIn(candidate["quote"], text)
+
+    def test_verified_read_page_heading_can_anchor_distant_pronoun_window(self):
+        from neral_v42_quality import year_evidence_verdict
+        title = "Apollo 11"
+        filler = ("Hintergrund der Raumfahrt ohne Datumsangabe.\n" * 12)
+        date = "Die Mission landete auf dem Mond am 20. Juli 1969."
+        text = title + "\n" + filler + date
+        candidate = self._candidate(text, title="Irreführender Suchtreffer-Titel")
+        self.assertIsNotNone(candidate)
+        self.assertIn(date, candidate["quote"])
+        self.assertIn(candidate["quote"], text)
+        self.assertLessEqual(len(candidate["quote"]), 400)
+        self.assertEqual(year_evidence_verdict(
+            YEAR, {"answer": "1969", "citations": [
+                {"source": "web1", "quote": candidate["quote"]}]},
+            {"web1": text, "user": YEAR},
+            [{**PAGE, "page_text": text,
+              "title": "Irreführender Suchtreffer-Titel"}], []), "supported")
+
+    def test_infobox_landing_fact_under_read_apollo_heading(self):
+        from neral_page_reader import MainText
+        from neral_v42_quality import year_source_pipeline_code
+        html = ("<main><h1>Apollo 11</h1>"
+                "<table class='infobox'><tr><th>Mondlandung</th>"
+                "<td>20. Juli 1969</td></tr></table>"
+                "<p>Weitere Informationen zur Raumfahrtmission.</p></main>")
+        parser = MainText()
+        parser.feed(html)
+        excerpt = parser.text("Apollo 11 Mondlandung Jahr")
+        candidate = self._candidate(excerpt)
+        self.assertIsNotNone(candidate)
+        self.assertIn("1969", candidate["quote"])
+        self.assertIn(candidate["quote"], excerpt)
+        self.assertEqual(year_source_pipeline_code(
+            YEAR, [{**PAGE, "page_text": excerpt}], {"web1": excerpt}),
+            "candidate_available")
+
+    def test_search_result_title_alone_cannot_assign_pronoun_event(self):
+        text = "Die Mission landete auf dem Mond am 20. Juli 1969."
+        self.assertIsNone(self._candidate(text, title="Apollo 11"))
+
+    def test_exact_subject_heading_with_nasa_subtitle(self):
+        text = ("Apollo 11 – NASA\nMission zur Erkundung des Mondes.\n"
+                "Die Mission landete am 20. Juli 1969 auf dem Mond.")
+        candidate = self._candidate(text)
+        self.assertIsNotNone(candidate)
+        self.assertIn("20. Juli 1969", candidate["quote"])
+
+    def test_pronoun_does_not_attach_to_adjacent_apollo_12(self):
+        from neral_v42_quality import year_evidence_verdict
+        quote = "Die Mission landete am 20. Juli 1969 auf dem Mond."
+        text = ("Apollo 11\nApollo 12 wurde hier ebenfalls beschrieben.\n" +
+                quote)
+        self.assertIsNone(self._candidate(text))
+        self.assertEqual(year_evidence_verdict(
+            YEAR, {"answer": "1969", "citations": [
+                {"source": "web1", "quote": quote}]},
+            {"web1": text, "user": YEAR},
+            [{**PAGE, "page_text": text}], []), "unsupported_year")
+
+
+    def test_wrong_mission_or_negated_event_cannot_become_year_source(self):
+        for text in (
+            "Apollo 11\nApollo 12 landete am 20. Juli 1969 auf dem Mond.",
+            "Apollo 11\nDie Mission landete nicht am 20. Juli 1969.",
+            "Apollo 11\nDie Mission sollte am 20. Juli 1969 landen.",
+            "Apollo 11\nDie Mission startete am 16. Juli 1969.",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(self._candidate(text))
+
+    def test_conflicting_landing_years_on_read_page_are_rejected(self):
+        text = ("Apollo 11\nMondlandung: 20. Juli 1969.\n"
+                "Mondlandung: 20. Juli 1970.")
+        self.assertIsNone(self._candidate(text))
+
+
 if __name__=="__main__":
     unittest.main()
