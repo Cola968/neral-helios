@@ -22,7 +22,7 @@ QUESTION = (
     "aus einer tatsächlich gelesenen Quelle."
 )
 MAX_HTML_BYTES = 8 * 1024 * 1024
-YEAR = re.compile(r"(?<!\\d)(?:1[5-9]\\d{2}|20\\d{2})(?!\\d)")
+YEAR = re.compile(r"(?<!\d)(?:1[5-9]\d{2}|20\d{2})(?!\d)")
 
 
 def real_wikipedia_html():
@@ -85,8 +85,8 @@ def main():
         "html_bytes": size,
         "parsed_body_characters": len(full_visible),
         "extracted_characters": len(excerpt),
-        "full_body_has_1961": bool(re.search(r"(?<!\\d)1961(?!\\d)", full_visible)),
-        "full_body_has_1969": bool(re.search(r"(?<!\\d)1969(?!\\d)", full_visible)),
+        "full_body_has_1961": bool(re.search(r"(?<!\d)1961(?!\d)", full_visible)),
+        "full_body_has_1969": bool(re.search(r"(?<!\d)1969(?!\d)", full_visible)),
         "years_in_excerpt": sorted(set(YEAR.findall(excerpt))),
         "year_clip_code": parser.year_clip_code,
         "year_source_pipeline_code": pipeline,
