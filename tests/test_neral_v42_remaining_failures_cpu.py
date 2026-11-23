@@ -437,5 +437,21 @@ class ApolloInfoboxAndQuartzStdoutRegressionCPU(unittest.TestCase):
         self.assertEqual(response["math_stdout_diagnostic_code"], "accepted")
         self.assertEqual(len(generations), 1)
 
+
+class OwnerApolloReaderStageContractCPU(unittest.TestCase):
+    def test_approved_diag_stages_backs_up_and_restores_page_reader(self):
+        from pathlib import Path
+        owner = (Path(__file__).resolve().parents[1] /
+                 "scripts" / "neral_v41_owner.ps1").read_text(encoding="utf-8")
+        self.assertEqual(owner.count("$files=@("), 1)
+        tracked = owner.split("$files=@(", 1)[1].split(")\n$backup=", 1)[0]
+        self.assertIn("'neral_page_reader.py'", tracked)
+        self.assertIn("foreach($file in $files)", owner)
+        self.assertIn("Experiment rollback checksum mismatch:", owner)
+        self.assertIn("V4 installed module hash mismatch:", owner)
+        # Never consider this original installed dependency optional.
+        optional = owner.split("elseif($file -in @(", 1)[1].split("))", 1)[0]
+        self.assertNotIn("'neral_page_reader.py'", optional)
+
 if __name__=="__main__":
     unittest.main()
