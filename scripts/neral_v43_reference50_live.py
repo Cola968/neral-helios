@@ -7,6 +7,7 @@ with port 9690 stopped; the frozen NERAL phase requires HTTP200.
 from __future__ import annotations
 import argparse
 from contextlib import contextmanager
+from collections.abc import Mapping
 from hashlib import sha256
 import json
 import os
@@ -130,7 +131,8 @@ RECOVERY_PARENT_RUN="45264946953"
 RECOVERY_SEALED_SHA256="a7c8e033b157e320d198da81793c052c3978ba61af4a63f22a909887afc4b43e"
 
 
-def verify_recovery_preflight(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256):
+def verify_recovery_preflight(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256,
+                              _allow_empty_failed_raw=False):
     """Read-only proof: completed original 50, untouched raw half, exact seal."""
     if (outdir.name!=RECOVERY_PARENT_RUN
             or outdir.parent.name!="v43-reference50"
@@ -140,9 +142,17 @@ def verify_recovery_preflight(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256)
     cases,manifest=_root(outdir)
     if manifest.get("sha256")!=expected_sha:
         raise ValueError("Original sealed 50-case digest mismatch")
+    blocked=("summary.json","baseline-receipt.json")
+    if not _allow_empty_failed_raw:
+        blocked+=("raw9b-50.jsonl",)
     if any((outdir/name).exists() or (outdir/name).is_symlink()
-           for name in ("raw9b-50.jsonl","summary.json","baseline-receipt.json")):
+           for name in blocked):
         raise ValueError("Raw run already attempted or baseline already sealed")
+    if _allow_empty_failed_raw:
+        raw_path=outdir/"raw9b-50.jsonl"
+        if raw_path.is_symlink() or (raw_path.exists() and (
+                not raw_path.is_file() or raw_path.stat().st_size!=0)):
+            raise ValueError("Refuse recovery of nonempty or invalid raw results")
     stage=outdir/"neral10-50.jsonl"
     if not stage.is_file() or stage.is_symlink() or stage.stat().st_size>2000000:
         raise ValueError("Original NERAL50 private result missing or invalid")
@@ -173,6 +183,26 @@ def verify_recovery_preflight(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256)
                 or not isinstance(row.get("model_text"),str)):
             raise ValueError("Original NERAL50 identity or scoring invalid")
     return True
+
+def archive_failed_empty_raw(outdir:Path,*,expected_sha=RECOVERY_SEALED_SHA256):
+    """Preserve the known run 45426784494 empty output; never discard scored rows."""
+    verify_recovery_preflight(outdir,expected_sha=expected_sha,_allow_empty_failed_raw=True)
+    raw_path=outdir/"raw9b-50.jsonl"
+    if not raw_path.exists():
+        return False
+    archive=outdir/"raw9b-50.failed-45426784494.empty.jsonl"
+    if archive.exists() or archive.is_symlink():
+        raise ValueError("Known failed attempt already archived; refuse another recovery")
+    # The owner-only workflow holds the exclusive runner lock. A hard link
+    # is no-clobber even if the archive name appears concurrently.
+    os.link(raw_path,archive)
+    if raw_path.is_symlink() or raw_path.stat().st_size!=0 or not os.path.samefile(raw_path,archive):
+        raise ValueError("Raw results changed during archival; refuse recovery")
+    raw_path.unlink()
+    print("NERAL_V43_REF50_EMPTY_FAILED_45426784494_ARCHIVED",flush=True)
+    verify_recovery_preflight(outdir,expected_sha=expected_sha)
+    return True
+
 
 def prepare(outdir):
     if outdir.exists():
@@ -274,13 +304,21 @@ def _raw_model():
     return torch,tokenizer,model
 
 
-def _raw_answer(torch,tokenizer,model,prompt):
+def encode_raw_prompt(tokenizer,prompt):
+    # Hugging Face BatchEncoding implements Mapping, not necessarily dict.
     encoded=tokenizer.apply_chat_template(
         [{"role":"user","content":prompt}],tokenize=True,
         add_generation_prompt=True,enable_thinking=False)
-    if isinstance(encoded,dict):encoded=encoded["input_ids"]
-    if type(encoded) is not list or len(encoded)>3200:
+    if isinstance(encoded,Mapping):
+        encoded=encoded.get("input_ids")
+    if (type(encoded) is not list or not 1<=len(encoded)<=3200
+            or any(type(token) is not int or token<0 for token in encoded)):
         raise RuntimeError("Raw input context invalid")
+    return encoded
+
+
+def _raw_answer(torch,tokenizer,model,prompt):
+    encoded=encode_raw_prompt(tokenizer,prompt)
     ids=torch.tensor([encoded],device="cuda",dtype=torch.long)
     try:
         torch.cuda.reset_peak_memory_stats(0)
@@ -329,6 +367,12 @@ def raw(outdir):
     if output.exists():raise FileExistsError("Raw baseline already attempted")
     torch,tokenizer,model=_raw_model()
     try:
+        # Validate all sealed input lengths without generating or logging them.
+        for case in cases:
+            encode_raw_prompt(tokenizer,case["prompt"])
+        # Synthetic non-scored warmup exercises the exact generation path.
+        _raw_answer(torch,tokenizer,model,"Reply with exactly OK.")
+        print("NERAL_V43_REF50_RAW_SYNTHETIC_SMOKE_OK",flush=True)
         with store_private(output) as sink:
             for i,case in enumerate(cases,1):
                 started=time.monotonic()
@@ -396,11 +440,12 @@ def finish(outdir):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--phase",choices=("prepare","neral","raw","finish","recovery-preflight"),required=True)
+    parser.add_argument("--phase",choices=("prepare","neral","raw","finish","recovery-preflight","archive-known-empty"),required=True)
     parser.add_argument("--private-dir",type=Path,required=True)
     args=parser.parse_args()
     {"prepare":prepare,"neral":neral,"raw":raw,"finish":finish,
-     "recovery-preflight":verify_recovery_preflight}[args.phase](args.private_dir)
+     "recovery-preflight":verify_recovery_preflight,
+     "archive-known-empty":archive_failed_empty_raw}[args.phase](args.private_dir)
 
 
 if __name__=="__main__":
