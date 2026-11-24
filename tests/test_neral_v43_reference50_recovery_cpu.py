@@ -26,6 +26,24 @@ class Reference50RawRecoveryCPU(unittest.TestCase):
                          "model_text":"OWNER-PRIVATE"}
                     stream.write(json.dumps(row)+"\n")
             self.assertTrue(verify_recovery_preflight(folder,expected_sha=digest))
+            # The specifically identified, zero-byte failed attempt is
+            # recoverable only through an explicit archival operation.
+            from scripts.neral_v43_reference50_live import archive_failed_empty_raw
+            raw=folder/"raw9b-50.jsonl"
+            raw.write_bytes(b"nonempty observation")
+            with self.assertRaises(ValueError):
+                archive_failed_empty_raw(folder,expected_sha=digest)
+            self.assertEqual(raw.read_bytes(),b"nonempty observation")
+            raw.write_bytes(b"")
+            archive_failed_empty_raw(folder,expected_sha=digest)
+            self.assertFalse(raw.exists())
+            archive=folder/"raw9b-50.failed-45426784494.empty.jsonl"
+            self.assertEqual(archive.read_bytes(),b"")
+            self.assertTrue(verify_recovery_preflight(folder,expected_sha=digest))
+            raw.write_bytes(b"")
+            with self.assertRaises(ValueError):
+                archive_failed_empty_raw(folder,expected_sha=digest)
+            self.assertTrue(raw.exists())
             # A begun raw run can never be run a second time.
             (folder/"raw9b-50.jsonl").write_text("",encoding="utf-8")
             with self.assertRaises(ValueError):

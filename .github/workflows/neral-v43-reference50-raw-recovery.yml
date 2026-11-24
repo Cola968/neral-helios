@@ -67,6 +67,12 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Archive only the known zero-byte failed raw attempt, preserve all records
+        run: |
+          $ErrorActionPreference='Stop'
+          $private=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+          & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase archive-known-empty --private-dir $private
+          if($LASTEXITCODE -ne 0){throw 'Prior raw attempt is not safely recoverable; GPU not started'}
       - name: Read-only verify original SHA-sealed 50 tasks, no raw output yet
         run: |
           $ErrorActionPreference='Stop'
