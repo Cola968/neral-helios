@@ -7,6 +7,7 @@ on:
       - scripts/neral_v43_reference50_raw_owner.ps1
       - scripts/neral_v43_reference50_restore.ps1
       - tests/test_neral_v43_reference50_recovery_cpu.py
+      - tests/test_neral_v43_shutdown_workflow_cpu.py
   workflow_dispatch:
     inputs:
       original_run_id:
@@ -38,6 +39,7 @@ jobs:
         run: |
           python -m py_compile scripts/neral_v43_reference50_live.py scripts/neral_v43_reference50.py tests/test_neral_v43_reference50_recovery_cpu.py
           python -m unittest discover -s tests -p test_neral_v43_reference50_recovery_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v43_shutdown_workflow_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v43_reference50_cpu.py -v
           python -m unittest discover -s tests -p test_neral_v43_reference50_live_cpu.py -v
           pwsh -NoProfile -File tests/test_neral_v43_reference50_owner_cpu.ps1
@@ -131,3 +133,36 @@ jobs:
           path: ${{ runner.temp }}/neral-v43-recovery-${{ github.run_id }}/summary.json
           retention-days: 90
           if-no-files-found: error
+
+  # This job is intentionally not gated on raw-only/finalize success.
+  # It only runs for the exact owner-approved manual recovery after CPU preflight.
+  # A disconnected/offline runner cannot execute it: no guarantee for hardware failure.
+  shutdown-after-attempt:
+    needs: [cpu-preflight, raw-only, restore-original, finalize]
+    if: >-
+      ${{ always() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      inputs.original_run_id == '45264946953' &&
+      inputs.approval == 'V43-RAW50-ONLY-45264946953' &&
+      needs.cpu-preflight.result == 'success' }}
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 5
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Shut down Windows even after failed raw test or failed finalization
+        run: |
+          $ErrorActionPreference='Stop'
+          $shutdownExe=Join-Path $env:WINDIR 'System32/shutdown.exe'
+          if(-not (Test-Path -LiteralPath $shutdownExe -PathType Leaf)){throw 'Windows shutdown executable missing'}
+          $shutdownArgs=@('/s', '/t', '120')
+          & $shutdownExe @shutdownArgs
+          if($LASTEXITCODE -ne 0){throw 'Could not schedule Windows shutdown'}
+          Write-Host 'NERAL_V43_SHUTDOWN_SCHEDULED_AFTER_ATTEMPT_120_SECONDS'
+          Write-Host 'To cancel during the two-minute countdown: shutdown /a'
