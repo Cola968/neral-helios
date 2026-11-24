@@ -1914,6 +1914,64 @@ class ThreeTierRuntime:
         }
 
 
+    def answer_v43_bounded(self, turns, tier, *, verify_source=True):
+        """Experimental draft-first path; no planner/critic GPU generations."""
+        from neral_v43_bounded import bounded_answer, exact_integer_verdict, Verdict
+        from neral_everyday_verified import tidy_unverified_model_text
+        from neral_v41_context import resolve_question
+        resolution = resolve_question(turns)
+        work_turns = [*turns[:-1], {"role":"user","content":resolution.work_question}]
+        def generate(model_turns, *, repair_round=False):
+            self._switch(self.helios)
+            # Reserve a final response margin; each HF call uses cooperative
+            # stopping criteria derived from the request-local deadline.
+            outer = _REQUEST_DEADLINE.get()
+            limit = time.monotonic() + (20 if repair_round else 40)
+            token = _REQUEST_DEADLINE.set(min(limit,outer) if outer is not None else limit)
+            try:
+                response=tidy_unverified_model_text(self.helios.respond_chat(
+                    model_turns, max_new_tokens=768, temperature=0.0))
+            finally:
+                _REQUEST_DEADLINE.reset(token)
+            if not self.helios.loaded:
+                raise RuntimeError("Helios adapter loading was not confirmed")
+            return _public_result({
+                "tier":"Helios","mode":"HELIOS","text":response,
+                "model":self.helios.model,"model_generated":True,
+                "verified":False,"safe_to_promote":False,
+                "adapter_loaded":True,"adapter_sha256":self.helios.adapter_sha256,
+                "model_origin":"local_neral_lora_experimental",
+                "quality_improvement_proven":False,
+                "verification_scope":"none","proof_backend":None})
+        certificate=None
+        certificate_checked=False
+        def verify(candidate):
+            nonlocal certificate,certificate_checked
+            if not verify_source or resolution.is_followup:
+                return Verdict("unsupported")
+            # Only independent, source-derived certificates may contradict a
+            # candidate. No model-authored judge or generated test is trusted.
+            if not certificate_checked:
+                left=remaining_seconds()
+                if left is not None and left<8: return Verdict("timeout")
+                outer=_REQUEST_DEADLINE.get()
+                limit=time.monotonic()+5
+                token=_REQUEST_DEADLINE.set(min(limit,outer) if outer is not None else limit)
+                try:
+                    certificate=self._verified_source(work_turns)
+                    certificate_checked=True
+                finally:
+                    _REQUEST_DEADLINE.reset(token)
+            return (exact_integer_verdict(candidate,certificate)
+                    if certificate else Verdict("unsupported"))
+        def repair(candidate,evidence):
+            return generate([*work_turns,
+                {"role":"assistant","content":candidate["text"]},
+                {"role":"user","content":"Unabhängige Gegenprüfung: "+evidence+
+                 ". Korrigiere die ursprüngliche Antwort. Halte das angeforderte Antwortformat ein."}],
+                repair_round=True)
+        return bounded_answer(lambda:generate(work_turns),verify,repair=repair)
+
     def answer(self, turns: list[dict], tier: str, *,
                force_sandbox: bool = False,
                sandbox_files: dict[str, bytes] | None = None,
@@ -2170,9 +2228,17 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         tool_request = bool(
             web_query or web_stage or payload.get("force_sandbox", False)
             or source_required(work_question) or _is_free_compute_task(work_question))
+        from neral_v43_bounded import enabled as v43_bounded_enabled
+        # Only explicitly opted-in local draft-first requests use the new
+        # route. Explicit web, files and forced sandbox keep their existing
+        # semantics until independently integrated and tested.
+        v43_bounded = (v43_bounded_enabled() and requested_tier in ("Obsidian","Helios")
+                       and not web_query and not web_stage
+                       and not payload.get("force_sandbox",False)
+                       and not source_required(work_question))
         deadline_token = _REQUEST_DEADLINE.set(
-            time.monotonic() + deadline_seconds_for_request(
-                requested_tier, tool_active=tool_request))
+            time.monotonic() + (65 if v43_bounded else deadline_seconds_for_request(
+                requested_tier, tool_active=tool_request)))
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
         deep_active = active(requested_tier) and runtime.evidence_agent and not web_stage
         owner = session.get("csrf", "") if progress_id else ""
@@ -2212,7 +2278,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     note = exact_note_lookup(turns[-1]["content"])
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     note = None
-            if auto_knowledge:
+            if v43_bounded:
+                result = runtime.answer_v43_bounded(turns,requested_tier)
+            elif auto_knowledge:
                 def web_fallback():
                     return {**runtime.answer_with_evidence(
                         turns, requested_tier, web_query=resolution.work_question,
@@ -2259,7 +2327,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     turns, requested_tier,
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
-            check_deadline()
+            # A complete V4.3 draft must survive a late optional check.
+            # CUDA safety remains mandatory, even for a fallback.
+            if not v43_bounded:
+                check_deadline()
             torch = sys.modules.get("torch")
             if torch is not None and torch.cuda.is_available():
                 assert_cuda_total_used_below_cap(torch)
@@ -2267,7 +2338,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
             proof_ok = verifier_ok(result)
-            if proof_ok and not auto_knowledge and not deep_active and not is_followup and not _BENCHMARK_ISOLATED.get():
+            if proof_ok and not v43_bounded and not auto_knowledge and not deep_active and not is_followup and not _BENCHMARK_ISOLATED.get():
                 try:
                     append_verified_example(turns[-1]["content"], result)
                     from neral_verified_notes import VerifiedStrategyStore
