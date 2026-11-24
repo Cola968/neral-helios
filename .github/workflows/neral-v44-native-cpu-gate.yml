@@ -10,7 +10,7 @@ on:
       confirm:
         required: true
         type: string
-        description: "V44-NATIVE-CPU-GATE-ONLY"
+        description: "V44-NATIVE-CPU-SETUP-AND-GATE"
 permissions:
   contents: read
 concurrency:
@@ -18,9 +18,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   cpu-gate:
-    if: github.repository == 'Cola968/neral-helios' && github.ref == 'refs/heads/feat/v43-rft-qlora-cpu' && github.run_attempt == 1 && inputs.confirm == 'V44-NATIVE-CPU-GATE-ONLY'
+    if: github.repository == 'Cola968/neral-helios' && github.ref == 'refs/heads/feat/v43-rft-qlora-cpu' && github.run_attempt == 1 && inputs.confirm == 'V44-NATIVE-CPU-SETUP-AND-GATE'
     runs-on: [self-hosted, Windows, X64, neral-gpu]
-    timeout-minutes: 40
+    timeout-minutes: 75
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -Command "& '{0}'"
@@ -92,10 +92,31 @@ jobs:
               $total+=$count
               Write-Host ($file.Name+' passed='+$count)
             }
-            # The regression environment does not contain TRL. Use the existing QLoRA interpreter for the native training integration only.
-            $py='D:/neral-qlora/venv/Scripts/python.exe'
-            if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'QLORA_PYTHON_MISSING'}
-            Write-Host 'NATIVE_ENV=existing-qlora; CPU-only; no package installation'
+            # Create a separate environment. Never modify the old QLoRA/owner interpreter.
+            $base='D:/neral-qlora/venv/Scripts/python.exe'
+            if(!(Test-Path -LiteralPath $base -PathType Leaf)){throw 'BASE_PYTHON_MISSING'}
+            $training=Join-Path $private ('training-env-'+$env:GITHUB_RUN_ID)
+            if(Test-Path -LiteralPath $training){throw 'NEW_TRAINING_ENV_ALREADY_EXISTS'}
+            $tmp=Join-Path $scratch 'tmp'
+            New-Item -ItemType Directory -Path $tmp | Out-Null
+            $env:TEMP=$tmp
+            $env:TMP=$tmp
+            $env:PIP_CONFIG_FILE='NUL'
+            $env:PIP_DISABLE_PIP_VERSION_CHECK='1'
+            $env:PIP_NO_INPUT='1'
+            $env:PIP_REQUIRE_VIRTUALENV='1'
+            $py=$base
+            $null=Run-CPU 'create_venv' ('-B -m venv "'+$training+'"')
+            $py=Join-Path $training 'Scripts/python.exe'
+            if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'NEW_TRAINING_PYTHON_MISSING'}
+            Write-Host 'V44_ENV_CREATED; original environments unchanged'
+            # Package downloads only. Model and dataset access remain offline.
+            $null=Run-CPU 'torch_install' '-B -m pip --isolated install --no-cache-dir --only-binary=:all: --index-url https://download.pytorch.org/whl/cu128 torch==2.8.0+cu128'
+            $null=Run-CPU 'training_deps_install' '-B -m pip --isolated install --no-cache-dir --only-binary=:all: --index-url https://pypi.org/simple trl==1.18.2 transformers peft accelerate bitsandbytes datasets sympy z3-solver pytest hypothesis torch==2.8.0+cu128'
+            $null=Run-CPU 'dependency_check' '-B -m pip --isolated check'
+            $freeze=Run-CPU 'package_lock' '-B -m pip --isolated freeze --all'
+            Copy-Item -LiteralPath $freeze.out -Destination (Join-Path $scratch 'training-requirements-resolved.txt') -ErrorAction Stop
+            Write-Host 'NATIVE_ENV=isolated-v44; dependency check passed; CPU-only'
             $native=@'
           import json, importlib.metadata as md, tempfile, sys
           from pathlib import Path

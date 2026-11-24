@@ -90,7 +90,7 @@ jobs:
           retention-days: 14
 
   v44-native-cpu-gate:
-    if: github.repository == 'Cola968/neral-helios' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/v43-rft-qlora-cpu' && github.run_attempt == 1 && inputs.authorize == 'V44-NATIVE-CPU-GATE-ONLY'
+    if: github.repository == 'Cola968/neral-helios' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/v43-rft-qlora-cpu' && github.run_attempt == 1 && inputs.authorize == 'V44-NATIVE-CPU-SETUP-AND-GATE'
     uses: ./.github/workflows/neral-v44-native-cpu-gate.yml
     with:
-      confirm: V44-NATIVE-CPU-GATE-ONLY
+      confirm: V44-NATIVE-CPU-SETUP-AND-GATE
