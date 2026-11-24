@@ -1,5 +1,10 @@
 name: NERAL V4.4 native CPU gate (no inference or training)
 on:
+  workflow_call:
+    inputs:
+      confirm:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       confirm:
