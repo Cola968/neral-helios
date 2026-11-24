@@ -1,0 +1,371 @@
+name: NERAL V4.3 Reference50 regression
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Enter V43-PR634-REFERENCE50-ONCE to authorize the single GPU run
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  reference50:
+    if: >-
+      github.repository == 'Cola968/neral-helios' &&
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 && inputs.confirm == 'V43-PR634-REFERENCE50-ONCE'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 115
+    concurrency:
+      group: neral-v32-exclusive-local-9690
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      CANDIDATE_COMMIT: bbfa74a4c752c424c2295c6bb92d86280bd33682
+      REFERENCE_SHA256: a7c8e033b157e320d198da81793c052c3978ba61af4a63f22a909887afc4b43e
+      BASELINE_RECEIPT_SHA256: 707ca66aed7bfbfbb15ac7aa39229b3eaad572b17722371056f17c0f1f6ae807
+      NERAL_PYTHON: D:/neral-qlora/venv/Scripts/python.exe
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bbfa74a4c752c424c2295c6bb92d86280bd33682
+          persist-credentials: false
+      - name: Validate the sealed reference and reserve a new private result directory
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'W39-GAMINGPC-Neral') { throw 'WRONG_RUNNER' }
+          if ((git rev-parse HEAD) -cne $env:CANDIDATE_COMMIT -or $LASTEXITCODE -ne 0) { throw 'WRONG_CANDIDATE' }
+          $env:REF_BASELINE = Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
+          $env:REF_RESULT = Join-Path $env:LOCALAPPDATA ('NERAL-private/v43-reference50-regression/' + $env:CANDIDATE_COMMIT)
+          $env:REF_SCRATCH = Join-Path $env:RUNNER_TEMP ('neral-ref50-' + $env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $env:REF_SCRATCH -ErrorAction Stop | Out-Null
+          @("REF_BASELINE=$env:REF_BASELINE", "REF_RESULT=$env:REF_RESULT", "REF_SCRATCH=$env:REF_SCRATCH") |
+            Add-Content -LiteralPath $env:GITHUB_ENV -Encoding UTF8
+          # Select inert functions from the pinned template. Never execute its
+          # raw benchmark body or reuse its event-specific authorization.
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_v43_reference50_raw_owner.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw 'OWNER_TEMPLATE_PARSE_FAILED' }
+          $names = @('Get-Owner', 'Stop-ConfirmedOwner', 'Check-RawCapacityAndForeign', 'Restore-OriginalOwner')
+          $helpers = @($ast.EndBlock.Statements | Where-Object {
+            $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in $names
+          })
+          if ($helpers.Count -ne $names.Count -or @($helpers.Name | Sort-Object -Unique).Count -ne $names.Count) {
+            throw 'OWNER_HELPERS_MISSING'
+          }
+          $setup = @'
+          $taskName = 'NERAL-PR558-ThreeTier-909d1419c9ff'
+          function HttpReady {
+            $code = & curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/health'
+            return ($LASTEXITCODE -eq 0 -and $code -ceq '200')
+          }
+          function RequireOwnerTask {
+            $root = Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+            $service = Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+            $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if (@($scheduled.Actions).Count -ne 1 -or [string]$scheduled.Actions[0].Arguments -notlike ('*' + $service + '*')) {
+              throw 'ORIGINAL_TASK_IDENTITY_MISMATCH'
+            }
+            return $scheduled
+          }
+          '@
+          @($setup) + @($helpers | ForEach-Object { $_.Extent.Text }) |
+            Set-Content -LiteralPath (Join-Path $env:REF_SCRATCH 'owner.ps1') -Encoding UTF8
+          @'
+          from collections import Counter
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import statistics
+          import subprocess
+          import sys
+          import threading
+          import time
+          from unittest.mock import patch
+
+          sys.path.insert(0, str(Path.cwd()))
+          baseline = Path(os.environ["REF_BASELINE"])
+          private = Path(os.environ["REF_RESULT"])
+          scratch = Path(os.environ["REF_SCRATCH"])
+          pin = os.environ["CANDIDATE_COMMIT"]
+          digest = os.environ["REFERENCE_SHA256"]
+          luna_path = "D:/neral-qlora-v2/qwen35-4b-hf"
+          raw_path = "D:/neral-qlora/checkpoint"
+          categories = ("math_logic", "programming", "knowledge", "everyday")
+
+
+          def seal():
+              from scripts.neral_v43_reference50 import verify_seal
+              from scripts.neral_v43_reference50_live import verify_result_seal
+              for path in (baseline, *baseline.parents, *baseline.iterdir()):
+                  if path.lstat().st_file_attributes & 0x400:
+                      raise RuntimeError("BASELINE_REPARSE_POINT")
+              receipt = hashlib.sha256((baseline / "baseline-receipt.json").read_bytes()).hexdigest()
+              if receipt != os.environ["BASELINE_RECEIPT_SHA256"]:
+                  raise RuntimeError("BASELINE_RECEIPT_SHA256_MISMATCH")
+              if hashlib.sha256((baseline / "sealed50.jsonl").read_bytes()).hexdigest() != digest:
+                  raise RuntimeError("REFERENCE50_SHA256_MISMATCH")
+              verify_result_seal(baseline)
+              return verify_seal(baseline / "sealed50.jsonl", baseline / "manifest.json")
+
+
+          def save(path, data):
+              with path.open("x", encoding="utf-8") as file:
+                  json.dump(data, file, ensure_ascii=False, indent=2)
+
+
+          def preflight():
+              from neral_three_tier_runtime import FrozenQwen35HF
+              from scripts.neral_v43_reference50_live import verify_docker_grader
+              seal()
+              FrozenQwen35HF(luna_path)
+              FrozenQwen35HF(raw_path, raw_9b=True)
+              verify_docker_grader()
+              for path in private.parents:
+                  if path.exists() and path.lstat().st_file_attributes & 0x400:
+                      raise RuntimeError("RESULT_REPARSE_POINT")
+              private.parent.mkdir(parents=True, exist_ok=True)
+              private.mkdir()
+              save(private / "execution.json", {"run_id": os.environ["GITHUB_RUN_ID"], "candidate": pin})
+
+
+          def sample():
+              output = subprocess.run(
+                  ["nvidia-smi.exe", "--query-gpu=name,memory.used", "--format=csv,noheader,nounits"],
+                  capture_output=True, text=True, timeout=5, check=True).stdout.strip().splitlines()
+              if len(output) != 1:
+                  raise RuntimeError("GPU_COUNT_MISMATCH")
+              name, used = output[0].rsplit(",", 1)
+              if name.strip() != "NVIDIA GeForce RTX 4070":
+                  raise RuntimeError("GPU_IDENTITY_MISMATCH")
+              return int(used)
+
+
+          def evaluate():
+              cases = seal()
+              app_state = private / "app-state"
+              app_state.mkdir()
+              os.environ["LOCALAPPDATA"] = str(app_state)
+              os.environ["APPDATA"] = str(app_state)
+              from neral_preview_server import create_preview_app
+              from neral_three_tier_runtime import FrozenQwen35HF, RAW_9B, ThreeTierRuntime
+              from neral_v43_bounded import bounded_answer
+              from scripts.neral_v43_reference50_live import _score, store_private
+
+              class OfflineSearch:
+                  def search(self, query):
+                      # Sealed prompts never leave the Windows runner.
+                      return {"results": []}
+
+              raw = FrozenQwen35HF(raw_path, raw_9b=True)
+              runtime = ThreeTierRuntime(FrozenQwen35HF(luna_path), raw, v43_profile=True)
+              app = create_preview_app(three_tier_runtime=runtime, search_service=OfflineSearch())
+              app.logger.disabled = True
+              drafts = []
+
+              def observe(generate, *args, **kwargs):
+                  def capture():
+                      fresh = generate()
+                      drafts.append(dict(fresh))
+                      return fresh
+                  return bounded_answer(capture, *args, **kwargs)
+
+              samples = [sample()]
+              sample_errors = []
+              done = threading.Event()
+
+              def watch():
+                  while not done.wait(0.5):
+                      try:
+                          samples.append(sample())
+                      except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                          sample_errors.append(True)
+
+              watcher = threading.Thread(target=watch, daemon=True)
+              watcher.start()
+              rows = []
+              try:
+                  start = time.monotonic()
+                  runtime.warmup_default_model()
+                  load_ms = round(1000 * (time.monotonic() - start))
+                  samples.append(sample())
+                  if not raw.loaded or raw.model != RAW_9B or raw.adapter_sha256 is not None:
+                      raise RuntimeError("RAW_9B_IDENTITY_MISMATCH")
+                  origin = "http://127.0.0.1:9690"
+                  with store_private(private / "candidate-50.jsonl") as stream, patch(
+                          "neral_v43_bounded.bounded_answer", observe):
+                      for index, case in enumerate(cases, 1):
+                          drafts.clear()
+                          client = app.test_client()
+                          with client.session_transaction(base_url=origin) as current:
+                              csrf = os.urandom(24).hex()
+                              current["csrf"] = csrf
+                          start = time.monotonic()
+                          response = client.post(
+                              "/api/neral/chat/three-tier", base_url=origin,
+                              headers={"X-Neral-CSRF": csrf, "Origin": origin},
+                              json={"tier": "Obsidian", "prompt": case["prompt"], "history": [],
+                                    "benchmark_isolated": True, "diagnostic_telemetry": True})
+                          elapsed_ms = round(1000 * (time.monotonic() - start))
+                          final = response.get_json(silent=True) or {}
+                          complete = (response.status_code == 200 and len(drafts) == 1
+                                      and bool(str(drafts[0].get("text") or "").strip())
+                                      and bool(str(final.get("text") or "").strip())
+                                      and final.get("v43_bounded") is True
+                                      and final.get("benchmark_isolated") is True
+                                      and final.get("adapter_loaded") is False
+                                      and final.get("model") == RAW_9B)
+                          error = None
+                          if complete:
+                              draft_grade, draft_reason = _score(case, drafts[0])
+                              grade, reason = _score(case, final)
+                          else:
+                              error = ("RESPONSE_CONTRACT_FAILED" if response.status_code == 200
+                                       else f"HTTP_{response.status_code}")
+                              draft_grade, grade, draft_reason, reason = None, "fail", error, error
+                          row = {"id": case["id"], "category": case["category"], "grade": grade,
+                                 "draft_grade": draft_grade, "reason": reason, "draft_reason": draft_reason,
+                                 "error": error, "latency_ms": elapsed_ms,
+                                 "draft_text": drafts[0].get("text") if drafts else None,
+                                 "final_text": final.get("text"),
+                                 "verification_status": final.get("verification_status")}
+                          stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+                          stream.flush()
+                          rows.append(row)
+                          print(f"Reference50 {index}/50" + (f" {error}" if error else ""), flush=True)
+              finally:
+                  done.set()
+                  watcher.join(6)
+                  raw.unload()
+              if sample_errors or watcher.is_alive():
+                  raise RuntimeError("VRAM_SAMPLING_INCOMPLETE")
+              if len(rows) != 50:
+                  raise RuntimeError("REFERENCE50_INCOMPLETE")
+              machine = [row for row in rows if row["category"] != "everyday"]
+              save(private / "candidate-summary.json", {
+                  "cases": len(rows), "graded_cases": len(machine),
+                  "machine_passed": sum(row["grade"] == "pass" for row in machine),
+                  "verifier_regressions": sum(row["draft_grade"] == "pass" and row["grade"] == "fail"
+                                             for row in machine),
+                  "missing_draft_or_final": sum(row["error"] is not None for row in rows),
+                  "median_latency_ms": statistics.median(row["latency_ms"] for row in rows),
+                  "model_load_ms": load_ms, "gpu_total_peak_sampled_mib": max(samples),
+                  "vram_samples": len(samples),
+                  "error_codes": dict(Counter(
+                      row["reason"] for row in rows if row["grade"] == "fail")),
+                  "by_category": {
+                      category: {grade: sum(row["category"] == category and row["grade"] == grade
+                                            for row in rows) for grade in ("pass", "fail", "ungraded")}
+                      for category in categories},
+              })
+
+
+          def finalize():
+              seal()
+              started = (scratch / "owner-stop-requested").is_file()
+              rollback_ok = (scratch / "rollback-http200").is_file()
+              report = {"candidate": pin, "run_id": os.environ["GITHUB_RUN_ID"], "sealed_sha256": digest}
+              candidate = private / "candidate-summary.json"
+              if started and candidate.is_file():
+                  report.update(json.loads(candidate.read_text("utf-8")))
+              report["baseline_integrity"] = "verified_before_after" if started else "verified_after"
+              report["rollback_http_status"] = 200 if rollback_ok else None
+              report["baselines"] = json.loads((baseline / "summary.json").read_text("utf-8"))["engines"]
+              errors = report.setdefault("error_codes", {})
+              if not started:
+                  errors["GPU_NOT_STARTED"] = 1
+              elif not candidate.is_file():
+                  errors["GPU_RESULT_INCOMPLETE"] = 1
+              else:
+                  if report["machine_passed"] != 38:
+                      errors["FACH_SCORE_BELOW_38"] = 1
+                  if report["verifier_regressions"] != 0:
+                      errors["VERIFIER_REGRESSION"] = 1
+              if not rollback_ok:
+                  errors["ROLLBACK_HTTP200_UNVERIFIED"] = 1
+              report["merge_eligible"] = (started and rollback_ok and report.get("cases") == 50
+                                          and report.get("graded_cases") == 38
+                                          and report.get("machine_passed") == 38
+                                          and report.get("verifier_regressions") == 0
+                                          and report.get("missing_draft_or_final") == 0)
+              save(scratch / "summary.json", report)
+              if not report["merge_eligible"]:
+                  raise RuntimeError("MERGE_GATES_NOT_MET")
+
+
+          if __name__ == "__main__":
+              command = sys.argv[1]
+              try:
+                  {"preflight": preflight, "evaluate": evaluate, "finalize": finalize}[command]()
+              except Exception as error:
+                  # Keep grader exceptions, prompts and replies off Actions logs.
+                  label = str(error) if type(error) is RuntimeError else ""
+                  code = label if label and label.isascii() and all(
+                      c.isupper() or c.isdigit() or c == "_" for c in label) else type(error).__name__
+                  print(f"REFERENCE50_{command.upper()}_FAILED {code}", file=sys.stderr)
+                  sys.exit(1)
+          '@ | Set-Content -LiteralPath (Join-Path $env:REF_SCRATCH 'evaluate.py') -Encoding UTF8
+          . (Join-Path $env:REF_SCRATCH 'owner.ps1')
+          if ((RequireOwnerTask).State -ne 'Running' -or -not (HttpReady)) { throw 'ORIGINAL_HEALTH_NOT_200' }
+          $null = Get-Owner
+          & $env:NERAL_PYTHON (Join-Path $env:REF_SCRATCH 'evaluate.py') preflight
+          if ($LASTEXITCODE -ne 0) { throw 'REFERENCE50_PREFLIGHT_FAILED' }
+      - name: Run 50 sealed tasks on the raw 9B V4.3 candidate
+        timeout-minutes: 95
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:REF_SCRATCH 'owner.ps1')
+          if ((RequireOwnerTask).State -ne 'Running' -or -not (HttpReady)) { throw 'ORIGINAL_HEALTH_LOST' }
+          if ((& nvidia-smi.exe --query-gpu=name --format=csv,noheader) -cne 'NVIDIA GeForce RTX 4070' -or $LASTEXITCODE -ne 0) {
+            throw 'WRONG_GPU'
+          }
+          $owner = Get-Owner
+          New-Item -ItemType File -Path (Join-Path $env:REF_SCRATCH 'owner-stop-requested') -ErrorAction Stop | Out-Null
+          try {
+            Stop-ConfirmedOwner $owner
+            Check-RawCapacityAndForeign
+            & $env:NERAL_PYTHON (Join-Path $env:REF_SCRATCH 'evaluate.py') evaluate
+            if ($LASTEXITCODE -ne 0) { throw 'REFERENCE50_GPU_FAILED' }
+          } finally {
+            if (-not (HttpReady)) { Restore-OriginalOwner }
+          }
+      - name: Independently roll back and prove original service HTTP 200
+        if: always() && env.REF_SCRATCH != ''
+        timeout-minutes: 7
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:REF_SCRATCH 'owner.ps1')
+          $scheduled = RequireOwnerTask
+          if (-not (HttpReady) -and (Test-Path -LiteralPath (Join-Path $env:REF_SCRATCH 'owner-stop-requested'))) {
+            if ($scheduled.State -eq 'Ready') {
+              Restore-OriginalOwner
+            }
+          }
+          if (-not (HttpReady) -or (RequireOwnerTask).State -ne 'Running') { throw 'ROLLBACK_HTTP200_UNVERIFIED' }
+          $null = Get-Owner
+          New-Item -ItemType File -Path (Join-Path $env:REF_SCRATCH 'rollback-http200') -ErrorAction Stop | Out-Null
+          Write-Host 'Original NERAL /health HTTP 200'
+      - name: Verify the original seal again and evaluate merge gates
+        if: always() && env.REF_SCRATCH != ''
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:NERAL_PYTHON (Join-Path $env:REF_SCRATCH 'evaluate.py') finalize
+          if ($LASTEXITCODE -ne 0) { throw 'REFERENCE50_FINALIZATION_FAILED' }
+      - name: Upload aggregate metrics without private tasks or replies
+        if: always() && env.REF_SCRATCH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v43-reference50-regression-${{ github.run_id }}
+          path: ${{ env.REF_SCRATCH }}/summary.json
+          retention-days: 30
+          if-no-files-found: warn
