@@ -4,7 +4,90 @@ Callbacks are trusted runtime integrations, never model-supplied commands.
 The caller owns the cooperative request deadline and resource isolation.
 """
 from dataclasses import dataclass
+import re
+
 from neral_v42_deadline import DeadlineExceeded, remaining_seconds
+from neral_v42_quality import FINAL_LABEL, final_marked_value
+
+
+_INTEGER = r"[-+]?[0-9]{1,30}"
+_SCALAR_REQUEST = re.compile(
+    r"\b(?:wie\s+viel(?:e)?|how\s+(?:many|much)|berechne|rechne|calculate)\b",
+    re.IGNORECASE,
+)
+_OTHER_FORMAT = re.compile(
+    r"\b(?:nur|ausschließlich|only)\b.{0,30}\b(?:zahl|ziffern?|number|digits?)\b"
+    r"|\b(?:json|csv|python|quellcode|source\s+code)\b|NERAL_(?:MATH|TEST)_SPEC:",
+    re.IGNORECASE,
+)
+_LAST_EQUATION = re.compile(
+    rf"[0-9][^=\r\n]{{0,150}}[+\-−*×/÷][^=\r\n]{{0,150}}"
+    rf"=\s*({_INTEGER})(?:\s+[^\W\d_]{{1,32}})?[.!]?\s*$"
+)
+
+
+def math_final_instruction(question):
+    """Request a marked final scalar without overriding explicit formats."""
+    if not _SCALAR_REQUEST.search(question) or _OTHER_FORMAT.search(question):
+        return ""
+    return (
+        "Wenn die Frage genau einen Skalar als Rechenergebnis verlangt und "
+        "kein anderes Ausgabeformat vorgibt, schreibe als letzte Zeile "
+        "ENDERGEBNIS: <wert>. Setze den Wert dort ohne Markdown oder LaTeX. "
+        "Erhalte gegebenenfalls Einheiten und Rechenweg in den Zeilen davor."
+    )
+
+
+def _wrapped_integer(line):
+    """Unwrap a literal integer only. Never simplify an expression."""
+    value = line.strip()
+    for left, right in (("**", "**"), ("__", "__"), ("\x60", "\x60"),
+                        (r"\[", r"\]"), (r"\(", r"\)"), ("$$", "$$"), ("$", "$")):
+        if value.startswith(left) and value.endswith(right) and len(value) > len(left) + len(right):
+            value = value[len(left):-len(right)].strip()
+            break
+    boxed = re.fullmatch(rf"\\boxed\s*\{{\s*({_INTEGER})\s*\}}", value)
+    if boxed:
+        return boxed[1]
+    return value if re.fullmatch(_INTEGER, value) else None
+
+
+def normalize_math_final(text, *, requested=False):
+    """Canonicalize an explicit final integer while preserving its derivation."""
+    if not isinstance(text, str) or "\x60\x60\x60" in text or "~~~" in text:
+        return text
+    stripped = text.rstrip()
+    lines = stripped.splitlines()
+    if not lines:
+        return text
+    last = lines[-1].strip()
+    prefix = stripped[:-len(lines[-1])]
+    trailing = text[len(stripped):]
+
+    if "ENDERGEBNIS" in text.upper():
+        if len(re.findall(r"\bENDERGEBNIS\b", text, re.IGNORECASE)) != 1:
+            return text
+        marked = final_marked_value(text)
+        if marked is None or re.fullmatch(_INTEGER, marked):
+            return text
+        value = _wrapped_integer(marked)
+    else:
+        value = _wrapped_integer(last)
+        if value is None or (not prefix and last == value):
+            return text
+        earlier = [line.strip() for line in lines[:-1] if line.strip()]
+        if any(_wrapped_integer(line) is not None for line in earlier) or r"\boxed" in prefix:
+            return text
+        if last == value:
+            # A trailing bare number is a final result only when the
+            # immediately preceding arithmetic line states that same value.
+            equation = _LAST_EQUATION.search(earlier[-1]) if earlier else None
+            if equation is None or equation[1] != value:
+                return text
+        elif not requested and r"\boxed" not in last:
+            return text
+
+    return f"{prefix}{FINAL_LABEL} {value}{trailing}" if value is not None else text
 
 
 @dataclass(frozen=True)

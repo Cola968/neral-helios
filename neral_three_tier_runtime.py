@@ -1926,14 +1926,24 @@ class ThreeTierRuntime:
 
     def answer_v43_bounded(self, turns, tier, *, verify_source=True, web_query=None, search=None):
         """Experimental draft-first path; no planner/critic GPU generations."""
-        from neral_v43_bounded import bounded_answer, Verdict
+        from neral_v43_bounded import (
+            bounded_answer, math_final_instruction, normalize_math_final, Verdict,
+        )
         from neral_v43_routes import verify_answer
         from neral_everyday_verified import tidy_unverified_model_text
         from neral_v41_context import resolve_question
         resolution = resolve_question(turns)
         work_turns = [*turns[:-1], {"role":"user","content":resolution.work_question}]
+        final_instruction = "" if web_query else math_final_instruction(resolution.work_question)
+
         def generate(model_turns, *, repair_round=False):
             self._switch(self.helios)
+            if final_instruction:
+                if model_turns[0]["role"] == "system":
+                    system = model_turns[0]["content"] + "\n\n" + final_instruction
+                    model_turns = [{"role": "system", "content": system}, *model_turns[1:]]
+                else:
+                    model_turns = [{"role": "system", "content": final_instruction}, *model_turns]
             # Reserve a final response margin; each HF call uses cooperative
             # stopping criteria derived from the request-local deadline.
             outer = _REQUEST_DEADLINE.get()
@@ -1942,6 +1952,8 @@ class ThreeTierRuntime:
             try:
                 response=tidy_unverified_model_text(self.helios.respond_chat(
                     model_turns, max_new_tokens=768, temperature=0.0))
+                if not web_query:
+                    response = normalize_math_final(response, requested=bool(final_instruction))
             finally:
                 _REQUEST_DEADLINE.reset(token)
             if not self.helios.loaded:
