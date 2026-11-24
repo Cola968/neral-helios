@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 from itertools import product
 import re
+import time
 
 _NAMES = frozenset(("x", "y", "z", "a", "b", "c", "t"))
 _ARITH = frozenset(("add", "sub", "mul", "neg"))
@@ -49,6 +50,18 @@ def _algebra_parse(expression):
     return _algebra_node(tree.body,symbols)
 
 
+def _require_safe_domain(expression):
+    # Domain-sensitive transformations need explicit domain evidence.
+    tree=ast.parse(expression,mode="eval")
+    for node in ast.walk(tree):
+        if isinstance(node,ast.BinOp):
+            if isinstance(node.op,ast.Div) and any(isinstance(n,ast.Name) for n in ast.walk(node.right)):
+                raise ValueError("Symbolic denominator needs a domain certificate")
+            if isinstance(node.op,ast.Pow) and any(isinstance(n,ast.Name) for n in ast.walk(node.left)):
+                if not isinstance(node.right,ast.Constant) or type(node.right.value) is not int or node.right.value<0:
+                    raise ValueError("Domain-sensitive exponent unsupported")
+
+
 def exact_algebra(expression, *, action="simplify", other=None):
     """Only arithmetic AST and named symbols, no sympify/eval/parser calls."""
     import sympy as sp
@@ -56,7 +69,9 @@ def exact_algebra(expression, *, action="simplify", other=None):
         raise ValueError("Unapproved algebra action")
     expr=_algebra_parse(expression)
     if action=="equals":
+        _require_safe_domain(expression)
         if other is None: raise ValueError("Missing comparison")
+        _require_safe_domain(other)
         return sp.simplify(expr-_algebra_parse(other)) == 0
     result=(sp.expand(expr) if action=="expand" else
             sp.factor(expr) if action=="factor" else sp.cancel(expr))
@@ -127,16 +142,28 @@ def _prepare(spec):
     return specs,variables,premises,claim
 
 
-def falsify_claim(spec, *, timeout_ms=2000):
+def falsify_claim(spec, *, timeout_ms=2000, deadline=None):
     """Search for premises AND not(claim). Unknown is never called proven."""
     import z3
     if type(timeout_ms) is not int or not 1 <= timeout_ms <= 5000:
         raise ValueError("Timeout bound")
+    end=min(time.monotonic()+timeout_ms/1000, deadline if deadline is not None else float("inf"))
+    unknown={"status":"unknown","assignment":None,"engine":"z3"}
+    if time.monotonic()>=end: return unknown
     specs,variables,premises,claim=_prepare(spec)
     solver=z3.Solver()
-    solver.set(timeout=timeout_ms,random_seed=0)
-    solver.add(*premises,z3.Not(claim))
-    status=solver.check()
+    def check():
+        remaining=end-time.monotonic()
+        if remaining<=0: return z3.unknown
+        solver.set(timeout=max(1,int(remaining*1000)),random_seed=0)
+        return solver.check()
+    solver.add(*premises)
+    feasibility=check()
+    if feasibility==z3.unsat:
+        return {"status":"inconsistent_premises","assignment":None,"engine":"z3"}
+    if feasibility!=z3.sat: return unknown
+    solver.add(z3.Not(claim))
+    status=check()
     if status==z3.sat:
         model=solver.model()
         assignment={name:model.eval(value,model_completion=True).as_long()
