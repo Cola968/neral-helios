@@ -18,6 +18,11 @@ on:
         description: "Explicit new GPU approval: V43-RAW50-ONLY-45264946953"
         required: true
         type: string
+      shutdown_after:
+        description: "Shut down Windows after this attempt, even if it fails"
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -68,6 +73,11 @@ jobs:
           $env:NERAL_V43_REF50_PRIVATE=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-reference50/45264946953'
           & 'D:/neral-qlora/venv/Scripts/python.exe' -m scripts.neral_v43_reference50_live --phase recovery-preflight --private-dir $env:NERAL_V43_REF50_PRIVATE
           if($LASTEXITCODE -ne 0){throw 'Original reference50 safety state invalid; GPU not started'}
+      - name: Ensure original NERAL owner is HTTP200 before raw benchmark
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_v43_reference50_restore.ps1
+          if($LASTEXITCODE -ne 0){throw 'Original owner not safely ready; GPU benchmark not started'}
       - name: Run ONLY missing 50 raw Qwen3.5-9B tasks, restore original owner in finally
         run: |
           $ErrorActionPreference='Stop'
@@ -146,6 +156,7 @@ jobs:
       github.run_attempt == 1 &&
       inputs.original_run_id == '45264946953' &&
       inputs.approval == 'V43-RAW50-ONLY-45264946953' &&
+      inputs.shutdown_after == true &&
       needs.cpu-preflight.result == 'success' }}
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 5

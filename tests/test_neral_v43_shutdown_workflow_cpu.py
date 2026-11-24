@@ -40,5 +40,28 @@ class ShutdownAfterAttemptTests(unittest.TestCase):
         self.assertIn("shutdown /a", tail)
 
 
+    def test_recovery_verifies_owner_before_gpu_in_same_exclusive_job(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        raw = workflow.split("\n  raw-only:\n", 1)[1].split("\n  restore-original:\n", 1)[0]
+        preflight = raw.index("Read-only verify original SHA-sealed 50 tasks")
+        ready = raw.index("Ensure original NERAL owner is HTTP200 before raw benchmark")
+        run = raw.index("Run ONLY missing 50 raw Qwen3.5-9B tasks")
+        self.assertLess(preflight, ready)
+        self.assertLess(ready, run)
+        step = raw[ready:run]
+        self.assertIn("neral_v43_reference50_restore.ps1", step)
+        self.assertIn("if($LASTEXITCODE -ne 0)", step)
+        self.assertIn("group: neral-v32-exclusive-local-9690", raw)
+
+    def test_shutdown_requires_separate_explicit_opt_in_default_off(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        inputs = workflow.split("workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
+        self.assertIn("shutdown_after:", inputs)
+        self.assertIn("type: boolean", inputs)
+        self.assertIn("default: false", inputs)
+        tail = workflow.split("\n  shutdown-after-attempt:\n", 1)[1]
+        self.assertIn("inputs.shutdown_after == true", tail)
+
+
 if __name__ == "__main__":
     unittest.main()
