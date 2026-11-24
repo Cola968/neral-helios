@@ -1,0 +1,116 @@
+name: NERAL V4.4 native CPU gate (no inference or training)
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        required: true
+        type: string
+        description: "V44-NATIVE-CPU-GATE-ONLY"
+permissions:
+  contents: read
+concurrency:
+  group: neral-v32-exclusive-local-9690
+  cancel-in-progress: false
+jobs:
+  cpu-gate:
+    if: github.repository == 'Cola968/neral-helios' && github.ref == 'refs/heads/feat/v43-rft-qlora-cpu' && github.run_attempt == 1 && inputs.confirm == 'V44-NATIVE-CPU-GATE-ONLY'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -Command "& '{0}'"
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f1946c3f39915ede09e89645e868fcf6845688b6
+          persist-credentials: false
+          path: cpu-gate-source
+      - name: Native CPU gate on exact source
+        working-directory: cpu-gate-source
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'W39-GAMINGPC-Neral') { throw 'WRONG_RUNNER' }
+          if ((git rev-parse HEAD) -cne 'f1946c3f39915ede09e89645e868fcf6845688b6' -or $LASTEXITCODE -ne 0) { throw 'WRONG_PIN' }
+          $private=Join-Path $env:LOCALAPPDATA 'NERAL-private/v44-rft'
+          $scratch=Join-Path $private ('native-gate-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'PRIVATE_RESULT_ALREADY_EXISTS'}
+          foreach($p in @($private,(Split-Path $private -Parent),$env:LOCALAPPDATA)){
+            if((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'REPARSE_PATH_REFUSED'}
+          }
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          function Health {
+            $status=& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/health'
+            return ($LASTEXITCODE -eq 0 -and $status -ceq '200')
+          }
+          function Run-CPU([string]$Label,[string]$Arguments) {
+            $stdout=Join-Path $scratch ($Label+'-stdout.log')
+            $stderr=Join-Path $scratch ($Label+'-stderr.log')
+            $p=Start-Process -FilePath $py -ArgumentList $Arguments -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -Wait -PassThru
+            if($null -eq $p.ExitCode -or $p.ExitCode -ne 0){throw ('CPU_PHASE_FAILED_'+$Label)}
+            return @{out=$stdout;err=$stderr}
+          }
+          if(-not (Health)){throw 'ORIGINAL_HTTP200_REQUIRED'}
+          try {
+            $py=Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-obsidianhard-tools/python/Scripts/python.exe'
+            if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'NATIVE_PYTHON_MISSING'}
+            $env:PYTHONPATH=$PWD.Path
+            $files=@(Get-ChildItem -LiteralPath 'tests' -Filter 'test_neral_v43_*.py' -File | Sort-Object Name)
+            if($files.Count -ne 12){throw 'CPU_TEST_INVENTORY_MISMATCH'}
+            $total=0
+            foreach($file in $files){
+              $r=Run-CPU $file.BaseName ('-B -m unittest discover -s tests -p "'+$file.Name+'" -v -f')
+              $combined=(Get-Content -LiteralPath $r.out -Raw)+"`n"+(Get-Content -LiteralPath $r.err -Raw)
+              if($combined -notmatch '(?m)^Ran (\d+) tests? in '){throw 'TEST_COUNT_MISSING'}
+              $count=[int]$Matches[1]
+              if($count -le 0 -or $combined -notmatch '(?m)^OK\s*$' -or $combined -match 'skipped=|expected failures=|unexpected successes='){throw 'CPU_SUITE_NOT_FULLY_GREEN'}
+              $total+=$count
+              Write-Host ($file.Name+' passed='+$count)
+            }
+            $native=@'
+          import json, importlib.metadata as md, tempfile, sys
+          from pathlib import Path
+          import torch, transformers, trl, peft, bitsandbytes, sympy, z3, pytest, hypothesis
+          from transformers import AutoTokenizer, GPT2Config, GPT2LMHeadModel
+          from scripts.neral_v43_rft_cpu import mask
+          from scripts.neral_v43_rft_train import sft_settings, masked_trainer
+          assert not torch.cuda.is_available()
+          tok=AutoTokenizer.from_pretrained('D:/neral-qlora/checkpoint',local_files_only=True,trust_remote_code=False,use_fast=True)
+          row=mask({'instruction':'Gib nur die Zahl 17 zurück.','response':'17'},tok,1024)
+          labels=row['labels']
+          assert labels[0]==-100 and any(x!=-100 for x in labels)
+          assert tok.decode([x for x in labels if x!=-100],skip_special_tokens=True).strip()=='17'
+          model=GPT2LMHeadModel(GPT2Config(vocab_size=len(tok),n_positions=1024,n_embd=8,n_layer=1,n_head=1,pad_token_id=tok.pad_token_id,eos_token_id=tok.eos_token_id))
+          assert all(p.device.type=='cpu' for p in model.parameters())
+          def collate(items):
+              return {k:torch.tensor([x[k] for x in items],dtype=torch.long) for k in ('input_ids','attention_mask','labels')}
+          with tempfile.TemporaryDirectory(dir=sys.argv[1]) as tmp:
+              trainer=masked_trainer(trl.SFTTrainer,model,sft_settings(Path(tmp),cpu=True),[row],tok,collate)
+              batch=next(iter(trainer.get_train_dataloader()))
+              assert batch['labels'][0].tolist()==labels and batch['input_ids'][0].tolist()==row['input_ids']
+              assert trainer.state.global_step==0 and trainer.optimizer is None
+          print(json.dumps({'versions':{n:md.version(n) for n in ('torch','transformers','trl','peft','bitsandbytes','sympy','z3-solver','pytest','hypothesis')},'native_mask':True,'trl_dataloader':True,'optimizer_steps':0}))
+          '@
+            $nativeFile=Join-Path $scratch 'native.py'
+            [IO.File]::WriteAllText($nativeFile,$native,(New-Object System.Text.UTF8Encoding($false)))
+            $r=Run-CPU 'native' ('-B "'+$nativeFile+'" "'+$scratch+'"')
+            $metrics=Get-Content -LiteralPath $r.out -Tail 1 | ConvertFrom-Json
+            if($metrics.optimizer_steps -ne 0 -or !$metrics.native_mask -or !$metrics.trl_dataloader){throw 'NATIVE_GATE_FAILED'}
+            Write-Host ($metrics | ConvertTo-Json -Compress -Depth 4)
+            $tokens=$null;$errors=$null
+            $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/Start-Neral-V43-RFT-Pilot.ps1'),[ref]$tokens,[ref]$errors)
+            if(@($errors).Count){throw 'PS_PARSE_FAILED'}
+            Write-Host ('CPU_TESTS_PASS '+$total+'; native tokenizer and TRL pass; PowerShell parser pass; live orchestration not tested; GPU_READY=false')
+          } finally {
+            if(-not (Health)){throw 'ORIGINAL_HTTP200_NOT_CONFIRMED'}
+            Write-Host 'Original service health HTTP 200; no owner stop, no inference, no training'
+          }
