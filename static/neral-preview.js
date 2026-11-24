@@ -10,6 +10,7 @@
   const encoder=new TextEncoder();
   let csrf=null, busy=false, recognizer=null, listening=false;
   let threeTierEnabled=false; // Explicit local HF opt-in; legacy default unchanged.
+  let v43RawProfile=false; // Server-attested raw 9B; never silently impersonate LoRA.
   let evidenceAgentEnabled=false;
   let obsidianDeepEnabled=false;
   const sandboxToggle=$("forceSandbox");
@@ -472,14 +473,17 @@
       evidenceAgentEnabled=session.evidence_agent_enabled===true;
       if(session.three_tier_enabled===true){
         const pinned=await json("/api/neral/chat/three-tier/status");
+        const rawV43=pinned.v43_profile===true &&
+          pinned.helios==="qwen3.5:9b" && pinned.adapter_loaded===false;
         if(pinned.enabled!==true || pinned.luna!=="qwen3.5:4b" ||
-           pinned.helios!=="qwen3.5:9b+neral-v2-full" ||
+           !(pinned.helios==="qwen3.5:9b+neral-v2-full" || rawV43) ||
            !Array.isArray(pinned.tiers) ||
            pinned.tiers.join(",")!=="Luna,Terra,Helios")
           throw new Error("Drei-Modell-Profil nicht eindeutig verifiziert.");
         v41Names=Array.isArray(pinned.public_tiers) &&
           pinned.public_tiers.join(",")==="Amber,Quartz,Obsidian";
         obsidianDeepEnabled=pinned.obsidian_deep===true;
+        v43RawProfile=rawV43;
         threeTierEnabled=true;
         if(sandboxToggle)sandboxToggle.disabled=false;
         document.documentElement.dataset.neralThreeTier="true";
@@ -883,7 +887,9 @@
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
         motionActivity("search-query",mode,{query:webQuery});
-        if(evidenceAgentEnabled){
+        if(evidenceAgentEnabled || threeTierEnabled){
+          // The server reads pages and injects real excerpts before inference.
+          // Do not short-circuit the 9B answer with browser-only snippets.
           agentWebQuery=webQuery;
           webAttempted=true;
           lastWebQuery=webQuery;
@@ -999,7 +1005,8 @@
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
                                      history:safeHistory(),force_sandbox:forceSandbox,
                                      ...(agentWebQuery ? {web_query:agentWebQuery} : {}),
-                                     ...(webData.length && (forceSandbox||isWebDataQuestion(text))
+                                     ...(!threeTierEnabled && webData.length &&
+                                          (forceSandbox||isWebDataQuestion(text))
                                        ? {web_data:webData}: {})});
       }
       if(obsidianDeepEnabled && legacyTier(selectedTier)==="Helios" &&
@@ -1092,14 +1099,18 @@
           throw new Error("Modus oder Modellantwort nicht zugeordnet.");
         const luna=result.tier==="Luna";
         if(result.model_generated===true &&
-           result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
+           result.model!==(luna?"qwen3.5:4b":
+             (v43RawProfile?"qwen3.5:9b":"qwen3.5:9b+neral-v2-full")))
           throw new Error("Unzulässiger stiller Modellwechsel.");
         if(result.model_generated===true){
           if(luna && (result.model_origin!=="local_foundation_not_neral_adapter" ||
                       result.adapter_loaded!==false))
             throw new Error("Amber benutzt nicht das unveränderte 4B-Modell.");
-          if(!luna && (result.model_origin!=="local_neral_lora_experimental" ||
-                       result.adapter_loaded!==true || !/^[0-9a-f]{64}$/.test(result.adapter_sha256||"")))
+          if(!luna && (v43RawProfile
+            ? (result.model_origin!=="local_foundation_not_neral_adapter" ||
+               result.adapter_loaded!==false || result.adapter_sha256!==null)
+            : (result.model_origin!=="local_neral_lora_experimental" ||
+               result.adapter_loaded!==true || !/^[0-9a-f]{64}$/.test(result.adapter_sha256||""))))
             throw new Error("Obsidian-v2-full-Adapter wurde nicht nachgewiesen.");
         }else if(result.web_v4_fast_path===true){
           // Source-only V4 cannot impersonate loaded 4B/9B model weights.
@@ -1130,9 +1141,11 @@
       }else if(result.model_origin!=="local_foundation_not_neral_adapter" ||
                result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
-      if(agentWebQuery){
-        sources=Array.isArray(result.sources)?result.sources:[];
-        webAttempted=Array.isArray(result.agent_steps)&&result.agent_steps.includes("web_search");
+      if(agentWebQuery || result.web_search_status==="ok"){
+        sources=Array.isArray(result.web_sources) ? result.web_sources :
+          (Array.isArray(result.sources) ? result.sources : []);
+        webAttempted=result.web_search_status==="ok" ||
+          (Array.isArray(result.agent_steps)&&result.agent_steps.includes("web_search"));
       }else{
         result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
       }

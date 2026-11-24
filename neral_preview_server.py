@@ -208,8 +208,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
         return jsonify(plugins={
             "exact_math": {"available": True, "execution": "local_verified"},
             "think": {"available": True, "execution": "local_foundation_plus_tools"},
-            "web_search": {"configured": True, "live_verified": False,
-                           "automatic": False, "query_leaves_pc": True,
+             "web_search": {"configured": True, "live_verified": False,
+                           "automatic": three_tier_runtime is not None, "query_leaves_pc": True,
                            "requires_api_key": False},
             "offline_voice": local_voice.status(),
             "browser_voice": {"configured": True, "live_verified": False,

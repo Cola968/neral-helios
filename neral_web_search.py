@@ -688,7 +688,35 @@ class WebSearch:
         self.max_per_minute = max_per_minute
         self._hits = deque()
         self._lock = threading.Lock()
+        self._last_status = "idle"
+        self._last_error = None
+        self._last_provider = None
 
+    def _record(self, status, error=None, provider=None):
+        # Diagnostics are classifications only: never store queries, URLs,
+        # response bodies, credentials, or raw exception messages.
+        with self._lock:
+            self._last_status = status
+            self._last_error = error
+            self._last_provider = provider
+
+    def status(self):
+        with self._lock:
+            return {"backend": "DuckDuckGo HTML / Bing RSS / Google News RSS / Wikipedia DE",
+                    "last_status": self._last_status,
+                    "last_error": self._last_error,
+                    "last_provider": self._last_provider}
+
+    def record_read_status(self, status, error=None):
+        """Only safe end-to-end classifications, no page content or URL."""
+        if status not in ("ok", "empty", "timeout", "unavailable", "rate_limited"):
+            raise ValueError("Invalid search status")
+        if error not in (None, "no_readable_sources", "timeout",
+                         "provider_unavailable", "local_rate_limit"):
+            raise ValueError("Invalid search error")
+        with self._lock:
+            self._last_status = status
+            self._last_error = error
 
     def search_news(self, query: str, on_provider=None) -> list[dict[str, str]]:
         """Public keyless Google News RSS metadata for explicit fresh/news queries.
@@ -710,7 +738,10 @@ class WebSearch:
             "Accept-Language":"de,en;q=0.8",
         }, method="GET")
         try:
-            with self.opener.open(req, timeout=4.0) as response:
+            with self.opener.open(req, timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(req.full_url, status, "provider_status", response.headers, None)
                 mime = response.headers.get("Content-Type","").lower()
                 if "xml" not in mime and "rss" not in mime:
                     raise WebSearchError("Nachrichten-Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -745,7 +776,10 @@ class WebSearch:
             "Accept":"application/json", "Accept-Language":"de,en;q=0.8"
         },method="GET")
         try:
-            with self.opener.open(req,timeout=4.0) as response:
+            with self.opener.open(req,timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(req.full_url, status, "provider_status", response.headers, None)
                 mime=response.headers.get("Content-Type","").lower()
                 if "json" not in mime:
                     raise WebSearchError("Referenzsuche lieferte unerwarteten Inhaltstyp.")
@@ -800,7 +834,10 @@ class WebSearch:
             "Accept-Language": "de,en;q=0.8",
         }, method="GET")
         try:
-            with self.opener.open(req, timeout=4.0) as response:
+            with self.opener.open(req, timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(req.full_url, status, "provider_status", response.headers, None)
                 mime = response.headers.get("Content-Type", "").lower()
                 if "xml" not in mime:
                     raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -824,6 +861,8 @@ class WebSearch:
             while self._hits and now - self._hits[0] >= 60:
                 self._hits.popleft()
             if len(self._hits) >= self.max_per_minute:
+                self._last_status = "rate_limited"
+                self._last_error = "local_rate_limit"
                 raise WebSearchRateLimitError("Zu viele Websuchen. Bitte in einer Minute erneut versuchen.")
             self._hits.append(now)
         contacted = []
@@ -834,7 +873,10 @@ class WebSearch:
                 "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
                 "Accept": accept, "Accept-Language": "de,en;q=0.8",
             }, method="GET")
-            with self.opener.open(req, timeout=4.0) as response:
+            with self.opener.open(req, timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(url, status, "provider_status", response.headers, None)
                 mime = response.headers.get("Content-Type", "").lower()
                 if expected_type not in mime:
                     raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -848,14 +890,33 @@ class WebSearch:
             on_provider("DuckDuckGo HTML")
         ddg_problem = False
         bing_problem = False
-        try:
-            markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned), "text/html", "text/html")
-            results = parse_search_results(markup)
-        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
-            if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
-                raise  # Oversized responses are a hard failure.
-            ddg_problem = True
-            results = []
+        provider_error = None
+        results = []
+        # HTTP 202 can be a provider challenge instead of a search result.
+        # One bounded retry, then fail over. HTTP 429 immediately fails over.
+        for attempt in range(2):
+            try:
+                markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned),
+                                      "text/html", "text/html")
+                results = parse_search_results(markup)
+                if not results:
+                    provider_error = "empty_or_parser_changed"
+                break
+            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
+                if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
+                    self._record("unavailable", "response_too_large", "DuckDuckGo HTML")
+                    raise  # Oversized responses are a hard failure.
+                ddg_problem = True
+                provider_error = (
+                    "upstream_rate_limit" if isinstance(exc, HTTPError) and exc.code == 429
+                    else "upstream_accepted" if isinstance(exc, HTTPError) and exc.code == 202
+                    else "timeout" if isinstance(exc, TimeoutError)
+                    else "provider_unavailable"
+                )
+                if provider_error == "upstream_accepted" and attempt == 0:
+                    time.sleep(0.1)
+                    continue
+                break
 
         provider = "DuckDuckGo HTML"
         if not results:
@@ -867,8 +928,10 @@ class WebSearch:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
                 results = parse_bing_rss(xml)
                 provider = "Bing RSS"
-            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
                 bing_problem = True
+                if isinstance(exc, HTTPError) and exc.code in (202, 429):
+                    provider_error = "upstream_rate_limit" if exc.code == 429 else "upstream_accepted"
                 results = []
         if not results and is_fresh_news_query(cleaned):
             contacted.append("Google News RSS")
@@ -886,6 +949,8 @@ class WebSearch:
                     provider="Wikipedia DE"
             except WebSearchError:
                 if ddg_problem and bing_problem:
+                    self._record("unavailable", provider_error or "providers_unavailable",
+                                 "DuckDuckGo HTML / Bing RSS")
                     raise WebSearchError("Websuche derzeit bei allen Anbietern nicht verfügbar.") from None
                 results=[]
 
@@ -917,6 +982,8 @@ class WebSearch:
                         provider = provider + " + Wikipedia " + language.upper()
             results = results[:MAX_RESULTS]
 
+        self._record("ok" if results else "empty",
+                     None if results else (provider_error or "no_results"), provider)
         return {"query": cleaned, "provider": provider, "providers_contacted": contacted,
                 "external_request": True, "model_generated": False, "results": results,
                 "notice": "Nur dieser Suchbegriff wurde an " + " und ".join(contacted) +

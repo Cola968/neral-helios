@@ -47,6 +47,16 @@ PUBLIC_TIERS = ("Amber", "Quartz", "Obsidian")
 # Owner-only benchmark calls may opt out of ALL answer/memory ingestion.
 # Request-scoped to avoid leaking opt-out to later live user requests.
 _BENCHMARK_ISOLATED = ContextVar("neral_v41_benchmark_isolated", default=False)
+_WEB_SOURCE_CONTEXT = ContextVar("neral_v43_live_web_source_context", default=None)
+
+
+def _contextual_model_turns(turns):
+    """Keep untrusted remote pages in the lower-priority user role, not system."""
+    context = _WEB_SOURCE_CONTEXT.get()
+    if context and turns and turns[-1].get("role") == "user":
+        return [*turns[:-1],
+                {**turns[-1], "content": turns[-1]["content"] + "\n\n" + context}]
+    return turns
 
 
 def _public_result(result: dict) -> dict:
@@ -282,7 +292,7 @@ class FrozenQwen35HF:
             generation["prefix_allowed_tokens_fn"] = json_token_filter(cached[1], response_schema)
         import torch
         encoded = self._tokenizer.apply_chat_template(
-            turns, tokenize=True, add_generation_prompt=True,
+            _contextual_model_turns(turns), tokenize=True, add_generation_prompt=True,
             enable_thinking=False)
         if isinstance(encoded, Mapping):
             encoded = encoded["input_ids"]
@@ -2153,6 +2163,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
     # routes all use that closure and must release HF CUDA allocations.
     app._neral_before_legacy_model = runtime.release_for_legacy
 
+    from neral_v43_live_web import (route_live_query, search_live_sources,
+                                    search_diagnostics)
+
     @app.get("/health")
     def three_tier_health():
         # No success until the startup model-load hook completes; main()
@@ -2162,8 +2175,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         # legitimate; health tracks completed startup, not which tier currently
         # owns VRAM. Switches may require a new cold load.
         if runtime.startup_ready:
-            return jsonify(status="ready", model="Quartz"), 200
-        return jsonify(status="starting"), 503
+            return jsonify(status="ready", model="Quartz",
+                           web_search=search_diagnostics(search_service)), 200
+        return jsonify(status="starting",
+                       web_search=search_diagnostics(search_service)), 503
 
     @app.get("/api/neral/chat/three-tier/status")
     def three_tier_status():
@@ -2177,7 +2192,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                        adapter_sha256=(runtime.helios.adapter_sha256
                                        if runtime.helios.loaded else None),
                        quality_improvement_proven=False,
-                       obsidian_deep=bool(enabled() and runtime.evidence_agent))
+                       obsidian_deep=bool(enabled() and runtime.evidence_agent),
+                       v43_profile=bool(getattr(runtime, "v43_profile", False)),
+                       web_search=search_diagnostics(search_service))
 
     @app.get("/api/neral/chat/three-tier/availability")
     def three_tier_availability():
@@ -2256,9 +2273,20 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         from neral_v41_context import resolve_question
         from neral_local_wiki import source_required
         work_question = resolve_question(turns).work_question
+        benchmark_mode = payload.get("benchmark_isolated", False)
+        live_web_query = route_live_query(
+            work_question, explicit_query=web_query, benchmark=benchmark_mode,
+            force_sandbox=payload.get("force_sandbox", False),
+            attachments=web_stage is not None)
+        # Benchmark isolation wins over even an explicit web_query. Never use
+        # a provider, Kiwix fallback or background web verifier in that mode.
+        if benchmark_mode:
+            web_query = None
+        live_search_service = None if benchmark_mode else search_service
         tool_request = bool(
-            web_query or web_stage or payload.get("force_sandbox", False)
-            or source_required(work_question) or _is_free_compute_task(work_question))
+            live_web_query or web_stage or payload.get("force_sandbox", False)
+            or (not benchmark_mode and source_required(work_question))
+            or _is_free_compute_task(work_question))
         from neral_v43_bounded import enabled as v43_bounded_enabled
         # Only explicitly opted-in requests use the new draft-first route.
         # Legacy staged files remain outside the experimental profile.
@@ -2270,14 +2298,15 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             time.monotonic() + (65 if v43_bounded else deadline_seconds_for_request(
                 requested_tier, tool_active=tool_request)))
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
+        web_context_token = _WEB_SOURCE_CONTEXT.set(None)
         deep_active = active(requested_tier) and runtime.evidence_agent and not web_stage
         owner = session.get("csrf", "") if progress_id else ""
         tracking = deep_active and progress_id and progress_registry.begin(owner, progress_id)
         progress_token = _PROGRESS.set(
             (lambda event: progress_registry.emit(owner, progress_id, event)) if tracking else None)
-        search_token = _SEARCH.set(search_service if deep_active else None)
+        search_token = _SEARCH.set(live_search_service if deep_active else None)
         from neral_obsidian_deep import is_simple_everyday_question
-        simple_deep = (deep_active and not web_query and not web_stage and
+        simple_deep = (deep_active and not live_web_query and not web_stage and
                        not payload.get("force_sandbox", False) and
                        is_simple_everyday_question(turns[-1]["content"]))
         try:
@@ -2288,20 +2317,38 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             from neral_v41_context import resolve_question
             resolution = resolve_question(turns)
             is_followup = resolution.is_followup
+            preloaded_web = None
+            # V4.3 draft-first had performed web retrieval AFTER generation.
+            # Read real pages first and feed their bounded untrusted text to
+            # the generator; never show a model-only answer after a web error.
+            if live_web_query and (
+                    getattr(runtime, "v43_profile", False)
+                    or requested_tier in ("Amber", "Luna")
+                    or not runtime.evidence_agent):
+                preloaded_web = search_live_sources(live_search_service, live_web_query)
+                if preloaded_web["status"] != "ok":
+                    return jsonify(
+                        error="Websuche konnte keine lesbaren Quellen liefern; "
+                              "es wurde keine ungesicherte Wissensantwort erzeugt.",
+                        error_code="web_search_" + preloaded_web["status"],
+                        web_search_status=preloaded_web["status"],
+                        web_search_error=preloaded_web["error"]), 503
+                _WEB_SOURCE_CONTEXT.set(preloaded_web["context"])
             from neral_local_wiki import (enabled as wiki_enabled,
                                           eligible_question, source_required,
                                           lookup_with_fallback, local_wiki_search)
-            source_requested = source_required(resolution.work_question)
+            source_requested = (not benchmark_mode and
+                                source_required(resolution.work_question))
             auto_knowledge = (not deep_active and wiki_enabled() and runtime.evidence_agent and
                               search_service is not None and
                               requested_tier in ("Quartz", "Terra") and
                               not _BENCHMARK_ISOLATED.get() and not is_followup and
-                              not source_requested and not web_query and not web_stage and
+                              not source_requested and not live_web_query and not web_stage and
                               not payload.get("force_sandbox", False) and
                               eligible_question(resolution.work_question))
             note = None
             if (not auto_knowledge and not _BENCHMARK_ISOLATED.get() and not is_followup and
-                    not web_query and not web_stage and
+                    not live_web_query and not web_stage and
                     not payload.get("force_sandbox", False)):
                 from neral_verified_notes import exact_note_lookup
                 try:
@@ -2309,16 +2356,18 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     note = None
             if v43_bounded:
-                result = runtime.answer_v43_bounded(turns,requested_tier,
-                    web_query=web_query or (resolution.work_question if source_requested else None),
-                    search=search_service)
+                result = runtime.answer_v43_bounded(
+                    turns, requested_tier, verify_source=preloaded_web is None,
+                    web_query=(None if preloaded_web else
+                               (live_web_query if not benchmark_mode else None)),
+                    search=live_search_service)
                 if payload.get("force_sandbox",False) and not result.get("verified"):
                     result["verification_warning"] = result.get("verification_warning") or "Keine unabhängige Sandbox-Prüfung abgeschlossen; Antwort ungeprüft."
             elif auto_knowledge:
                 def web_fallback():
                     return {**runtime.answer_with_evidence(
                         turns, requested_tier, web_query=resolution.work_question,
-                        search=search_service), "knowledge_route":"web_v4_fallback"}
+                        search=live_search_service), "knowledge_route":"web_v4_fallback"}
                 result = lookup_with_fallback(
                     resolution.work_question, web_fallback,
                     lambda hits: runtime.answer_local_wiki(turns, requested_tier, hits),
@@ -2336,13 +2385,13 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                           "quality_improvement_proven": False,
                           "verification_scope": "historical_source_not_live_proof",
                           "proof_backend": None, "error_code": None}
-            elif web_query or source_requested:
+            elif (live_web_query or source_requested) and not preloaded_web:
                 # Explicit user request for a read source never goes to notes,
                 # unverified model-only chat, or the unreviewed wiki shortcut.
                 result = runtime.answer_with_evidence(
                     turns, requested_tier,
-                    web_query=web_query or resolution.work_question,
-                    search=search_service,
+                    web_query=live_web_query or resolution.work_question,
+                    search=live_search_service,
                     force_sandbox=payload.get("force_sandbox", False))
             elif simple_deep and not is_followup:
                 # Fast route only for uncomplicated, timeless explanations.
@@ -2354,13 +2403,20 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             elif deep_active:
                 # Complex tasks retain the full verified three-loop pipeline.
                 result = runtime.answer_with_evidence(
-                    turns, requested_tier, search=search_service,
+                    turns, requested_tier, search=live_search_service,
                     force_sandbox=payload.get("force_sandbox", False))
             else:
                 result = runtime.answer(
                     turns, requested_tier,
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
+            if preloaded_web is not None:
+                result = {**result, "web_search_status": "ok",
+                          "web_sources": preloaded_web["sources"],
+                          "web_search_provider": preloaded_web["provider"]}
+            elif benchmark_mode:
+                result = {**result, "web_search_status": "disabled_benchmark",
+                          "web_sources": []}
             # A complete V4.3 draft must survive a late optional check.
             # CUDA safety remains mandatory, even for a fallback.
             if not v43_bounded:
@@ -2401,6 +2457,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             _PROGRESS.reset(progress_token)
             _SEARCH.reset(search_token)
             _BENCHMARK_ISOLATED.reset(benchmark_token)
+            _WEB_SOURCE_CONTEXT.reset(web_context_token)
             _REQUEST_DEADLINE.reset(deadline_token)
             if diagnostic_token is not None:
                 diagnostic_end(diagnostic_token)
