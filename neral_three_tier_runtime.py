@@ -37,6 +37,7 @@ from neral_v42_deadline import (
 
 LUNA = "qwen3.5:4b"
 HELIOS = "qwen3.5:9b+neral-v2-full"
+RAW_9B = "qwen3.5:9b"
 # Public tier names are canonical; historical API inputs remain supported.
 TIERS = {"Luna": 96, "Terra": 256, "Helios": 768,
          "Amber": 768, "Quartz": 256, "Obsidian": 768}
@@ -136,7 +137,7 @@ def probe_cuda_free_after_cache_flush(torch, minimum_free_mib: int):
 class FrozenQwen35HF:
     """Lazy NF4 CUDA inference; frozen 9B PEFT weights or unchanged 4B."""
 
-    def __init__(self, checkpoint: str | Path, *, full_root: str | Path | None = None):
+    def __init__(self, checkpoint: str | Path, *, full_root: str | Path | None = None, raw_9b=False):
         base = Path(checkpoint)
         if base.is_symlink() or not base.is_dir() or not (base / "config.json").is_file():
             raise ValueError("Pinned local Qwen3.5 model snapshot is missing")
@@ -144,7 +145,14 @@ class FrozenQwen35HF:
         self.root = None
         self.adapter_path = None
         self.adapter_sha256 = None
-        if full_root is not None:
+        if raw_9b and full_root is not None:
+            raise ValueError("Raw 9B must not load an adapter")
+        if raw_9b:
+            if not (base / "model.safetensors.index.json").is_file():
+                raise ValueError("Complete local Qwen3.5-9B HF snapshot missing")
+            self.model=RAW_9B
+            self.minimum_free_mib=8500
+        elif full_root is not None:
             full = Path(full_root)
             if not frozen_v2_full(full):
                 raise ValueError("Frozen Helios v2-full receipt or adapter SHA mismatch")
@@ -252,7 +260,7 @@ class FrozenQwen35HF:
             raise ValueError("Unapproved V2 code-generation time budget")
         if self.model == LUNA and max_new_tokens not in (96, 768):
             raise ValueError("Amber supports 768 tokens; legacy Luna stays at 96")
-        if self.model == HELIOS and max_new_tokens == 96:
+        if self.model in (HELIOS,RAW_9B) and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         check_deadline()
         metric = diagnostic_current()
@@ -1179,12 +1187,13 @@ def _sandbox_output(report: object) -> str | None:
 
 class ThreeTierRuntime:
     def __init__(self, luna, helios, *, legacy_backend=None,
-                 execute_python=None, execute_dataset_python=None, evidence_agent=False):
+                 execute_python=None, execute_dataset_python=None, evidence_agent=False, v43_profile=False):
         if (getattr(luna, "model", None) != LUNA or
                 getattr(luna, "adapter_sha256", None) is not None or
-                getattr(helios, "model", None) != HELIOS or
-                re.fullmatch(r"[0-9a-f]{64}",
-                             str(getattr(helios, "adapter_sha256", ""))) is None or
+                not ((getattr(helios,"model",None)==RAW_9B and v43_profile
+                      and getattr(helios,"adapter_sha256",None) is None)
+                     or (getattr(helios,"model",None)==HELIOS and
+                         re.fullmatch(r"[0-9a-f]{64}",str(getattr(helios,"adapter_sha256",""))) is not None)) or
                 not callable(getattr(luna, "respond_chat", None)) or
                 not callable(getattr(helios, "respond_chat", None)) or
                 not callable(getattr(luna, "unload", None)) or
@@ -1206,6 +1215,7 @@ class ThreeTierRuntime:
             raise ValueError("Dataset Docker callback must be callable")
         self.execute_dataset_python = execute_dataset_python
         self.evidence_agent = evidence_agent
+        self.v43_profile = bool(v43_profile)
         self.startup_ready = False
 
     def warmup_default_model(self):
@@ -1914,9 +1924,10 @@ class ThreeTierRuntime:
         }
 
 
-    def answer_v43_bounded(self, turns, tier, *, verify_source=True):
+    def answer_v43_bounded(self, turns, tier, *, verify_source=True, web_query=None, search=None):
         """Experimental draft-first path; no planner/critic GPU generations."""
-        from neral_v43_bounded import bounded_answer, exact_integer_verdict, Verdict
+        from neral_v43_bounded import bounded_answer, Verdict
+        from neral_v43_routes import verify_answer
         from neral_everyday_verified import tidy_unverified_model_text
         from neral_v41_context import resolve_question
         resolution = resolve_question(turns)
@@ -1934,36 +1945,44 @@ class ThreeTierRuntime:
             finally:
                 _REQUEST_DEADLINE.reset(token)
             if not self.helios.loaded:
-                raise RuntimeError("Helios adapter loading was not confirmed")
+                raise RuntimeError("9B model loading was not confirmed")
+            adapted=bool(self.helios.adapter_sha256)
             return _public_result({
-                "tier":"Helios","mode":"HELIOS","text":response,
+                "tier":PUBLIC_TO_LEGACY.get(tier,tier),"mode":tier.upper(),"text":response,
                 "model":self.helios.model,"model_generated":True,
                 "verified":False,"safe_to_promote":False,
-                "adapter_loaded":True,"adapter_sha256":self.helios.adapter_sha256,
-                "model_origin":"local_neral_lora_experimental",
+                "adapter_loaded":adapted,"adapter_sha256":self.helios.adapter_sha256,
+                "model_origin":"local_neral_lora_experimental" if adapted else "local_foundation_not_neral_adapter",
                 "quality_improvement_proven":False,
                 "verification_scope":"none","proof_backend":None})
         certificate=None
         certificate_checked=False
-        def verify(candidate):
+        spent=0.0
+        def trusted():
             nonlocal certificate,certificate_checked
-            if not verify_source or resolution.is_followup:
-                return Verdict("unsupported")
-            # Only independent, source-derived certificates may contradict a
-            # candidate. No model-authored judge or generated test is trusted.
             if not certificate_checked:
-                left=remaining_seconds()
-                if left is not None and left<8: return Verdict("timeout")
-                outer=_REQUEST_DEADLINE.get()
-                limit=time.monotonic()+5
-                token=_REQUEST_DEADLINE.set(min(limit,outer) if outer is not None else limit)
-                try:
-                    certificate=self._verified_source(work_turns)
-                    certificate_checked=True
-                finally:
-                    _REQUEST_DEADLINE.reset(token)
-            return (exact_integer_verdict(candidate,certificate)
-                    if certificate else Verdict("unsupported"))
+                certificate=self._verified_source(work_turns)
+                certificate_checked=True
+            return certificate
+        def verify(candidate):
+            nonlocal spent
+            if not verify_source: return Verdict("unsupported")
+            if resolution.is_followup and not web_query:
+                return Verdict("unsupported")
+            left=remaining_seconds()
+            allowance=min(5-spent,left if left is not None else 5)
+            if allowance<=0: return Verdict("timeout")
+            start=time.monotonic()
+            limit=start+allowance
+            token=_REQUEST_DEADLINE.set(limit)
+            try:
+                verdict=verify_answer(resolution.work_question,candidate,
+                    deadline=limit,web_query=web_query,search=search,
+                    trusted_certificate=None if resolution.is_followup else trusted)
+                return verdict if time.monotonic()<limit else Verdict("timeout")
+            finally:
+                spent+=time.monotonic()-start
+                _REQUEST_DEADLINE.reset(token)
         def repair(candidate,evidence):
             return generate([*work_turns,
                 {"role":"assistant","content":candidate["text"]},
@@ -2142,7 +2161,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                        amber=runtime.luna.model, quartz=runtime.helios.model,
                        obsidian=runtime.helios.model,
                        luna=runtime.luna.model, helios=runtime.helios.model,
-                       adapter_loaded=runtime.helios.loaded,
+                       adapter_loaded=bool(runtime.helios.loaded and runtime.helios.adapter_sha256),
                        adapter_sha256=(runtime.helios.adapter_sha256
                                        if runtime.helios.loaded else None),
                        quality_improvement_proven=False,
@@ -2232,10 +2251,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         # Only explicitly opted-in local draft-first requests use the new
         # route. Explicit web, files and forced sandbox keep their existing
         # semantics until independently integrated and tested.
-        v43_bounded = (v43_bounded_enabled() and requested_tier in ("Obsidian","Helios")
-                       and not web_query and not web_stage
-                       and not payload.get("force_sandbox",False)
-                       and not source_required(work_question))
+        v43_profile=getattr(runtime,"v43_profile",False) is True
+        v43_bounded = ((v43_profile or v43_bounded_enabled())
+                       and requested_tier in ("Obsidian","Helios","Quartz","Terra")
+                       and not web_stage and not payload.get("force_sandbox",False))
         deadline_token = _REQUEST_DEADLINE.set(
             time.monotonic() + (65 if v43_bounded else deadline_seconds_for_request(
                 requested_tier, tool_active=tool_request)))
@@ -2279,7 +2298,9 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     note = None
             if v43_bounded:
-                result = runtime.answer_v43_bounded(turns,requested_tier)
+                result = runtime.answer_v43_bounded(turns,requested_tier,
+                    web_query=web_query or (resolution.work_question if source_requested else None),
+                    search=search_service)
             elif auto_knowledge:
                 def web_fallback():
                     return {**runtime.answer_with_evidence(

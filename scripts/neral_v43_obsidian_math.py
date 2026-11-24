@@ -174,7 +174,7 @@ def falsify_claim(spec, *, timeout_ms=2000, deadline=None):
     return {"status":"unknown","assignment":None,"engine":"z3"}
 
 
-def boundary_fuzz(spec, *, max_probes=256):
+def boundary_fuzz(spec, *, max_probes=256, deadline=None):
     """Deterministic grid of lower/upper/zero/adjacent values; not a proof."""
     import z3
     if type(max_probes) is not int or not 1<=max_probes<=256:
@@ -186,6 +186,8 @@ def boundary_fuzz(spec, *, max_probes=256):
         grids.append(sorted(set(x for x in (lo,lo+1,-1,0,1,hi-1,hi) if lo<=x<=hi)))
     checked=0
     for values in product(*grids):
+        if deadline is not None and time.monotonic()>=deadline:
+            return {"status":"unknown","assignment":None,"probes":checked,"engine":"boundary_fuzz"}
         if checked>=max_probes: break
         checked+=1
         substitution=[(variables[name],z3.IntVal(value))

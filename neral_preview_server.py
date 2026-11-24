@@ -299,9 +299,15 @@ def main(argv=None):
                         default=Path("D:/neral-qlora/checkpoint"))
     parser.add_argument("--helios-v2-full",type=Path,
                         default=Path("D:/neral-qlora-v2/v2full-43931510428-1-helios"))
+    parser.add_argument("--v43-profile",action="store_true",help="CPU-tested V4.3 development profile, raw 9B by default.")
+    parser.add_argument("--v43-with-lora",action="store_true",help="Explicit V4.3 adapter ablation only.")
     parser.add_argument("--experimental-dual-routing",action="store_true",
                         help="Opt-in pinned QLoRA for TIR and base-Qwen for raw fallback; default off.")
     args=parser.parse_args(argv)
+    if args.v43_with_lora and not args.v43_profile:
+        parser.error("--v43-with-lora requires --v43-profile")
+    if args.v43_profile:
+        args.experimental_three_tier_hf=True
     # Explicit process-scoped opt-in for the existing Windows Scheduled Task.
     # The default remains disabled; no cloud or model setting changes.
     if os.environ.get("NERAL_V3_AGENT_ENABLED") == "1":
@@ -333,8 +339,10 @@ def main(argv=None):
         # snapshot or the frozen adapter receipt is missing or modified.
         tier_runtime=ThreeTierRuntime(
             FrozenQwen35HF(args.luna_4b_hf),
-            FrozenQwen35HF(args.helios_9b_hf,full_root=args.helios_v2_full),
-            legacy_backend=legacy, evidence_agent=args.evidence_agent)
+            FrozenQwen35HF(args.helios_9b_hf,
+                full_root=None if args.v43_profile and not args.v43_with_lora else args.helios_v2_full,
+                raw_9b=args.v43_profile and not args.v43_with_lora),
+            legacy_backend=legacy, evidence_agent=args.evidence_agent,v43_profile=args.v43_profile)
     app=create_preview_app(legacy,experimental_high_backend=high,
                            three_tier_runtime=tier_runtime,port=args.port)
     version = "3.0" if args.evidence_agent else "1.0"

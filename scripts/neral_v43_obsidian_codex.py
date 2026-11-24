@@ -10,6 +10,11 @@ import json
 import re
 import subprocess
 import time
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
 
 IMAGE = "neral-v43-codex-sandbox:1"
 SAFE_IMPORTS = frozenset({
@@ -129,8 +134,59 @@ def docker_command() -> list[str]:
             IMAGE,"python","-B","-c",_CONTAINER_ENTRY]
 
 
+def _restricted_run(payload,timeout):
+    """Execute only our trusted AST evaluator, not candidate Python."""
+    script=Path(__file__).with_name("neral_v43_windows_worker.py").resolve(strict=True)
+    env={k:os.environ[k] for k in ("SystemRoot","WINDIR","SYSTEMDRIVE") if k in os.environ}
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"]="1"
+    with tempfile.TemporaryDirectory(prefix="neral-v43-codex-") as folder:
+        env.update(TEMP=folder,TMP=folder,TMPDIR=folder,HOME=folder,USERPROFILE=folder)
+        # -I suppresses user-site and environment Python injection. The worker
+        # interprets a strict AST subset, so no candidate can create children.
+        return subprocess.run([sys.executable,"-I","-B",str(script)],
+            input=payload,text=True,encoding="utf-8",stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,check=False,timeout=timeout,cwd=folder,env=env)
+
+
+def _select_run(payload,deadline,runner,backend):
+    def remaining():
+        left=deadline-time.monotonic()
+        if left<=0: raise subprocess.TimeoutExpired("codex",0)
+        return left
+    if backend=="restricted":
+        return _restricted_run(payload,remaining())
+    if backend not in ("auto","docker"): raise ValueError("Invalid sandbox backend")
+    if backend=="docker" or runner is not subprocess.run:
+        return runner(docker_command(),input=payload,text=True,
+                      stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                      check=False,timeout=remaining())
+    # Probe actual backends, not only executable presence. WSL is not itself
+    # a security boundary: only Docker inside a named provisioned distro.
+    candidates=[]
+    if shutil.which("docker"):
+        candidates.append(["docker"])
+    distro=os.environ.get("NERAL_V43_WSL_DISTRO","")
+    if os.name=="nt" and shutil.which("wsl.exe") and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",distro):
+        candidates.append(["wsl.exe","-d",distro,"--exec","docker"])
+    for prefix in candidates:
+        try:
+            probe=subprocess.run(prefix+["image","inspect",IMAGE],stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,check=False,timeout=min(.65,remaining()))
+        except (OSError,subprocess.TimeoutExpired):
+            continue
+        if probe.returncode!=0: continue
+        try:
+            process=runner(prefix+docker_command()[1:],input=payload,text=True,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False,timeout=remaining())
+            if process.returncode not in (125,126,127): return process
+        except OSError:
+            continue
+    if os.name=="nt": return _restricted_run(payload,remaining())
+    raise OSError("No isolated code sandbox available")
+
+
 def run_test_repair_loop(code, *, tests, properties, repair=None,
-                         max_repairs=1, runner=subprocess.run, deadline=None):
+                         max_repairs=1, runner=subprocess.run, deadline=None, backend="auto"):
     """Run tests before acceptance, repair from bounded sandbox stacktraces.
 
     'repair' must be a user-/model-provided callable; no arbitrary model or
@@ -155,10 +211,11 @@ def run_test_repair_loop(code, *, tests, properties, repair=None,
     original=code
     attempt=0
     end=min(time.monotonic()+60,deadline if deadline is not None else float("inf"))
+    evidence=""
     def result(status, *, accepted=False):
         return {"status":status,"attempts":attempt,
                 "code":code if accepted else original,
-                "verified":accepted}
+                "verified":accepted,"evidence":evidence}
     while attempt<=max_repairs:
         remaining=end-time.monotonic()
         if remaining<=0: return result("timeout")
@@ -170,9 +227,7 @@ def run_test_repair_loop(code, *, tests, properties, repair=None,
         payload=json.dumps({"code":code,"tests":tests,"properties":properties},
                            ensure_ascii=False,sort_keys=True,allow_nan=False)
         try:
-            process=runner(docker_command(),input=payload,text=True,
-                           stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                           check=False,timeout=min(30,remaining))
+            process=_select_run(payload,min(end,time.monotonic()+5),runner,backend)
         except subprocess.TimeoutExpired:
             return result("timeout")
         except OSError:
@@ -180,14 +235,18 @@ def run_test_repair_loop(code, *, tests, properties, repair=None,
         output=(process.stdout or "")[:4096]
         if process.returncode==0 and "NERAL_V43_TESTS_PASS" in output:
             return result("passed",accepted=True)
-        if process.returncode in (125,126,127):
-            return {"status":"sandbox_error","attempts":attempt}
+        if process.returncode in (3,125,126,127):
+            return result("sandbox_error")
         status=("property_counterexample"
                 if "NERAL_V43_PROPERTY_COUNTEREXAMPLE" in output
                 else "tests_failed" if "NERAL_V43_TESTS_FAILED" in output
                 else "sandbox_error")
+        if status in ("tests_failed","property_counterexample") and (
+                "AssertionError" in output or "Falsifying example:" in output):
+            # Bounded trace is untrusted diagnostic data, never instructions.
+            evidence=output[-1200:]
         if (status=="sandbox_error" or repair is None or attempt>max_repairs
-                or not ("AssertionError" in output or "Falsifying example:" in output)):
+                or not evidence):
             return result(status)
         if end-time.monotonic()<5:
             return result("timeout")

@@ -11,6 +11,7 @@ from neral_v42_deadline import DeadlineExceeded, remaining_seconds
 class Verdict:
     status: str
     evidence: str = ""
+    sources: tuple = ()
 
 
 def enabled():
@@ -33,6 +34,7 @@ def bounded_answer(generate, verify=None, *, repair=None, remaining=remaining_se
     if not valid(draft):
         raise RuntimeError("No complete initial answer")
     draft=dict(draft)
+    found_sources=()
     def result(candidate,status,verified=False):
         incomplete=status in ("verification_incomplete","counterexample_unresolved")
         warning=("Ein Gegenbeispiel wurde gefunden; die Korrektur konnte nicht bestätigt werden."
@@ -43,6 +45,7 @@ def bounded_answer(generate, verify=None, *, repair=None, remaining=remaining_se
                 "tool_verified":verified,"proof_backend":None,
                 "verification_scope":"bounded_independent_check" if verified else "none",
                 "verification_status":status,"verification_warning":warning,
+                "retrieved_sources":list(found_sources),
                 "generation_rounds":rounds,"repair_attempts":rounds-1,
                 "repair_success":rounds==2 and verified,"v43_bounded":True}
     if verify is None:
@@ -58,12 +61,13 @@ def bounded_answer(generate, verify=None, *, repair=None, remaining=remaining_se
             return Verdict("unknown")
         return verdict
     verdict=evaluate(draft)
+    found_sources=verdict.sources
     if verdict.status=="verified":
         return result(draft,"verified",True)
     if verdict.status!="counterexample":
         return result(draft,"verification_not_applicable" if verdict.status=="unsupported"
                       else "verification_incomplete")
-    if repair is None or not verdict.evidence or not has_time(10):
+    if repair is None or not verdict.evidence or not has_time(12):
         return result(draft,"counterexample_unresolved")
     rounds+=1
     try:
