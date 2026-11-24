@@ -79,6 +79,36 @@ class CodexSafetyCPU(unittest.TestCase):
         self.assertEqual(result["status"],"timeout")
         self.assertLessEqual(result["attempts"],1)
 
+    def test_deadline_keeps_initial_candidate_and_never_executes(self):
+        code="def f(x): return x"
+        runner=Mock()
+        result=run_test_repair_loop(code, tests=[{"function":"f","args":[1],"expected":1}],
+            properties=[],runner=runner,deadline=0)
+        self.assertEqual(result["status"],"timeout")
+        self.assertEqual(result["code"],code)
+        runner.assert_not_called()
+
+    def test_one_repair_max_and_return_repaired_code(self):
+        cases=[{"function":"f","args":[1],"expected":2}]
+        runner=Mock(side_effect=[
+            subprocess.CompletedProcess([],1,"NERAL_V43_TESTS_FAILED\\nAssertionError",""),
+            subprocess.CompletedProcess([],0,"NERAL_V43_TESTS_PASS","")])
+        repair=Mock(return_value="def f(x): return x+1")
+        result=run_test_repair_loop("def f(x): return x",tests=cases,properties=[],
+            runner=runner,repair=repair)
+        self.assertEqual(result["code"],"def f(x): return x+1")
+        self.assertEqual(result["attempts"],2)
+        repair.assert_called_once()
+        with self.assertRaises(ValueError):
+            run_test_repair_loop("def f(x): return x",tests=cases,properties=[],max_repairs=2)
+
+    def test_unavailable_docker_keeps_unverified_candidate(self):
+        code="def f(x): return x"
+        result=run_test_repair_loop(code,tests=[{"function":"f","args":[1],"expected":1}],
+            properties=[],runner=Mock(side_effect=OSError("docker absent")))
+        self.assertEqual(result["status"],"sandbox_error")
+        self.assertEqual(result["code"],code)
+
     def test_empty_test_suite_never_claims_verified(self):
         result=run_test_repair_loop("def f(x): return x",tests=[],properties=[],runner=Mock())
         self.assertEqual(result["status"],"tests_failed")
