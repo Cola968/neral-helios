@@ -94,3 +94,64 @@ jobs:
     uses: ./.github/workflows/neral-v44-native-cpu-gate.yml
     with:
       confirm: V44-NATIVE-CPU-SETUP-AND-GATE
+
+  v44-protected-preflight:
+    if: github.repository == 'Cola968/neral-helios' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/v43-rft-qlora-cpu' && github.run_attempt == 1 && inputs.authorize == 'V44-PROTECTED-CPU-PREFLIGHT'
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -Command "& '{0}'"
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: v44-preflight-source
+      - uses: actions/checkout@v4
+        with:
+          ref: c0a6be607a0797908e101db460e3ac297a70f088
+          persist-credentials: false
+          path: v44-frozen-source
+      - name: Read-only owner and protected seals; CPU catalog only
+        working-directory: v44-preflight-source
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'W39-GAMINGPC-Neral'){throw 'WRONG_RUNNER'}
+          function Health {
+            $status=& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/health'
+            return ($LASTEXITCODE -eq 0 -and $status -ceq '200')
+          }
+          if(-not(Health)){throw 'ORIGINAL_HTTP200_REQUIRED'}
+          try {
+            $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+            $service=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local/Start-Neral-Three-Tier-Service.ps1'
+            if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1 -or [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){throw 'OWNER_TASK_MISMATCH'}
+            $listener=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction Stop)
+            if($listener.Count -ne 1 -or $listener[0].LocalAddress -cne '127.0.0.1'){throw 'OWNER_LISTENER_MISMATCH'}
+            $child=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$listener[0].OwningProcess) -ErrorAction Stop
+            $parent=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$child.ParentProcessId) -ErrorAction Stop
+            foreach($proc in @($child,$parent)){
+              if($null -eq $proc -or $proc.Name -notmatch '(?i)^pythonw?\.exe$' -or $proc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or $proc.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or $proc.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*'){throw 'OWNER_PROCESS_MISMATCH'}
+            }
+            Write-Host 'OWNER_IDENTITY_READONLY_PASS'
+            $gpu=@(& nvidia-smi.exe --query-gpu=name,memory.free,memory.used,memory.total --format=csv,noheader,nounits)
+            if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or $gpu[0] -notmatch '^NVIDIA GeForce RTX 4070,\s*(\d+),\s*(\d+),\s*(\d+)\s*$'){throw 'GPU_IDENTITY_OR_SAMPLE_FAILED'}
+            Write-Host ('SERVICE_RUNNING_GPU_SAMPLE free_mib='+$Matches[1]+' used_mib='+$Matches[2]+' total_mib='+$Matches[3])
+            $py=Join-Path $env:LOCALAPPDATA 'NERAL-private/v44-rft/training-env-45484125504/Scripts/python.exe'
+            if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'CPU_ACCEPTED_ENV_MISSING'}
+            $env:PYTHONPATH=$PWD.Path
+            $frozen=Join-Path $env:GITHUB_WORKSPACE 'v44-frozen-source'
+            & $py -B -m scripts.neral_v44_protected_preflight --frozen $frozen --run-id $env:GITHUB_RUN_ID
+            if($LASTEXITCODE -ne 0){throw 'PROTECTED_PREFLIGHT_FAILED'}
+          } finally {
+            if(-not(Health)){throw 'ORIGINAL_HTTP200_UNCONFIRMED'}
+            Write-Host 'ORIGINAL_HTTP200; service not stopped; GPU_READY=false'
+          }
