@@ -149,6 +149,8 @@ jobs:
             if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'CPU_ACCEPTED_ENV_MISSING'}
             $env:PYTHONPATH=$PWD.Path
             $frozen=Join-Path $env:GITHUB_WORKSPACE 'v44-frozen-source'
+            & $py -B -m unittest discover -s tests -p test_neral_v44_protected_preflight.py -v
+            if($LASTEXITCODE -ne 0){throw 'PREFLIGHT_REGRESSION_TEST_FAILED'}
             & $py -B -m scripts.neral_v44_protected_preflight --frozen $frozen --run-id $env:GITHUB_RUN_ID
             if($LASTEXITCODE -ne 0){throw 'PROTECTED_PREFLIGHT_FAILED'}
           } finally {

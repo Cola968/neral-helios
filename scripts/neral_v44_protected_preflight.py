@@ -55,35 +55,49 @@ def check_hard(root):
     records=[pin(directory/"V1/private.jsonl",OH_TASKS),pin(directory/"V1/manifest.json",OH_MANIFEST),pin(directory/"V1-recovery-45457632035/responses.jsonl",OH_RESP)]
     return {"path":records[0]["path"],"sha256":OH_TASKS,"immutable_files":records}
 
-def check_frozen(checkout,installed):
-    # Compare actual release Git blob bytes rather than line-ending-converted checkout files.
+def check_frozen(checkout):
+    # The frozen source is a Git commit, not the live installation restored
+    # by run 45256370458. Verify its exact Git tree and read its blob bytes.
     if subprocess.check_output(["git","-C",str(checkout),"rev-parse","HEAD"],text=True).strip()!=FROZEN:
         raise ValueError("FROZEN_SOURCE_PIN_MISMATCH")
-    mismatches=0
-    exact=0
+    tree=subprocess.check_output(["git","-C",str(checkout),"rev-parse","HEAD^{tree}"],text=True).strip()
+    if tree!="f78b29ae3d6cf6eeab6e2a88e8d696fa892d07bd":
+        raise ValueError("FROZEN_TREE_PIN_MISMATCH")
+    result={}
     for name in FILES:
         blob=subprocess.check_output(["git","-C",str(checkout),"show",FROZEN+":"+name])
+        oid=subprocess.check_output(["git","-C",str(checkout),"rev-parse",FROZEN+":"+name],text=True).strip()
+        if hashlib.sha1(b"blob "+str(len(blob)).encode("ascii")+b"\x00"+blob).hexdigest()!=oid:
+            raise ValueError("FROZEN_GIT_BLOB_MISMATCH")
+        result[name]=hashlib.sha256(blob).hexdigest()
+    return result
+
+
+def check_restored_owner(installed,backup):
+    # Exact original bytes, not newline-normalized comparisons.
+    # The successful historical rollback proves this was the backup location;
+    # no independently published SHA256 manifest of its bytes is available.
+    result={}
+    bad=0
+    for name in FILES:
         try:
-            path=safe(installed/name)
-            actual=path.read_bytes()
+            expected=sha(backup/name)
+            actual=sha(installed/name)
         except (OSError,ValueError):
-            print("FROZEN_FILE",name,"MISSING_OR_UNSAFE",flush=True)
-            mismatches+=1
+            print("OWNER_BACKUP_FILE",name,"MISSING_OR_UNSAFE",flush=True)
+            bad+=1
             continue
-        if hashlib.sha256(actual).digest()==hashlib.sha256(blob).digest():
-            exact+=1
-            print("FROZEN_FILE",name,"EXACT_SHA256",flush=True)
+        if actual!=expected:
+            print("OWNER_BACKUP_FILE",name,"CONTENT_OR_BYTE_MISMATCH",flush=True)
+            bad+=1
         else:
-            mismatches+=1
-            if actual.replace(b"\r\n",b"\n")==blob.replace(b"\r\n",b"\n"):
-                reason="LINE_ENDINGS_ONLY"
-            else:
-                reason="CONTENT_MISMATCH"
-            print("FROZEN_FILE",name,reason,flush=True)
-    print("FROZEN_EXACT_COUNT",exact,"OF",len(FILES),flush=True)
-    if mismatches:
-        raise ValueError("INSTALLED_FROZEN_RUNTIME_MISMATCH")
-    return len(FILES)
+            print("OWNER_BACKUP_FILE",name,"EXACT_SHA256",flush=True)
+            result[name]=actual
+    print("OWNER_BACKUP_EXACT_COUNT",len(result),"OF",len(FILES),flush=True)
+    if bad or set(result)!=set(FILES):
+        raise ValueError("ORIGINAL_OWNER_BACKUP_MISMATCH")
+    return result
+
 
 def main():
     p=argparse.ArgumentParser()
@@ -111,8 +125,13 @@ def main():
         protected["ObsidianHard"]=check_hard(root)
         print("OBSIDIANHARD_HISTORICAL_PINS_PASS",flush=True)
         stage="frozen_runtime"
-        n=check_frozen(safe(a.frozen),safe(local/"NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local"))
-        print("FROZEN_RUNTIME_FILES_PASS",n,flush=True)
+        frozen=check_frozen(safe(a.frozen))
+        print("FROZEN_RELEASE_GIT_BLOBS_PASS",len(frozen),flush=True)
+        stage="original_owner_backup"
+        installed=safe(local/"NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local")
+        backup=safe(local/"neral-v41-backup-45256370458")
+        original=check_restored_owner(installed,backup)
+        print("ORIGINAL_OWNER_MATCHES_ROLLBACK_BACKUP",len(original),flush=True)
         stage="candidate_catalog"
         deny=protected_hashes(protected)
         seed=secrets.token_hex(32)
@@ -129,7 +148,13 @@ def main():
         stage="post_integrity"
         if protected_hashes(protected)!=deny:
             raise ValueError("PROTECTED_DENYLIST_CHANGED")
-        check_frozen(safe(a.frozen),safe(local/"NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local"))
+        if check_frozen(safe(a.frozen))!=frozen or check_restored_owner(installed,backup)!=original:
+            raise ValueError("RUNTIME_CHANGED_DURING_PREFLIGHT")
+        (out/"runtime-identity.json").write_text(canonical({
+            "frozen_commit":FROZEN,"frozen_blob_sha256":frozen,
+            "original_owner_sha256":original,"backup_run":45256370458,
+            "backup_independently_sha256_pinned":False,"gpu_ready":False
+        }),encoding="utf-8")
         print("CATALOG_600_UNIQUE_EXACT_HASH_DISJOINT",flush=True)
         print("PROTECTED_SHA256",sha(out/"protected.json"),flush=True)
         print("CATALOG_SHA256",sha(out/"private_catalog.jsonl"),flush=True)
