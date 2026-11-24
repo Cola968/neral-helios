@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 40
     defaults:
       run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -Command "& '{0}'"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -Command "& '{0}'"
     env:
       CUDA_VISIBLE_DEVICES: '-1'
       HF_HUB_OFFLINE: '1'
