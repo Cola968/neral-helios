@@ -8,12 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: Enter V43-OBSIDIANHARD-V1-ONCE
+        description: Exact owner approval for the original or the separate recovery run
         required: true
         type: string
       dataset_sha256:
         description: Exact lowercase SHA-256 of locally sealed V1/private.jsonl
         required: true
+        type: string
+      recovery_parent_run_id:
+        description: Leave empty for the original run. Recovery requires 45457632035.
+        required: false
         type: string
 
 permissions:
@@ -26,7 +30,9 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
-      inputs.confirm == 'V43-OBSIDIANHARD-V1-ONCE'
+      ((inputs.confirm == 'V43-OBSIDIANHARD-V1-ONCE' && inputs.recovery_parent_run_id == '') ||
+       (inputs.confirm == 'V43-OBSIDIANHARD-V1-RECOVERY-45457632035' &&
+        inputs.recovery_parent_run_id == '45457632035'))
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 160
     concurrency:
@@ -39,8 +45,10 @@ jobs:
       CANDIDATE_COMMIT: 5877b73851c986f39f4dbeb470cd8fb08bd2707d
       OH_APPROVAL: ${{ inputs.confirm }}
       OH_DATASET_SHA256: ${{ inputs.dataset_sha256 }}
+      OH_RECOVERY_PARENT: ${{ inputs.recovery_parent_run_id }}
       OH_GENERATOR_HASH: 4ebdd5211ade2ef62ac7fc63c3b2d785f9797ed31717e092f4724acf5910441f
       OH_DRIVER_HASH: 87680435a6592f9c4f2877087ed3c77abd3d2d780629d6b218776d16a3b9f06e
+      OH_RECOVERY_DRIVER_HASH: 1923bdb561e0dfb05260032397f8c0063051b93315cb981b0aa029780c258d61
       HF_HUB_OFFLINE: '1'
       TRANSFORMERS_OFFLINE: '1'
       HF_DATASETS_OFFLINE: '1'
@@ -65,7 +73,16 @@ jobs:
           $env:NERAL_PYTHON = Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-obsidianhard-tools/python/Scripts/python.exe'
           if (!(Test-Path -LiteralPath $env:NERAL_PYTHON -PathType Leaf)) { throw 'PYTHON_MISSING' }
           $tools = Join-Path $env:LOCALAPPDATA 'NERAL-private/v43-obsidianhard-tools/ObsidianHard'
-          foreach ($entry in @(@{File='obsidianhard.py'; Hash=$env:OH_GENERATOR_HASH}, @{File='ablation_driver.py'; Hash=$env:OH_DRIVER_HASH})) {
+          if ($env:OH_APPROVAL -ceq 'V43-OBSIDIANHARD-V1-RECOVERY-45457632035' -and $env:OH_RECOVERY_PARENT -ceq '45457632035') {
+            $driver = 'ablation_recovery_driver.py'
+            $driverHash = $env:OH_RECOVERY_DRIVER_HASH
+          } elseif ($env:OH_APPROVAL -ceq 'V43-OBSIDIANHARD-V1-ONCE' -and !$env:OH_RECOVERY_PARENT) {
+            $driver = 'ablation_driver.py'
+            $driverHash = $env:OH_DRIVER_HASH
+          } else {
+            throw 'WRONG_OBSIDIANHARD_APPROVAL'
+          }
+          foreach ($entry in @(@{File='obsidianhard.py'; Hash=$env:OH_GENERATOR_HASH}, @{File=$driver; Hash=$driverHash})) {
             $p = Join-Path $tools $entry.File
             if (!(Test-Path -LiteralPath $p -PathType Leaf) -or (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.Hash) { throw 'LOCAL_TOOL_HASH_MISMATCH' }
           }
@@ -83,6 +100,21 @@ jobs:
           if ($helpers.Count -ne $names.Count -or @($helpers.Name | Sort-Object -Unique).Count -ne $names.Count) { throw 'OWNER_HELPERS_MISSING' }
           $setup=@'
           $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          function Invoke-AblationPhase {
+            param([Parameter(Mandatory)][ValidateSet('preflight','run','verify-after','grade')][string]$Phase)
+            $script = Join-Path $env:OH_SCRATCH 'ablation_driver.py'
+            $stdout = Join-Path $env:OH_SCRATCH ($Phase + '-stdout.log')
+            $stderr = Join-Path $env:OH_SCRATCH ($Phase + '-stderr.log')
+            if ((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)) {
+              throw "OBSIDIANHARD_${Phase}_LOG_ALREADY_EXISTS"
+            }
+            # Windows PowerShell can promote native stderr to a terminating
+            # error. Redirect both OS streams and use the actual exit code.
+            $process = Start-Process -FilePath $env:NERAL_PYTHON -ArgumentList "-B `"$script`" $Phase" `
+              -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -Wait -PassThru
+            if ($null -eq $process.ExitCode) { throw "OBSIDIANHARD_${Phase}_EXIT_UNAVAILABLE" }
+            if ($process.ExitCode -ne 0) { throw "OBSIDIANHARD_${Phase}_EXIT_$($process.ExitCode)" }
+          }
           function HttpReady {
             $code=& curl.exe --noproxy '*' --silent --connect-timeout 3 --max-time 8 --output NUL --write-out '%{http_code}' 'http://127.0.0.1:9690/health'
             return ($LASTEXITCODE -eq 0 -and $code -ceq '200')
@@ -109,11 +141,11 @@ jobs:
           @($setup)+@($helpers | ForEach-Object { $_.Extent.Text }) | Set-Content -LiteralPath (Join-Path $env:OH_SCRATCH 'owner.ps1') -Encoding UTF8
           # Stage ONLY the two hash-pinned scripts; no tasks, results or secrets.
           Copy-Item -LiteralPath (Join-Path $tools 'obsidianhard.py') -Destination $env:OH_SCRATCH
-          Copy-Item -LiteralPath (Join-Path $tools 'ablation_driver.py') -Destination $env:OH_SCRATCH
+          Copy-Item -LiteralPath (Join-Path $tools $driver) -Destination (Join-Path $env:OH_SCRATCH 'ablation_driver.py')
           @("OH_SCRATCH=$env:OH_SCRATCH", "NERAL_PYTHON=$env:NERAL_PYTHON") | Add-Content -LiteralPath $env:GITHUB_ENV -Encoding UTF8
           # Do not publish arbitrary library errors, tracebacks or task content.
-          & $env:NERAL_PYTHON -B (Join-Path $env:OH_SCRATCH 'ablation_driver.py') preflight *> (Join-Path $env:OH_SCRATCH 'preflight-private.log')
-          if ($LASTEXITCODE -ne 0) { throw 'CPU_PREFLIGHT_FAILED: original service not stopped; inspect local private log' }
+          . (Join-Path $env:OH_SCRATCH 'owner.ps1')
+          Invoke-AblationPhase preflight
           Write-Host 'OBSIDIANHARD_CPU_GATE_40_OF_40_OK'
       - name: Run A then C exactly once and restore original owner in finally
         id: compare
@@ -128,8 +160,7 @@ jobs:
           try {
             Stop-ConfirmedOwner $owner
             Check-RawCapacityAndForeign
-            & $env:NERAL_PYTHON -B (Join-Path $env:OH_SCRATCH 'ablation_driver.py') run *> (Join-Path $env:OH_SCRATCH 'run-private.log')
-            if ($LASTEXITCODE -ne 0) { throw 'ONE_SHOT_INCOMPLETE: no automatic retry; inspect local private log' }
+            Invoke-AblationPhase run
             Write-Host 'OBSIDIANHARD_80_OBSERVATIONS_COMPLETE'
           } finally {
             RestoreIfNeeded
@@ -150,8 +181,8 @@ jobs:
         timeout-minutes: 3
         run: |
           $ErrorActionPreference='Stop'
-          & $env:NERAL_PYTHON -B (Join-Path $env:OH_SCRATCH 'ablation_driver.py') verify-after *> (Join-Path $env:OH_SCRATCH 'integrity-private.log')
-          if ($LASTEXITCODE -ne 0) { throw 'PROTECTED_SEAL_VERIFICATION_FAILED' }
+          . (Join-Path $env:OH_SCRATCH 'owner.ps1')
+          Invoke-AblationPhase verify-after
           Write-Host 'OBSIDIANHARD_PROTECTED_SEALS_VERIFIED'
       - name: Offline independent grading after rollback (CPU only)
         id: grade
@@ -159,8 +190,8 @@ jobs:
         timeout-minutes: 25
         run: |
           $ErrorActionPreference='Stop'
-          & $env:NERAL_PYTHON -B (Join-Path $env:OH_SCRATCH 'ablation_driver.py') grade *> (Join-Path $env:OH_SCRATCH 'grade-private.log')
-          if ($LASTEXITCODE -ne 0) { throw 'OFFLINE_GRADE_INCOMPLETE: inspect local private log; no GPU retry' }
+          . (Join-Path $env:OH_SCRATCH 'owner.ps1')
+          Invoke-AblationPhase grade
           Write-Host 'OBSIDIANHARD_OFFLINE_GRADE_COMPLETE'
       - name: Upload aggregate summary only (never tasks, replies, hidden tests, logs)
         if: always() && steps.grade.outcome == 'success'
