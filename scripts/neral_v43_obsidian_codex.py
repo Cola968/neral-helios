@@ -9,6 +9,7 @@ import ast
 import json
 import re
 import subprocess
+import time
 
 IMAGE = "neral-v43-codex-sandbox:1"
 SAFE_IMPORTS = frozenset({
@@ -45,9 +46,9 @@ def test_examples(case):
 
 @pytest.mark.parametrize("spec",DATA["properties"])
 @settings(max_examples=48,deadline=None,derandomize=True,database=None)
-@given(st.integers(min_value=-1000,max_value=1000))
-def test_properties(spec,x):
-    if not spec["min"]<=x<=spec["max"]: return
+@given(data=st.data())
+def test_properties(spec,data):
+    x=data.draw(st.integers(min_value=spec["min"],max_value=spec["max"]))
     target=getattr(candidate,spec["function"])
     if spec["kind"]=="monotonic_int" and x<spec["max"]:
         assert target(x)<=target(x+1)
@@ -129,7 +130,7 @@ def docker_command() -> list[str]:
 
 
 def run_test_repair_loop(code, *, tests, properties, repair=None,
-                         max_repairs=2, runner=subprocess.run):
+                         max_repairs=1, runner=subprocess.run, deadline=None):
     """Run tests before acceptance, repair from bounded sandbox stacktraces.
 
     'repair' must be a user-/model-provided callable; no arbitrary model or
@@ -137,13 +138,13 @@ def run_test_repair_loop(code, *, tests, properties, repair=None,
     """
     if (type(tests) is not list or type(properties) is not list
             or len(tests)>64 or len(properties)>16
-            or type(max_repairs) is not int or not 0<=max_repairs<=2):
+            or type(max_repairs) is not int or not 0<=max_repairs<=1):
         raise ValueError("Invalid test or repair budget")
     for case in tests: _valid_case(case)
     for spec in properties: _valid_property(spec)
     # A no-test configuration cannot produce a verified output.
     if not tests and not properties:
-        return {"status":"tests_failed","attempts":0,"reason":"no_tests"}
+        return {"status":"tests_failed","attempts":0,"reason":"no_tests","code":code,"verified":False}
     try:
         data=json.dumps({"code":code,"tests":tests,"properties":properties},
                         ensure_ascii=False,sort_keys=True,allow_nan=False)
@@ -151,39 +152,53 @@ def run_test_repair_loop(code, *, tests, properties, repair=None,
         raise ValueError("Unserializable test case") from exc
     if len(data.encode("utf-8"))>50000:
         raise ValueError("Oversized sandbox payload")
+    original=code
     attempt=0
+    end=min(time.monotonic()+60,deadline if deadline is not None else float("inf"))
+    def result(status, *, accepted=False):
+        return {"status":status,"attempts":attempt,
+                "code":code if accepted else original,
+                "verified":accepted}
     while attempt<=max_repairs:
+        remaining=end-time.monotonic()
+        if remaining<=0: return result("timeout")
         attempt+=1
         try:
             validate_candidate(code)
         except ValueError:
-            return {"status":"syntax_invalid","attempts":attempt}
+            return result("syntax_invalid")
         payload=json.dumps({"code":code,"tests":tests,"properties":properties},
                            ensure_ascii=False,sort_keys=True,allow_nan=False)
         try:
             process=runner(docker_command(),input=payload,text=True,
                            stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                           check=False,timeout=30)
+                           check=False,timeout=min(30,remaining))
         except subprocess.TimeoutExpired:
-            return {"status":"timeout","attempts":attempt}
+            return result("timeout")
         except OSError:
-            return {"status":"sandbox_error","attempts":attempt}
+            return result("sandbox_error")
         output=(process.stdout or "")[:4096]
         if process.returncode==0 and "NERAL_V43_TESTS_PASS" in output:
-            return {"status":"passed","attempts":attempt}
+            return result("passed",accepted=True)
         if process.returncode in (125,126,127):
             return {"status":"sandbox_error","attempts":attempt}
         status=("property_counterexample"
                 if "NERAL_V43_PROPERTY_COUNTEREXAMPLE" in output
                 else "tests_failed" if "NERAL_V43_TESTS_FAILED" in output
                 else "sandbox_error")
-        if status=="sandbox_error" or repair is None or attempt>max_repairs:
-            return {"status":status,"attempts":attempt}
+        if (status=="sandbox_error" or repair is None or attempt>max_repairs
+                or not ("AssertionError" in output or "Falsifying example:" in output)):
+            return result(status)
+        if end-time.monotonic()<5:
+            return result("timeout")
+        if status=="sandbox_error":
+            return result(status)
         # Stacktrace is UNTRUSTED data. Caller must not execute it. Limit bytes;
         # reparations are re-validated and run in the same Docker sandbox.
         safe_trace=output[-2000:]
         replacement=repair(code,safe_trace,attempt)
+        if time.monotonic()>=end: return result("timeout")
         if type(replacement) is not str:
             return {"status":"syntax_invalid","attempts":attempt}
         code=replacement
-    return {"status":"tests_failed","attempts":attempt}
+    return result("tests_failed")
