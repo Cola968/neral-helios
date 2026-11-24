@@ -37,6 +37,21 @@ class FalsificationFirstCPU(unittest.TestCase):
             falsify_claim({"variables":[],"premises":[],
                            "claim":{"op":"invalid","args":[]}})
 
+    def test_inconsistent_premises_are_not_a_proof(self):
+        spec={"variables":[{"name":"x","kind":"int","lower":0,"upper":1}],
+              "premises":[{"op":"gt","args":[{"var":"x"},{"const":2}]}],
+              "claim":{"op":"eq","args":[{"var":"x"},{"const":0}]}}
+        self.assertEqual(falsify_claim(spec)["status"],"inconsistent_premises")
+
+    def test_symbolic_domain_is_not_silently_cancelled(self):
+        with self.assertRaises(ValueError):
+            exact_algebra("x/x", action="equals", other="1")
+
+    def test_expired_math_budget_is_unknown_not_a_counterexample(self):
+        spec={"variables":[{"name":"x","kind":"int","lower":0,"upper":1}],
+              "premises":[], "claim":{"op":"eq","args":[{"var":"x"},{"var":"x"}]}}
+        self.assertEqual(falsify_claim(spec,deadline=0)["status"],"unknown")
+
     def test_border_fuzzer_finds_threshold_at_boundary(self):
         spec={"variables":[{"name":"x","kind":"int","lower":-2,"upper":2}],
               "premises":[],
