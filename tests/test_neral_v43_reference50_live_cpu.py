@@ -108,6 +108,36 @@ class LiveReferenceCPU(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             classify_raw_answer_failure(RuntimeError("Postload GPU total/headroom safety exceeded"))
 
+    def test_raw_tokenizer_accepts_mapping_not_just_builtin_dict(self):
+        from collections import UserDict
+        from scripts.neral_v43_reference50_live import encode_raw_prompt
+        tokenizer=Mock()
+        for value in ([12,34], {"input_ids":[12,34]},
+                      UserDict({"input_ids":[12,34]})):
+            tokenizer.apply_chat_template.return_value=value
+            self.assertEqual(encode_raw_prompt(tokenizer,"synthetic"),[12,34])
+        for invalid in ([],[1]*3201,[[1,2]],{"other":[1]},[True],[-1]):
+            tokenizer.apply_chat_template.return_value=invalid
+            with self.assertRaisesRegex(RuntimeError,"Raw input context invalid"):
+                encode_raw_prompt(tokenizer,"synthetic")
+
+    def test_raw_smoke_precedes_result_creation(self):
+        from scripts import neral_v43_reference50_live as live
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)
+            torch=Mock()
+            with patch.object(live,"_root",return_value=([{"prompt":"sealed"}],{})), \
+                 patch.object(live,"verify_docker_grader"), \
+                 patch.object(live,"ensure_port_unbound"), \
+                 patch.object(live,"_raw_model",return_value=(torch,Mock(),Mock())), \
+                 patch.object(live,"encode_raw_prompt",return_value=[1]), \
+                 patch.object(live,"_raw_answer",side_effect=RuntimeError("synthetic smoke failure")) as generate:
+                with self.assertRaisesRegex(RuntimeError,"synthetic smoke failure"):
+                    live.raw(out)
+                self.assertEqual(generate.call_count,1)
+                self.assertNotEqual(generate.call_args.args[-1],"sealed")
+                self.assertFalse((out/"raw9b-50.jsonl").exists())
+
     def test_docker_grade_image_must_exist_before_any_gpu(self):
         absent=Mock(return_value=subprocess.CompletedProcess(
             args=[],returncode=1,stdout="",stderr=""))
