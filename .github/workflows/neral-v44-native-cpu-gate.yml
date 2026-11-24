@@ -61,7 +61,18 @@ jobs:
             $stdout=Join-Path $scratch ($Label+'-stdout.log')
             $stderr=Join-Path $scratch ($Label+'-stderr.log')
             $p=Start-Process -FilePath $py -ArgumentList $Arguments -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -Wait -PassThru
-            if($null -eq $p.ExitCode -or $p.ExitCode -ne 0){throw ('CPU_PHASE_FAILED_'+$Label)}
+            if($null -eq $p.ExitCode -or $p.ExitCode -ne 0){
+              if($Label -ceq 'native'){
+                $raw=Get-Content -LiteralPath $stderr -Raw
+                if($raw -match "ModuleNotFoundError: No module named '([A-Za-z_][A-Za-z0-9_]*)'"){
+                  $module=$Matches[1]
+                  if($module -in @('torch','transformers','trl','peft','bitsandbytes','sympy','z3','pytest','hypothesis','datasets','accelerate')){Write-Host ('NATIVE_MISSING_PACKAGE '+$module)}else{Write-Host 'NATIVE_MISSING_OTHER_PACKAGE'}
+                } elseif($raw -match '(?m)^([A-Za-z_][A-Za-z0-9_]{1,48}(?:Error|Exception))(?::|\r?$)'){
+                  Write-Host ('NATIVE_EXCEPTION_TYPE '+$Matches[1])
+                } else {Write-Host 'NATIVE_FAILURE_UNCLASSIFIED'}
+              }
+              throw ('CPU_PHASE_FAILED_'+$Label)
+            }
             return @{out=$stdout;err=$stderr}
           }
           if(-not (Health)){throw 'ORIGINAL_HTTP200_REQUIRED'}
