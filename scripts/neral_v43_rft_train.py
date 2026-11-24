@@ -16,7 +16,15 @@ def load_bundle(bundle,manifest_sha,protected,protected_sha,context):
     manifest=json.loads(read_pinned(bundle/'manifest.json',manifest_sha))
     if manifest['protected_manifest_sha256']!=protected_sha:raise ValueError('protected manifest mismatch')
     deny=protected_hashes(json.loads(read_pinned(protected,protected_sha)))
-    items=validate_rows(rows(read_pinned(bundle/'train.jsonl',manifest['train_sha256'])),deny)
+    items=rows(read_pinned(bundle/'train.jsonl',manifest['train_sha256']))
+    if len(items)==200:
+        from scripts.neral_v43_rft_pilot import holdout_hashes, audit_pilot
+        if not manifest.get('development_holdout_path') or not manifest.get('development_holdout_sha256'):
+            raise ValueError('pinned independent development holdout required')
+        holdout=rows(read_pinned(manifest['development_holdout_path'],manifest['development_holdout_sha256']))
+        deny.update(holdout_hashes(holdout,deny))
+        audit_pilot(items)
+    items=validate_rows(items,deny)
     config=plan(len(items),context)
     replay=[x for x in items if x['meta']['kind']=='replay']
     rft=[x for x in items if x['meta']['kind']=='rft']
@@ -105,6 +113,7 @@ def masked_trainer(trainer_class,model,settings,encoded,tokenizer,collator,callb
 def train_smoke(args,items,config,manifest):
     # Deliberately smoke-only: full training needs a new approval and proof.
     if args.confirm!=APPROVAL or not args.out or not args.owner_receipt or not args.owner_receipt_sha:raise ValueError('explicit smoke and StopOwned receipt required')
+    if len(items)!=200:raise ValueError('GPU pilot requires exactly 200 audited training rows')
     out=output_path(args.out)
     if out.exists():raise FileExistsError('one-shot output already exists')
     receipt=json.loads(read_pinned(args.owner_receipt,args.owner_receipt_sha))

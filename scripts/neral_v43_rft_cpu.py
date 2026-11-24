@@ -158,6 +158,9 @@ def mix(rft,replay,total,deny,seed):
     if total<20 or total%10:raise ValueError('total must be >=20 and divisible by ten')
     validate_rows(rft+replay,deny)
     if any(x['meta']['kind']!='rft' for x in rft) or any(x['meta']['kind']!='replay' for x in replay):raise ValueError('pool identity')
+    if total==200:
+        from scripts.neral_v43_rft_pilot import choose_pilot
+        return validate_rows(choose_pilot(rft,replay,seed),deny)
     rng=random.Random(seed);rft=rft[:];replay=replay[:];rng.shuffle(rft);rng.shuffle(replay)
     wanted=total*3//10; chosen=[]
     for cat in CATEGORIES:
@@ -241,6 +244,7 @@ def main():
     p=argparse.ArgumentParser();sub=p.add_subparsers(dest='cmd',required=True)
     c=sub.add_parser('catalog');c.add_argument('--seed',required=True);c.add_argument('--count',type=int,required=True);c.add_argument('--out',type=Path,required=True)
     b=sub.add_parser('build');b.add_argument('--seed',required=True);b.add_argument('--catalog',type=Path,required=True);b.add_argument('--catalog-sha',required=True);b.add_argument('--candidates',type=Path,required=True);b.add_argument('--candidates-sha',required=True);b.add_argument('--replay',type=Path,required=True);b.add_argument('--replay-sha',required=True);b.add_argument('--protected',type=Path,required=True);b.add_argument('--protected-sha',required=True);b.add_argument('--out',type=Path,required=True);b.add_argument('--total',type=int,required=True)
+    b.add_argument('--holdout',type=Path);b.add_argument('--holdout-sha')
     f=sub.add_parser('feedback');f.add_argument('--seed',required=True);f.add_argument('--catalog',type=Path,required=True);f.add_argument('--catalog-sha',required=True);f.add_argument('--candidates',type=Path,required=True);f.add_argument('--candidates-sha',required=True);f.add_argument('--protected',type=Path,required=True);f.add_argument('--protected-sha',required=True);f.add_argument('--out',type=Path,required=True)
     a=p.parse_args()
     if a.cmd=='catalog':
@@ -255,6 +259,16 @@ def main():
         result=feedback(tasks,candidates)
         if protected_hashes(deny_manifest)!=deny:raise ValueError('protected hashes changed')
         write_jsonl(output_path(a.out),result);print(canonical({'repair_prompts':len(result)}));return
+    protected_deny=set(deny)
+    holdout_meta={}
+    if a.total==200:
+        from scripts.neral_v43_rft_pilot import holdout_hashes
+        if a.holdout is None or not a.holdout_sha:raise ValueError('pinned independent development holdout required')
+        holdout_path=safe(a.holdout)
+        deny.update(holdout_hashes(rows(read_pinned(holdout_path,a.holdout_sha)),protected_deny))
+        if any(digest(task['prompt']) in deny for task in tasks):raise ValueError('catalog overlaps development holdout')
+        holdout_meta={'development_holdout_path':str(holdout_path),'development_holdout_sha256':a.holdout_sha}
+    elif a.holdout is not None or a.holdout_sha:raise ValueError('holdout options reserved for 200-row pilot')
     replay=rows(read_pinned(a.replay,a.replay_sha))
     for x in replay:
         if x['meta'].get('reviewed') is not True or x['meta'].get('source')!='independent_replay' or x['meta'].get('task_hash')!=digest(x['instruction']):raise ValueError('replay requires independent local review')
@@ -267,11 +281,15 @@ def main():
         if r:accepted.append(r)
     if not any(x['meta']['repair'] for x in accepted):raise ValueError('no validated repair examples')
     mixed=mix(accepted,replay,a.total,deny,20261124)
-    if protected_hashes(deny_manifest)!=deny:raise ValueError('protected hashes changed')
+    if protected_hashes(deny_manifest)!=protected_deny:raise ValueError('protected hashes changed')
+    if holdout_meta:read_pinned(holdout_path,a.holdout_sha)
     output_path(a.out).mkdir(parents=True,exist_ok=False);write_jsonl(a.out/'train.jsonl',mixed)
     report=plan(len(mixed),1024)|{'train_sha256':hashlib.sha256((a.out/'train.jsonl').read_bytes()).hexdigest(),'protected_manifest_sha256':a.protected_sha,'catalog_sha256':a.catalog_sha,'candidates_sha256':a.candidates_sha,'replay_sha256':a.replay_sha,'repair_rows':sum(x['meta'].get('repair') is True for x in mixed)}
+    if holdout_meta:
+        from scripts.neral_v43_rft_pilot import audit_pilot
+        report.update(holdout_meta);report.update(audit_pilot(mixed))
     with (a.out/'manifest.json').open('x',encoding='utf8') as f:f.write(canonical(report)+'\n')
-    print(canonical(report))
+    print(canonical({k:v for k,v in report.items() if k!='development_holdout_path'}))
 if __name__=='__main__':
     try:main()
     except Exception:raise SystemExit('RFT_CPU_GATE_FAILED (private details withheld)')
