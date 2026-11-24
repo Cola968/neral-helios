@@ -54,6 +54,26 @@ class BoundedAnswerCPU(unittest.TestCase):
         self.assertEqual(result["text"],"42")
         repair.assert_not_called()
 
+    def test_independent_exact_integer_cannot_use_numbers_in_prose(self):
+        from neral_v43_bounded import exact_integer_verdict
+        self.assertEqual(exact_integer_verdict({"text":"41"},{"text":"42"}).status,"counterexample")
+        self.assertEqual(exact_integer_verdict({"text":"42"},{"text":"42"}).status,"verified")
+        self.assertEqual(exact_integer_verdict({"text":"I saw 42"},{"text":"42"}).status,"unsupported")
+
+    def test_actual_runtime_does_not_call_old_planner(self):
+        from neral_three_tier_runtime import ThreeTierRuntime, HELIOS
+        runtime=Mock(spec=ThreeTierRuntime)
+        runtime.helios=Mock(model=HELIOS,loaded=True,adapter_sha256="0"*64)
+        runtime.helios.respond_chat.return_value="42"
+        runtime._verified_source.side_effect=DeadlineExceeded("tool")
+        turns=[{"role":"system","content":"Answer directly."},{"role":"user","content":"What is 6 times 7?"}]
+        result=ThreeTierRuntime.answer_v43_bounded(runtime,turns,"Obsidian")
+        self.assertEqual(result["text"],"42")
+        self.assertTrue(result["v43_bounded"])
+        self.assertEqual(runtime.helios.respond_chat.call_count,1)
+        self.assertEqual(result["generation_rounds"],1)
+        self.assertIsNone(result["error_code"])
+
     def test_no_fallback_without_real_draft(self):
         with self.assertRaises(DeadlineExceeded):
             bounded_answer(Mock(side_effect=DeadlineExceeded("test")),remaining=lambda:30)
