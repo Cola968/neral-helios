@@ -1,0 +1,22 @@
+name: NERAL V4.3 Obsidian Codex CPU-only
+on:
+  push:
+    branches: ['feat/v43-obsidian-codex-test-first-20261123']
+    paths: ['scripts/neral_v43_obsidian_codex.py','tests/test_neral_v43_codex_cpu.py','.github/workflows/neral-v43-codex-cpu.yml']
+  pull_request:
+    paths: ['scripts/neral_v43_obsidian_codex.py','tests/test_neral_v43_codex_cpu.py','.github/workflows/neral-v43-codex-cpu.yml']
+permissions:
+  contents: read
+jobs:
+  codex-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m py_compile scripts/neral_v43_obsidian_codex.py tests/test_neral_v43_codex_cpu.py
+      - run: python -m unittest discover -s tests -p test_neral_v43_codex_cpu.py -v

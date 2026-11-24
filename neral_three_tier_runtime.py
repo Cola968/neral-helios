@@ -37,6 +37,7 @@ from neral_v42_deadline import (
 
 LUNA = "qwen3.5:4b"
 HELIOS = "qwen3.5:9b+neral-v2-full"
+RAW_9B = "qwen3.5:9b"
 # Public tier names are canonical; historical API inputs remain supported.
 TIERS = {"Luna": 96, "Terra": 256, "Helios": 768,
          "Amber": 768, "Quartz": 256, "Obsidian": 768}
@@ -136,7 +137,7 @@ def probe_cuda_free_after_cache_flush(torch, minimum_free_mib: int):
 class FrozenQwen35HF:
     """Lazy NF4 CUDA inference; frozen 9B PEFT weights or unchanged 4B."""
 
-    def __init__(self, checkpoint: str | Path, *, full_root: str | Path | None = None):
+    def __init__(self, checkpoint: str | Path, *, full_root: str | Path | None = None, raw_9b=False):
         base = Path(checkpoint)
         if base.is_symlink() or not base.is_dir() or not (base / "config.json").is_file():
             raise ValueError("Pinned local Qwen3.5 model snapshot is missing")
@@ -144,7 +145,14 @@ class FrozenQwen35HF:
         self.root = None
         self.adapter_path = None
         self.adapter_sha256 = None
-        if full_root is not None:
+        if raw_9b and full_root is not None:
+            raise ValueError("Raw 9B must not load an adapter")
+        if raw_9b:
+            if not (base / "model.safetensors.index.json").is_file():
+                raise ValueError("Complete local Qwen3.5-9B HF snapshot missing")
+            self.model=RAW_9B
+            self.minimum_free_mib=8500
+        elif full_root is not None:
             full = Path(full_root)
             if not frozen_v2_full(full):
                 raise ValueError("Frozen Helios v2-full receipt or adapter SHA mismatch")
@@ -252,7 +260,7 @@ class FrozenQwen35HF:
             raise ValueError("Unapproved V2 code-generation time budget")
         if self.model == LUNA and max_new_tokens not in (96, 768):
             raise ValueError("Amber supports 768 tokens; legacy Luna stays at 96")
-        if self.model == HELIOS and max_new_tokens == 96:
+        if self.model in (HELIOS,RAW_9B) and max_new_tokens == 96:
             raise ValueError("Never impersonate the 4B Luna model")
         check_deadline()
         metric = diagnostic_current()
@@ -1179,12 +1187,13 @@ def _sandbox_output(report: object) -> str | None:
 
 class ThreeTierRuntime:
     def __init__(self, luna, helios, *, legacy_backend=None,
-                 execute_python=None, execute_dataset_python=None, evidence_agent=False):
+                 execute_python=None, execute_dataset_python=None, evidence_agent=False, v43_profile=False):
         if (getattr(luna, "model", None) != LUNA or
                 getattr(luna, "adapter_sha256", None) is not None or
-                getattr(helios, "model", None) != HELIOS or
-                re.fullmatch(r"[0-9a-f]{64}",
-                             str(getattr(helios, "adapter_sha256", ""))) is None or
+                not ((getattr(helios,"model",None)==RAW_9B and v43_profile
+                      and getattr(helios,"adapter_sha256",None) is None)
+                     or (getattr(helios,"model",None)==HELIOS and
+                         re.fullmatch(r"[0-9a-f]{64}",str(getattr(helios,"adapter_sha256",""))) is not None)) or
                 not callable(getattr(luna, "respond_chat", None)) or
                 not callable(getattr(helios, "respond_chat", None)) or
                 not callable(getattr(luna, "unload", None)) or
@@ -1206,6 +1215,7 @@ class ThreeTierRuntime:
             raise ValueError("Dataset Docker callback must be callable")
         self.execute_dataset_python = execute_dataset_python
         self.evidence_agent = evidence_agent
+        self.v43_profile = bool(v43_profile)
         self.startup_ready = False
 
     def warmup_default_model(self):
@@ -1914,6 +1924,85 @@ class ThreeTierRuntime:
         }
 
 
+    def answer_v43_bounded(self, turns, tier, *, verify_source=True, web_query=None, search=None):
+        """Experimental draft-first path; no planner/critic GPU generations."""
+        from neral_v43_bounded import (
+            bounded_answer, math_final_instruction, normalize_math_final, Verdict,
+        )
+        from neral_v43_routes import verify_answer
+        from neral_everyday_verified import tidy_unverified_model_text
+        from neral_v41_context import resolve_question
+        resolution = resolve_question(turns)
+        work_turns = [*turns[:-1], {"role":"user","content":resolution.work_question}]
+        final_instruction = "" if web_query else math_final_instruction(resolution.work_question)
+
+        def generate(model_turns, *, repair_round=False):
+            self._switch(self.helios)
+            if final_instruction:
+                if model_turns[0]["role"] == "system":
+                    system = model_turns[0]["content"] + "\n\n" + final_instruction
+                    model_turns = [{"role": "system", "content": system}, *model_turns[1:]]
+                else:
+                    model_turns = [{"role": "system", "content": final_instruction}, *model_turns]
+            # Reserve a final response margin; each HF call uses cooperative
+            # stopping criteria derived from the request-local deadline.
+            outer = _REQUEST_DEADLINE.get()
+            limit = time.monotonic() + (20 if repair_round else 40)
+            token = _REQUEST_DEADLINE.set(min(limit,outer) if outer is not None else limit)
+            try:
+                response=tidy_unverified_model_text(self.helios.respond_chat(
+                    model_turns, max_new_tokens=768, temperature=0.0))
+                if not web_query:
+                    response = normalize_math_final(response, requested=bool(final_instruction))
+            finally:
+                _REQUEST_DEADLINE.reset(token)
+            if not self.helios.loaded:
+                raise RuntimeError("9B model loading was not confirmed")
+            adapted=bool(self.helios.adapter_sha256)
+            return _public_result({
+                "tier":PUBLIC_TO_LEGACY.get(tier,tier),"mode":tier.upper(),"text":response,
+                "model":self.helios.model,"model_generated":True,
+                "verified":False,"safe_to_promote":False,
+                "adapter_loaded":adapted,"adapter_sha256":self.helios.adapter_sha256,
+                "model_origin":"local_neral_lora_experimental" if adapted else "local_foundation_not_neral_adapter",
+                "quality_improvement_proven":False,
+                "verification_scope":"none","proof_backend":None})
+        certificate=None
+        certificate_checked=False
+        spent=0.0
+        def trusted():
+            nonlocal certificate,certificate_checked
+            if not certificate_checked:
+                certificate=self._verified_source(work_turns)
+                certificate_checked=True
+            return certificate
+        def verify(candidate):
+            nonlocal spent
+            if not verify_source: return Verdict("unsupported")
+            if resolution.is_followup and not web_query:
+                return Verdict("unsupported")
+            left=remaining_seconds()
+            allowance=min(5-spent,left if left is not None else 5)
+            if allowance<=0: return Verdict("timeout")
+            start=time.monotonic()
+            limit=start+allowance
+            token=_REQUEST_DEADLINE.set(limit)
+            try:
+                verdict=verify_answer(resolution.work_question,candidate,
+                    deadline=limit,web_query=web_query,search=search,
+                    trusted_certificate=None if resolution.is_followup else trusted)
+                return verdict if time.monotonic()<limit else Verdict("timeout")
+            finally:
+                spent+=time.monotonic()-start
+                _REQUEST_DEADLINE.reset(token)
+        def repair(candidate,evidence):
+            return generate([*work_turns,
+                {"role":"assistant","content":candidate["text"]},
+                {"role":"user","content":"Unabhängige Gegenprüfung: "+evidence+
+                 ". Korrigiere die ursprüngliche Antwort. Halte das angeforderte Antwortformat ein."}],
+                repair_round=True)
+        return bounded_answer(lambda:generate(work_turns),verify,repair=repair)
+
     def answer(self, turns: list[dict], tier: str, *,
                force_sandbox: bool = False,
                sandbox_files: dict[str, bytes] | None = None,
@@ -2084,7 +2173,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                        amber=runtime.luna.model, quartz=runtime.helios.model,
                        obsidian=runtime.helios.model,
                        luna=runtime.luna.model, helios=runtime.helios.model,
-                       adapter_loaded=runtime.helios.loaded,
+                       adapter_loaded=bool(runtime.helios.loaded and runtime.helios.adapter_sha256),
                        adapter_sha256=(runtime.helios.adapter_sha256
                                        if runtime.helios.loaded else None),
                        quality_improvement_proven=False,
@@ -2136,13 +2225,13 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 raise ValueError("Invalid progress ID")
             web_query = payload.get("web_query")
             if "web_query" in payload and (
-                    not runtime.evidence_agent or search_service is None or
+                    not (runtime.evidence_agent or getattr(runtime,"v43_profile",False) is True) or search_service is None or
                     type(web_query) is not str or not 2 <= len(web_query.strip()) <= 160 or
                     not all(ch.isprintable() for ch in web_query) or "web_data" in payload):
                 raise ValueError("Invalid opt-in web query")
             if "web_data" in payload:
-                if runtime.evidence_agent:
-                    raise ValueError("V3 requires server-read web evidence")
+                if runtime.evidence_agent or getattr(runtime,"v43_profile",False) is True:
+                    raise ValueError("V3/V4.3 requires server-read web evidence")
                 from neral_v21_attachment_data import prepare_web_dataset
                 web_stage = prepare_web_dataset(payload["web_data"])
             turns = _messages({"prompt": payload["prompt"],
@@ -2170,9 +2259,16 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         tool_request = bool(
             web_query or web_stage or payload.get("force_sandbox", False)
             or source_required(work_question) or _is_free_compute_task(work_question))
+        from neral_v43_bounded import enabled as v43_bounded_enabled
+        # Only explicitly opted-in requests use the new draft-first route.
+        # Legacy staged files remain outside the experimental profile.
+        v43_profile=getattr(runtime,"v43_profile",False) is True
+        v43_bounded = ((v43_profile or v43_bounded_enabled())
+                       and requested_tier in ("Obsidian","Helios","Quartz","Terra")
+                       and not web_stage and (v43_profile or not payload.get("force_sandbox",False)))
         deadline_token = _REQUEST_DEADLINE.set(
-            time.monotonic() + deadline_seconds_for_request(
-                requested_tier, tool_active=tool_request))
+            time.monotonic() + (65 if v43_bounded else deadline_seconds_for_request(
+                requested_tier, tool_active=tool_request)))
         benchmark_token = _BENCHMARK_ISOLATED.set(payload.get("benchmark_isolated", False))
         deep_active = active(requested_tier) and runtime.evidence_agent and not web_stage
         owner = session.get("csrf", "") if progress_id else ""
@@ -2212,7 +2308,13 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     note = exact_note_lookup(turns[-1]["content"])
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     note = None
-            if auto_knowledge:
+            if v43_bounded:
+                result = runtime.answer_v43_bounded(turns,requested_tier,
+                    web_query=web_query or (resolution.work_question if source_requested else None),
+                    search=search_service)
+                if payload.get("force_sandbox",False) and not result.get("verified"):
+                    result["verification_warning"] = result.get("verification_warning") or "Keine unabhängige Sandbox-Prüfung abgeschlossen; Antwort ungeprüft."
+            elif auto_knowledge:
                 def web_fallback():
                     return {**runtime.answer_with_evidence(
                         turns, requested_tier, web_query=resolution.work_question,
@@ -2259,7 +2361,10 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     turns, requested_tier,
                     force_sandbox=payload.get("force_sandbox", False) or web_stage is not None,
                     sandbox_files=web_stage["staged_files"] if web_stage else None)
-            check_deadline()
+            # A complete V4.3 draft must survive a late optional check.
+            # CUDA safety remains mandatory, even for a fallback.
+            if not v43_bounded:
+                check_deadline()
             torch = sys.modules.get("torch")
             if torch is not None and torch.cuda.is_available():
                 assert_cuda_total_used_below_cap(torch)
@@ -2267,7 +2372,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             # Failure to write a dataset row never changes the answer or proof.
             from neral_verified_training import verifier_ok, append_verified_example
             proof_ok = verifier_ok(result)
-            if proof_ok and not auto_knowledge and not deep_active and not is_followup and not _BENCHMARK_ISOLATED.get():
+            if proof_ok and not v43_bounded and not auto_knowledge and not deep_active and not is_followup and not _BENCHMARK_ISOLATED.get():
                 try:
                     append_verified_example(turns[-1]["content"], result)
                     from neral_verified_notes import VerifiedStrategyStore

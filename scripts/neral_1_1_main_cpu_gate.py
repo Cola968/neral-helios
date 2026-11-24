@@ -9,6 +9,8 @@ ROOT=Path(__file__).resolve().parents[1]
 BASE='2de4b034d79521e4f5c9d432af7f98a70087ed70'
 # Updated main from before this PR. Protect its newer UI exactly on merge commits.
 CURRENT_MAIN='f7affa3ff06b018bd7460e2802be4b19cd67a265'
+# Exact already-merged pre-V4.3 parent: all protected UI/web blobs must match.
+V43_PARENT='ee4fa7d724aa87ebe802bf31085684f531de19d1'
 PROTECTED=(
   'neral_web_search.py','neral_web_api.py',
   'static/neral-preview.js','static/neral-web-search.js',
@@ -23,7 +25,7 @@ def _protected_base():
     CURRENT_MAIN. Only the corresponding immutable source blobs are accepted.
     Never infer a baseline from mutable branch names or untrusted CI input.
     """
-    for sha in (CURRENT_MAIN, BASE):
+    for sha in (V43_PARENT, CURRENT_MAIN, BASE):
         result=subprocess.run(
             ['git','merge-base','--is-ancestor',sha,'HEAD'],
             cwd=ROOT,capture_output=True,timeout=15,check=False)

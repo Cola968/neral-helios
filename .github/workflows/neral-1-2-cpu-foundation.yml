@@ -70,7 +70,7 @@ jobs:
       - name: Identical pinned CPU dependencies for both code revisions
         run: |
           python -m pip install -r candidate/requirements.txt -r candidate/requirements-neral-preview.txt
-          python -m pip install PyYAML cryptography "jsonschema>=4.20,<5"
+          python -m pip install PyYAML cryptography "jsonschema>=4.20,<5" hypothesis
           python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
       - name: Run complete main and candidate pytest independently
         shell: bash
