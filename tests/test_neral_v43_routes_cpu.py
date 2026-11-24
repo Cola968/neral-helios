@@ -85,6 +85,31 @@ class RouteCPU(unittest.TestCase):
             with self.assertRaises(ValueError):
                 evaluate_function(code,"f",[1])
 
+    def test_restricted_worker_interprets_bounded_for_and_selected_imports(self):
+        examples=(
+            ("def f(n):\n total=0\n for x in range(n):\n  total+=x\n return total", [5], 10),
+            ("def f(xs):\n out=[]\n for x in xs:\n  out=out+[max(x,0)]\n return out", [[-2,3]], [0,3]),
+            ("from statistics import median as mid\ndef f(xs):\n return mid(sorted(set(list(xs))))", [[1,7,3,5,7]], 4),
+            ("def f(n):\n total=0\n for x in range(n):\n  if x==3: break\n  total+=x\n return total", [6], 3),
+            ("def f(x):\n import math as m\n return m.ceil(x/4)", [5], 2),
+        )
+        for code,args,expected in examples:
+            with self.subTest(expected=expected):
+                self.assertEqual(evaluate_function(code,"f",args),expected)
+
+    def test_restricted_worker_denies_unbounded_and_unapproved_constructs(self):
+        examples=(
+            "def f(x):\n for i in range(257):\n  x+=i\n return x",
+            "def f(x):\n for i in range(256):\n  for j in range(256):\n   x+=j\n return x",
+            "from math import *\ndef f(x): return x",
+            "import math\ndef f(x): return math.__dict__",
+            "def f(x):\n if False:\n  import os\n return x",
+            "def f(x):\n if False: break\n return x",
+        )
+        for code in examples:
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                evaluate_function(code,"f",[1])
+
     def test_real_restricted_worker_pass_and_fail(self):
         tests=[{"function":"f","args":[3],"expected":4}]
         for code,expected in [("def f(x): return x+1","passed"),

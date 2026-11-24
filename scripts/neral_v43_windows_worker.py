@@ -9,6 +9,7 @@ import ast
 import operator
 import json
 import math
+import statistics
 import sys
 from pathlib import Path
 
@@ -21,7 +22,7 @@ def checked(value,depth=0):
     if type(value) is int and value.bit_length()<=256: return value
     if type(value) is float and math.isfinite(value) and abs(value)<=1e50: return value
     if type(value) is str and len(value)<=2048: return value
-    if type(value) in (list,tuple) and len(value)<=256:
+    if type(value) in (list,tuple,set) and len(value)<=256:
         for item in value: checked(item,depth+1)
         return value
     raise Unsupported("value outside restricted subset")
@@ -31,26 +32,73 @@ _BIN={ast.Add:operator.add,ast.Sub:operator.sub,ast.Mult:operator.mul,
       ast.Pow:operator.pow}
 _CMP={ast.Eq:operator.eq,ast.NotEq:operator.ne,ast.Lt:operator.lt,
       ast.LtE:operator.le,ast.Gt:operator.gt,ast.GtE:operator.ge}
-_CALL={"abs":abs,"len":len,"min":min,"max":max,"sum":sum,"sorted":sorted}
+_CALL={"abs":abs,"len":len,"min":min,"max":max,"sum":sum,"sorted":sorted,"list":list,"set":set}
+_IMPORTS={
+    "math":{"ceil":math.ceil,"floor":math.floor,"isqrt":math.isqrt,"sqrt":math.sqrt},
+    "statistics":{"median":statistics.median},
+}
+_IMPORT_MEMBERS={name for module in _IMPORTS.values() for name in module}
+_ITERATION_LIMIT=256
+
+
+def bounded_range(*args):
+    if not 1<=len(args)<=3 or any(type(arg) is not int for arg in args):
+        raise Unsupported("range expects bounded integers")
+    try:
+        indices=range(*args)
+        if len(indices)<=_ITERATION_LIMIT:
+            return tuple(indices)
+    except (OverflowError,ValueError):
+        pass
+    raise Unsupported("range iteration bound")
+
+
+def validate_import(node):
+    if isinstance(node,ast.Import):
+        if all(alias.name in _IMPORTS for alias in node.names):
+            return
+    elif node.level==0 and node.module in _IMPORTS:
+        if all(alias.name in _IMPORTS[node.module] for alias in node.names):
+            return
+    raise Unsupported("unsupported mathematical import")
 
 def evaluate_function(code,name,args):
     if type(code) is not str or len(code)>12000: raise Unsupported("source bound")
     try: tree=ast.parse(code)
     except SyntaxError as exc: raise Unsupported("syntax") from exc
     if len(list(ast.walk(tree)))>256: raise Unsupported("AST bound")
-    if not tree.body or any(type(n) is not ast.FunctionDef for n in tree.body):
+    if not tree.body or any(type(n) not in (ast.FunctionDef,ast.Import,ast.ImportFrom) for n in tree.body):
         raise Unsupported("only pure function definitions")
-    matches=[n for n in tree.body if n.name==name]
+    matches=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name]
     if len(matches)!=1: raise Unsupported("function missing")
     # Reject capabilities anywhere, including unvisited branches.
     allowed=(ast.Module,ast.FunctionDef,ast.arguments,ast.arg,ast.Return,ast.If,
              ast.Assign,ast.Name,ast.Load,ast.Store,ast.Constant,ast.List,ast.Tuple,
              ast.BinOp,ast.UnaryOp,ast.Compare,ast.BoolOp,ast.IfExp,ast.Subscript,
-             ast.Call,ast.Add,ast.Sub,ast.Mult,ast.Div,ast.FloorDiv,ast.Mod,ast.Pow,
+             ast.Call,ast.For,ast.Break,ast.AugAssign,ast.Import,ast.ImportFrom,ast.alias,ast.Attribute,
+             ast.Add,ast.Sub,ast.Mult,ast.Div,ast.FloorDiv,ast.Mod,ast.Pow,
              ast.UAdd,ast.USub,ast.Not,ast.And,ast.Or,ast.Eq,ast.NotEq,ast.Lt,
              ast.LtE,ast.Gt,ast.GtE)
     if any(not isinstance(n,allowed) for n in ast.walk(tree)):
         raise Unsupported("unsupported capability")
+    nodes=list(ast.walk(tree))
+    parents={child:node for node in nodes for child in ast.iter_child_nodes(node)}
+    for node in nodes:
+        if isinstance(node,ast.FunctionDef) and parents[node] is not tree:
+            raise Unsupported("nested function")
+        if isinstance(node,(ast.Import,ast.ImportFrom)):
+            validate_import(node)
+            if not isinstance(parents[node],(ast.Module,ast.FunctionDef)):
+                raise Unsupported("conditional mathematical import")
+        if isinstance(node,ast.Attribute) and (
+                not isinstance(node.value,ast.Name) or node.attr not in _IMPORT_MEMBERS):
+            raise Unsupported("unsupported callable attribute")
+        if isinstance(node,ast.Break):
+            owner=parents[node]
+            while not isinstance(owner,(ast.For,ast.FunctionDef,ast.Module)):
+                owner=parents[owner]
+            if not isinstance(owner,ast.For):
+                raise Unsupported("break outside bounded loop")
     f=matches[0]; a=f.args
     if (f.decorator_list or f.returns or a.posonlyargs or a.vararg or a.kwarg
             or a.kwonlyargs or a.defaults or any(x.annotation for x in a.args)
@@ -58,6 +106,24 @@ def evaluate_function(code,name,args):
         raise Unsupported("function signature")
     env={p.arg:checked(v) for p,v in zip(a.args,args)}
     fuel=512
+    loop_break=object()
+    functions=dict(_CALL)
+    modules={}
+    function_names={node.name for node in tree.body if isinstance(node,ast.FunctionDef)}
+    if function_names & (set(functions)|{"range"}):
+        raise Unsupported("function shadows restricted callable")
+    def bind_import(node):
+        for alias in node.names:
+            key=alias.asname or alias.name
+            if key in env or key in functions or key in modules or key in function_names:
+                raise Unsupported("import alias shadowing")
+            if isinstance(node,ast.Import):
+                modules[key]=_IMPORTS[alias.name]
+            else:
+                functions[key]=_IMPORTS[node.module][alias.name]
+    for node in tree.body:
+        if isinstance(node,(ast.Import,ast.ImportFrom)):
+            bind_import(node)
     def tick():
         nonlocal fuel
         fuel-=1
@@ -93,18 +159,48 @@ def evaluate_function(code,name,args):
         if type(n) is ast.IfExp: return expr(n.body if expr(n.test) else n.orelse)
         if type(n) is ast.Subscript:
             return checked(expr(n.value)[expr(n.slice)])
-        if type(n) is ast.Call and type(n.func) is ast.Name and n.func.id in _CALL and not n.keywords:
-            return checked(_CALL[n.func.id](*(expr(x) for x in n.args)))
+        if type(n) is ast.Call and not n.keywords:
+            func=n.func
+            target=None
+            if isinstance(func,ast.Name) and func.id not in env:
+                target=functions.get(func.id)
+            if isinstance(func,ast.Attribute) and func.value.id not in env:
+                target=modules.get(func.value.id,{}).get(func.attr)
+            if target is not None:
+                return checked(target(*(expr(x) for x in n.args)))
         raise Unsupported("unsupported expression")
     def block(stmts):
         for stmt in stmts:
             tick()
             if type(stmt) is ast.Return: return True,expr(stmt.value)
+            if type(stmt) is ast.Break: return True,loop_break
             if type(stmt) is ast.Assign and len(stmt.targets)==1 and type(stmt.targets[0]) is ast.Name:
                 env[stmt.targets[0].id]=expr(stmt.value)
+            elif (type(stmt) is ast.AugAssign and type(stmt.op) in (ast.Add,ast.Sub)
+                  and isinstance(stmt.target,ast.Name) and stmt.target.id in env
+                  and type(env[stmt.target.id]) in (int,float)):
+                env[stmt.target.id]=checked(_BIN[type(stmt.op)](env[stmt.target.id],expr(stmt.value)))
             elif type(stmt) is ast.If:
                 done,value=block(stmt.body if expr(stmt.test) else stmt.orelse)
                 if done: return done,value
+            elif isinstance(stmt,(ast.Import,ast.ImportFrom)):
+                bind_import(stmt)
+            elif type(stmt) is ast.For and isinstance(stmt.target,ast.Name) and not stmt.orelse:
+                iterator=stmt.iter
+                if (isinstance(iterator,ast.Call) and isinstance(iterator.func,ast.Name)
+                        and iterator.func.id=="range" and "range" not in env
+                        and "range" not in functions and "range" not in modules and not iterator.keywords):
+                    sequence=bounded_range(*(expr(arg) for arg in iterator.args))
+                else:
+                    sequence=expr(iterator)
+                if type(sequence) not in (list,tuple,str) or len(sequence)>_ITERATION_LIMIT:
+                    raise Unsupported("loop iteration bound")
+                for item in sequence:
+                    tick()
+                    env[stmt.target.id]=item
+                    done,value=block(stmt.body)
+                    if done and value is loop_break: break
+                    if done: return done,value
             else: raise Unsupported("unsupported statement")
         return False,None
     return checked(block(f.body)[1])
