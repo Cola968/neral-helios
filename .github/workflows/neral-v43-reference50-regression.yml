@@ -23,7 +23,7 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     env:
-      CANDIDATE_COMMIT: bbfa74a4c752c424c2295c6bb92d86280bd33682
+      CANDIDATE_COMMIT: 50bf27ab87c6ba7e169a30b8fa18e279269afe47
       REFERENCE_SHA256: a7c8e033b157e320d198da81793c052c3978ba61af4a63f22a909887afc4b43e
       BASELINE_RECEIPT_SHA256: 707ca66aed7bfbfbb15ac7aa39229b3eaad572b17722371056f17c0f1f6ae807
       NERAL_PYTHON: D:/neral-qlora/venv/Scripts/python.exe
@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: bbfa74a4c752c424c2295c6bb92d86280bd33682
+          ref: 50bf27ab87c6ba7e169a30b8fa18e279269afe47
           persist-credentials: false
       - name: Validate the sealed reference and reserve a new private result directory
         run: |
