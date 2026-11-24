@@ -97,5 +97,77 @@ class RouteCPU(unittest.TestCase):
         self.assertIsNone(source_plan("Tell me about Berlin."))
 
 
+class HttpRouteCPU(unittest.TestCase):
+    def setUp(self):
+        from flask import Flask
+        from threading import Lock
+        from neral_three_tier_runtime import ThreeTierRuntime, LUNA, RAW_9B, register_three_tier_api
+        self.model=Mock(model=RAW_9B,loaded=True,adapter_sha256=None)
+        self.runtime=ThreeTierRuntime(Mock(model=LUNA,adapter_sha256=None),self.model,
+            execute_python=Mock(),v43_profile=True,evidence_agent=False)
+        self.runtime._verified_source=Mock(return_value=None)
+        self.search=Mock()
+        self.app=Flask(__name__)
+        self.app.secret_key=b"a"*32
+        self.busy=Lock()
+        register_three_tier_api(self.app,self.runtime,busy=self.busy,search_service=self.search)
+        self.client=self.app.test_client()
+
+    def ask(self,prompt,answers,**opts):
+        self.model.respond_chat.side_effect=answers
+        response=self.client.post("/api/neral/chat/three-tier",json={
+            "tier":"Obsidian","prompt":prompt,"benchmark_isolated":True,**opts})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertFalse(self.busy.locked())
+        result=response.get_json()
+        self.assertFalse(result["adapter_loaded"])
+        self.assertIsNone(result["error_code"])
+        self.assertTrue(result["v43_bounded"])
+        return result
+
+    def test_http_everyday_raw_profile(self):
+        r=self.ask("Warum ist der Himmel blau?",["Lichtstreuung."])
+        self.assertEqual(r["text"],"Lichtstreuung.")
+        self.assertEqual(r["generation_rounds"],1)
+
+    def test_http_web_timeout_without_legacy_agent(self):
+        self.search.search.side_effect=TimeoutError()
+        r=self.ask("In welchem Jahr landete Apollo 11?",["1969"],web_query="Apollo 11 Mondlandung")
+        self.assertEqual(r["text"],"1969")
+        self.assertEqual(r["verification_status"],"verification_incomplete")
+        self.assertEqual(r["generation_rounds"],1)
+
+    def test_http_math_repair(self):
+        r=self.ask("Berechne 6*7.",["41","42"])
+        self.assertEqual(r["text"],"42")
+        self.assertTrue(r["verified"])
+        self.assertEqual(r["generation_rounds"],2)
+
+    def test_http_math_timeout(self):
+        with patch("neral_v43_routes.exact_algebra",side_effect=TimeoutError()):
+            r=self.ask("Berechne 6*7.",["42"])
+        self.assertEqual(r["text"],"42")
+        self.assertEqual(r["verification_status"],"verification_incomplete")
+
+    def test_http_codex_repair(self):
+        from neral_v43_routes import run_test_repair_loop as real_run
+        q='Schreibe f.\nNERAL_TEST_SPEC: {"tests":[{"function":"f","args":[3],"expected":4}],"properties":[]}'
+        def restricted(*a,**kw):
+            kw["backend"]="restricted"
+            return real_run(*a,**kw)
+        with patch("neral_v43_routes.run_test_repair_loop",side_effect=restricted):
+            r=self.ask(q,["def f(x): return x-1","def f(x): return x+1"],force_sandbox=True)
+        self.assertEqual(r["text"],"def f(x): return x+1")
+        self.assertEqual(r["generation_rounds"],2)
+
+    def test_http_codex_timeout(self):
+        q='Schreibe f.\nNERAL_TEST_SPEC: {"tests":[{"function":"f","args":[3],"expected":4}],"properties":[]}'
+        with patch("neral_v43_routes.run_test_repair_loop",return_value={"status":"timeout"}):
+            r=self.ask(q,["def f(x): return x+1"],force_sandbox=True)
+        self.assertEqual(r["text"],"def f(x): return x+1")
+        self.assertEqual(r["generation_rounds"],1)
+        self.assertTrue(r["verification_warning"])
+
+
 if __name__=="__main__":
     unittest.main()

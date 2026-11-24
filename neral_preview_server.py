@@ -173,7 +173,7 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     from neral_local_chat_api import register_neral_local_chat_api
     chat_busy = register_neral_local_chat_api(
         app,backend,experimental_high_backend=experimental_high_backend)
-    if search_service is None and three_tier_runtime is not None and three_tier_runtime.evidence_agent:
+    if search_service is None and three_tier_runtime is not None and (three_tier_runtime.evidence_agent or getattr(three_tier_runtime,"v43_profile",False) is True):
         from neral_web_search import WebSearch
         search_service = WebSearch()
     from neral_preview_attachments import register_preview_attachment_api
@@ -345,7 +345,7 @@ def main(argv=None):
             legacy_backend=legacy, evidence_agent=args.evidence_agent,v43_profile=args.v43_profile)
     app=create_preview_app(legacy,experimental_high_backend=high,
                            three_tier_runtime=tier_runtime,port=args.port)
-    version = "3.0" if args.evidence_agent else "1.0"
+    version = "4.3-dev" if args.v43_profile else "3.0" if args.evidence_agent else "1.0"
     print(f"NERAL {version} Local Preview: http://{HOST}:{args.port} | LOW={args.model} | "
           f"HIGH={getattr(high,'model',args.model)} | "
           f"inference_profile={args.inference_profile} | "

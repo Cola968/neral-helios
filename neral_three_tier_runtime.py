@@ -2213,13 +2213,13 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 raise ValueError("Invalid progress ID")
             web_query = payload.get("web_query")
             if "web_query" in payload and (
-                    not runtime.evidence_agent or search_service is None or
+                    not (runtime.evidence_agent or getattr(runtime,"v43_profile",False) is True) or search_service is None or
                     type(web_query) is not str or not 2 <= len(web_query.strip()) <= 160 or
                     not all(ch.isprintable() for ch in web_query) or "web_data" in payload):
                 raise ValueError("Invalid opt-in web query")
             if "web_data" in payload:
-                if runtime.evidence_agent:
-                    raise ValueError("V3 requires server-read web evidence")
+                if runtime.evidence_agent or getattr(runtime,"v43_profile",False) is True:
+                    raise ValueError("V3/V4.3 requires server-read web evidence")
                 from neral_v21_attachment_data import prepare_web_dataset
                 web_stage = prepare_web_dataset(payload["web_data"])
             turns = _messages({"prompt": payload["prompt"],
@@ -2248,13 +2248,12 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
             web_query or web_stage or payload.get("force_sandbox", False)
             or source_required(work_question) or _is_free_compute_task(work_question))
         from neral_v43_bounded import enabled as v43_bounded_enabled
-        # Only explicitly opted-in local draft-first requests use the new
-        # route. Explicit web, files and forced sandbox keep their existing
-        # semantics until independently integrated and tested.
+        # Only explicitly opted-in requests use the new draft-first route.
+        # Legacy staged files remain outside the experimental profile.
         v43_profile=getattr(runtime,"v43_profile",False) is True
         v43_bounded = ((v43_profile or v43_bounded_enabled())
                        and requested_tier in ("Obsidian","Helios","Quartz","Terra")
-                       and not web_stage and not payload.get("force_sandbox",False))
+                       and not web_stage and (v43_profile or not payload.get("force_sandbox",False)))
         deadline_token = _REQUEST_DEADLINE.set(
             time.monotonic() + (65 if v43_bounded else deadline_seconds_for_request(
                 requested_tier, tool_active=tool_request)))
@@ -2301,6 +2300,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                 result = runtime.answer_v43_bounded(turns,requested_tier,
                     web_query=web_query or (resolution.work_question if source_requested else None),
                     search=search_service)
+                if payload.get("force_sandbox",False) and not result.get("verified"):
+                    result["verification_warning"] = result.get("verification_warning") or "Keine unabhängige Sandbox-Prüfung abgeschlossen; Antwort ungeprüft."
             elif auto_knowledge:
                 def web_fallback():
                     return {**runtime.answer_with_evidence(
