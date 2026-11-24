@@ -92,6 +92,10 @@ jobs:
               $total+=$count
               Write-Host ($file.Name+' passed='+$count)
             }
+            # The regression environment does not contain TRL. Use the existing QLoRA interpreter for the native training integration only.
+            $py='D:/neral-qlora/venv/Scripts/python.exe'
+            if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'QLORA_PYTHON_MISSING'}
+            Write-Host 'NATIVE_ENV=existing-qlora; CPU-only; no package installation'
             $native=@'
           import json, importlib.metadata as md, tempfile, sys
           from pathlib import Path
