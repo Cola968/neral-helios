@@ -59,10 +59,30 @@ def check_frozen(checkout,installed):
     # Compare actual release Git blob bytes rather than line-ending-converted checkout files.
     if subprocess.check_output(["git","-C",str(checkout),"rev-parse","HEAD"],text=True).strip()!=FROZEN:
         raise ValueError("FROZEN_SOURCE_PIN_MISMATCH")
+    mismatches=0
+    exact=0
     for name in FILES:
         blob=subprocess.check_output(["git","-C",str(checkout),"show",FROZEN+":"+name])
-        if sha(installed/name)!=hashlib.sha256(blob).hexdigest():
-            raise ValueError("INSTALLED_FROZEN_RUNTIME_MISMATCH")
+        try:
+            path=safe(installed/name)
+            actual=path.read_bytes()
+        except (OSError,ValueError):
+            print("FROZEN_FILE",name,"MISSING_OR_UNSAFE",flush=True)
+            mismatches+=1
+            continue
+        if hashlib.sha256(actual).digest()==hashlib.sha256(blob).digest():
+            exact+=1
+            print("FROZEN_FILE",name,"EXACT_SHA256",flush=True)
+        else:
+            mismatches+=1
+            if actual.replace(b"\r\n",b"\n")==blob.replace(b"\r\n",b"\n"):
+                reason="LINE_ENDINGS_ONLY"
+            else:
+                reason="CONTENT_MISMATCH"
+            print("FROZEN_FILE",name,reason,flush=True)
+    print("FROZEN_EXACT_COUNT",exact,"OF",len(FILES),flush=True)
+    if mismatches:
+        raise ValueError("INSTALLED_FROZEN_RUNTIME_MISMATCH")
     return len(FILES)
 
 def main():
