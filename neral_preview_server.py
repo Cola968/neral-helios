@@ -299,18 +299,21 @@ def main(argv=None):
                         default=Path("D:/neral-qlora/checkpoint"))
     parser.add_argument("--helios-v2-full",type=Path,
                         default=Path("D:/neral-qlora-v2/v2full-43931510428-1-helios"))
-    parser.add_argument("--v43-profile",action="store_true",help="CPU-tested V4.3 development profile, raw 9B by default.")
+    parser.add_argument("--v43-profile",action="store_true",default=None,help="Standard live profile with raw 9B and web search.")
+    parser.add_argument("--legacy-profile",dest="v43_profile",action="store_false",help="Explicit legacy opt-out for older local workflows.")
     parser.add_argument("--v43-with-lora",action="store_true",help="Explicit V4.3 adapter ablation only.")
     parser.add_argument("--experimental-dual-routing",action="store_true",
                         help="Opt-in pinned QLoRA for TIR and base-Qwen for raw fallback; default off.")
     args=parser.parse_args(argv)
+    if args.v43_profile is None:
+        args.v43_profile=not (args.experimental_high_qwen35 or args.experimental_dual_routing or args.evidence_agent)
     if args.v43_with_lora and not args.v43_profile:
         parser.error("--v43-with-lora requires --v43-profile")
     if args.v43_profile:
         args.experimental_three_tier_hf=True
     # Explicit process-scoped opt-in for the existing Windows Scheduled Task.
     # The default remains disabled; no cloud or model setting changes.
-    if os.environ.get("NERAL_V3_AGENT_ENABLED") == "1":
+    if not args.v43_profile and os.environ.get("NERAL_V3_AGENT_ENABLED") == "1":
         args.evidence_agent = True
     if args.evidence_agent and not args.experimental_three_tier_hf:
         parser.error("--evidence-agent requires --experimental-three-tier-hf")

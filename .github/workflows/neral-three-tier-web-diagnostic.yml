@@ -32,4 +32,28 @@ jobs:
           try{
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_news_articles.py -v
             if($LASTEXITCODE -ne 0){throw 'Public article regression failed'}
+            $py='D:\neral-qlora\venv\Scripts\python.exe'
+            foreach($test in @('test_neral_feed_fallback.py','test_neral_official_news.py','test_neral_fresh_news_evidence.py','test_neral_airport_relevance.py','test_neral_web_search.py','test_neral_v43_verified_start.py','test_neral_v43_routes_cpu.py')){
+              & $py -B -m unittest discover -s tests -p $test -v
+              if($LASTEXITCODE -ne 0){throw ('Regression failed '+$test)}
+            }
+            $testDeps=Join-Path $env:RUNNER_TEMP ('neral-article-tests-'+$env:GITHUB_RUN_ID)
+            & $py -B -m pip install --disable-pip-version-check --no-input --target $testDeps 'pytest==8.3.5'
+            if($LASTEXITCODE -ne 0){throw 'Isolated test deps failed'}
+            $env:PYTHONPATH=$src+';'+$testDeps
+            & $py -B -m pytest -q tests/test_neral_v43_live_web_cpu.py tests/test_neral_web_v4_cpu.py tests/test_neral_v43_reference50_live_cpu.py
+            if($LASTEXITCODE -ne 0){throw 'Web or benchmark isolation failed'}
+            & node --check static/neral-preview.js
+            if($LASTEXITCODE -ne 0){throw 'Frontend syntax failed'}
+            $code=@'
+          import json,time
+          from neral_web_search import WebSearch
+          from neral_v43_live_web import search_live_sources
+          for q in ("Welche aktuellen Nachrichten gibt es zum Flughafen BER?","Was gibt es Neues am Flughafen MUC?"):
+              start=time.monotonic()
+              result=search_live_sources(WebSearch(),q)
+              print("ARTICLE_LIVE "+json.dumps({"query":q,"status":result["status"],"provider":result["provider"],"sources":[{k:v for k,v in x.items() if k!="page_text"} for x in result["sources"]],"seconds":round(time.monotonic()-start,3)},ensure_ascii=True),flush=True)
+          '@
+            $code | & $py -B -
+            if($LASTEXITCODE -ne 0){throw 'Live article probe crashed'}
           }finally{Pop-Location}

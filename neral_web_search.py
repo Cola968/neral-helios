@@ -968,6 +968,11 @@ class WebSearch:
                     if host == publisher and len(wanted & words)/len(wanted)>=0.8:
                         add({**candidate,"published_at":hit["published_at"]})
                         break
+        if len(rows)<3 and self._use_default_official_discovery and opaque:
+            from neral_news_articles import discover_publisher_articles
+            contacted.append("Public publisher pages")
+            for hit in discover_publisher_articles(opaque,query):
+                add(hit)
         if len(rows)<3 and airport_entity_codes(query):
             discovery = self._official_discovery
             if self._use_default_official_discovery:

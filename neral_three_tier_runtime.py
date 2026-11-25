@@ -2176,6 +2176,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
         # owns VRAM. Switches may require a new cold load.
         if runtime.startup_ready:
             return jsonify(status="ready", model="Quartz",
+                           v43_profile=bool(runtime.v43_profile),
                            web_search=search_diagnostics(search_service)), 200
         return jsonify(status="starting",
                        web_search=search_diagnostics(search_service)), 503

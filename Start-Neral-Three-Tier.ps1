@@ -1,7 +1,8 @@
 param(
     [switch]$CheckOnly,
     [switch]$PrepareOnly,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$LegacyProfile
 )
 $ErrorActionPreference = 'Stop'
 # Explicit frozen HF mode. No training, downloads, model installation,
@@ -117,9 +118,10 @@ New-Item -ItemType Directory -Path $state -Force | Out-Null
 $stdout = Join-Path $state 'neral-three-tier.log'
 $stderr = Join-Path $state 'neral-three-tier-error.log'
 $startArgs = @('-B','-m','neral_preview_server','--model','qwen3:8b','--experimental-three-tier-hf','--luna-4b-hf',$base4,'--helios-9b-hf',$base9,'--helios-v2-full',$full)
+if($LegacyProfile){$startArgs += '--legacy-profile'}else{$startArgs += '--v43-profile'}
 $proc = Start-Process -FilePath $py -ArgumentList $startArgs -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
 $ready = $false
-for($attempt=0; $attempt -lt 60; $attempt++){
+for($attempt=0; $attempt -lt 400; $attempt++){
     Start-Sleep -Milliseconds 300
     if($proc.HasExited){throw ('NERAL wurde beendet. Lokales Fehlerprotokoll: '+$stderr)}
     $probe = New-Object System.Net.Sockets.TcpClient
@@ -133,5 +135,5 @@ if(-not $ready){
 }
 $url = 'http://127.0.0.1:9690/'
 Write-Host ("NERAL 3 Modi ist lokal erreichbar: "+$url) -ForegroundColor Green
-Write-Host 'Die PEFT-Gewichte werden erst auf Anforderung geladen. Der Modus bleibt experimentell.'
+Write-Host 'Live-Profil: V4.3 mit Websuche (Legacy nur bei expliziter Auswahl).'
 if(-not $NoBrowser){Start-Process -FilePath $url}

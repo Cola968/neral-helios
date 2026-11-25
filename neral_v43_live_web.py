@@ -110,7 +110,16 @@ def search_live_sources(search, query, *, reader=None):
         if news:
             hits = [h for h in hits if isinstance(h, dict) and direct_news_url(h.get("url")) and recent_publication(h.get("published_at"))]
         dates = {h.get("url"): h.get("published_at") for h in hits if isinstance(h, dict)} if news else {}
-        pages = reader(hits[:10], query) if hits else []
+        # Only publisher articles already actually fetched by the resolver can
+        # carry page_read. Ordinary discovery hits still require a page read.
+        resolved = [h for h in hits if news and h.get("page_read") is True
+                    and isinstance(h.get("page_text"),str) and h.get("article_chars",0)>=240]
+        remaining = [h for h in hits if h not in resolved]
+        pages = resolved[:3]
+        if len(pages)<3 and remaining:
+            read = reader(remaining[:10],query)
+            if isinstance(read,list):
+                pages.extend(read[:3-len(pages)])
         rows = []
         for page in pages[:3] if isinstance(pages, list) else []:
             if not isinstance(page, dict) or page.get("page_read") is not True:
@@ -127,6 +136,11 @@ def search_live_sources(search, query, *, reader=None):
                    "page_read": True, "page_text": body.strip()[:1100]}
             if news:
                 row["published_at"] = date
+                if page.get("article_chars"):
+                    row["article_chars"] = page["article_chars"]
+                    row["article_truncated"] = bool(page.get("article_truncated"))
+                    row["page_text"] = body.strip()[:8000]
+                    row["context_truncated"] = len(body.strip())>8000
             rows.append(row)
         if not rows:
             headlines = _public_feed_headlines(found,query) if news else []

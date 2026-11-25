@@ -5,6 +5,7 @@ import re
 import socket
 import ssl
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor, wait
 from html.parser import HTMLParser
 from ipaddress import ip_address
@@ -442,7 +443,7 @@ def fetch_and_extract(url, query="", *, include_markup=False):
             connection.request("GET", path, headers={
                 "User-Agent": "Mozilla/5.0 (compatible; NERAL-PageReader/3.0)",
                 "Accept": "text/html, application/xhtml+xml, text/plain",
-                "Accept-Encoding": "identity", "Accept-Language": "de,en;q=0.8",
+                "Accept-Encoding": "gzip, identity", "Accept-Language": "de-DE,de;q=0.9,en;q=0.6",
             })
             sock = connection.sock
             with connection.getresponse() as response:
@@ -453,9 +454,10 @@ def fetch_and_extract(url, query="", *, include_markup=False):
                     url = urljoin(url, location)
                     continue
                 media = response.headers.get_content_type()
+                encoding=response.getheader("Content-Encoding","identity").lower().strip()
                 if (response.status != 200 or media not in
                         {"text/html", "application/xhtml+xml", "text/plain"} or
-                        response.getheader("Content-Encoding", "identity").lower() != "identity"):
+                        encoding not in ("identity","gzip")):
                     return None
                 data = bytearray()
                 while len(data) < MAX_BYTES:
@@ -468,6 +470,12 @@ def fetch_and_extract(url, query="", *, include_markup=False):
                     if not block:
                         break
                     data.extend(block)
+                if encoding=="gzip":
+                    inflater=zlib.decompressobj(16+zlib.MAX_WBITS)
+                    raw=inflater.decompress(bytes(data),MAX_BYTES+1)
+                    if len(raw)>MAX_BYTES or not inflater.eof or inflater.unconsumed_tail:
+                        return None
+                    data=bytearray(raw)
                 markup = data.decode(response.headers.get_content_charset() or "utf-8", "replace")
             parser = MainText()
             if media == "text/plain":
@@ -480,7 +488,7 @@ def fetch_and_extract(url, query="", *, include_markup=False):
             if include_markup:
                 result["markup"] = markup
             return result if text.strip() or include_markup else None
-        except (OSError, ValueError, LookupError, http.client.HTTPException):
+        except (OSError, ValueError, LookupError, http.client.HTTPException, zlib.error):
             return None
         finally:
             if connection is not None:
