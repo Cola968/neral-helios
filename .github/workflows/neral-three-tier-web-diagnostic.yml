@@ -26,6 +26,8 @@ jobs:
           $env:PYTHONDONTWRITEBYTECODE='1'
           Push-Location -LiteralPath $src
           try{
+            & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_general_relevance.py -v
+            if($LASTEXITCODE -ne 0){throw 'General relevance regression failed'}
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_generic_news_discovery.py -v
             if($LASTEXITCODE -ne 0){throw 'Generic source discovery regression failed'}
             $py='D:\neral-qlora\venv\Scripts\python.exe'
