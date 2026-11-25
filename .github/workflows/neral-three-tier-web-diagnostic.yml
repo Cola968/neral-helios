@@ -1,4 +1,4 @@
-name: NERAL isolated V4.3 live diagnostic
+name: NERAL isolated V4.3 source identity diagnosis
 on:
   workflow_dispatch:
 permissions:
@@ -14,32 +14,42 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Inspect active local service without checkout or process changes
+      - name: Inspect active local sources and actual Python imports
         run: |
           $ErrorActionPreference='Stop'
+          $root='C:\NERAL-V43-Websearch'
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
           $base='http://127.0.0.1:9690'
-          $owners=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+          $owners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
           foreach($ownerId in $owners){
             $proc=Get-CimInstance Win32_Process -Filter ("ProcessId="+$ownerId)
-            Write-Host ('OWNER '+(@{preview=($proc.CommandLine -match 'neral_preview_server');v43=($proc.CommandLine -match '--v43-profile')}|ConvertTo-Json -Compress))
+            Write-Host ('OWNER '+(@{id=$ownerId;preview=($proc.CommandLine -match 'neral_preview_server');v43=($proc.CommandLine -match '--v43-profile');expectedPython=($proc.ExecutablePath -ieq $py);python=($proc.Name -match '^pythonw?\.exe$')}|ConvertTo-Json -Compress))
           }
-          $health=Invoke-RestMethod ($base+'/health') -TimeoutSec 10
-          Write-Host ('HEALTH '+($health|ConvertTo-Json -Depth 5 -Compress))
+          if(-not (Test-Path -LiteralPath $root -PathType Container)){throw 'V43 worktree missing'}
+          Push-Location -LiteralPath $root
+          try{
+            $head=(& git rev-parse HEAD).Trim()
+            Write-Host ('HEAD '+$head)
+            foreach($file in @('neral_preview_server.py','neral_three_tier_runtime.py','neral_v43_live_web.py','neral_web_search.py')){
+              $hash=(& git hash-object -- $file).Trim()
+              $expected=(& git rev-parse ('HEAD:'+$file)).Trim()
+              Write-Host ('FILE '+$file+' '+$hash+' expected='+$expected+' same='+($hash -eq $expected))
+            }
+            $env:PYTHONPATH=(Join-Path $root 'local_state/three-tier-web-deps')+';'+$root
+            $env:HF_HUB_OFFLINE='1'
+            $env:TRANSFORMERS_OFFLINE='1'
+            $env:HF_DATASETS_OFFLINE='1'
+            $env:NERAL_V3_AGENT_ENABLED='0'
+            $code=@'
+          import inspect, json, pathlib, sys
+          import neral_preview_server as s, neral_three_tier_runtime as t
+          import neral_v43_live_web as w
+          print("IMPORT "+json.dumps({"server":str(pathlib.Path(s.__file__).resolve()),"runtime":str(pathlib.Path(t.__file__).resolve()),"router":str(pathlib.Path(w.__file__).resolve()),"ctor":str(inspect.signature(t.ThreeTierRuntime.__init__)),"sets_profile":"self.v43_profile = bool(v43_profile)" in inspect.getsource(t.ThreeTierRuntime.__init__),"route":bool(w.route_live_query("Welche aktuellen Nachrichten gibt es zum Flughafen BER?"))}))
+          '@
+            & $py -B -c $code
+            if($LASTEXITCODE -ne 0){throw 'CPU module import failed'}
+          }finally{Pop-Location}
           $s=New-Object Microsoft.PowerShell.Commands.WebRequestSession
           Invoke-WebRequest ($base+'/') -UseBasicParsing -WebSession $s -TimeoutSec 10 | Out-Null
-          $info=Invoke-RestMethod ($base+'/api/neral/preview/session') -WebSession $s -TimeoutSec 10
           $status=Invoke-RestMethod ($base+'/api/neral/chat/three-tier/status') -WebSession $s -TimeoutSec 10
-          Write-Host ('PROFILE '+(@{v43=$status.v43_profile;web=$status.web_search;deep=$status.obsidian_deep}|ConvertTo-Json -Depth 6 -Compress))
-          $headers=@{'X-Neral-CSRF'=[string]$info.csrf}
-          $q='Welche aktuellen Nachrichten gibt es zum Flughafen BER?'
-          $body=@{tier='Quartz';prompt=$q;history=@();force_sandbox=$false}|ConvertTo-Json -Compress
-          try{
-            $r=Invoke-RestMethod ($base+'/api/neral/chat/three-tier') -Method Post -WebSession $s -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 100
-            Write-Host ('CHAT '+(@{status=$r.web_search_status;error=$r.error_code;provider=$r.web_search_provider;sources=@($r.web_sources|Where-Object{$_}).Count;seconds=$r.seconds;model=$r.model;verification=$r.verification_scope}|ConvertTo-Json -Compress))
-          }catch{
-            $code=if($_.Exception.Response){[int]$_.Exception.Response.StatusCode}else{0}
-            $err=$null
-            try{$err=$_.ErrorDetails.Message|ConvertFrom-Json}catch{}
-            Write-Host ('CHAT_FAILURE '+(@{http=$code;error=$err.error;error_code=$err.error_code;web_error=$err.web_search_error;web_status=$err.web_search_status}|ConvertTo-Json -Compress))
-            throw 'Live chat probe did not complete'
-          }
+          Write-Host ('PROFILE '+(@{v43=$status.v43_profile;web=$status.web_search;model=$status.quartz;adapter=$status.adapter_loaded}|ConvertTo-Json -Depth 6 -Compress))
