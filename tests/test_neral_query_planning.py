@@ -96,6 +96,64 @@ class QueryPlanning(unittest.TestCase):
             result = engine.search(q, news_only=True)
         self.assertEqual([hit["url"] for hit in result["results"]], [source["url"]])
 
+    def test_opaque_rescue_tries_distinct_publishers_with_existing_caps(self):
+        from neral_news_articles import discover_publisher_articles
+
+        engine = WebSearch()
+        query = "Latest news about coral reefs"
+        stamp = datetime.now(timezone.utc).isoformat()
+        def opaque(i, origin, headline):
+            return {"url": f"https://news.google.com/rss/articles/fixture{i}",
+                    "publisher_url": origin, "title": headline, "published_at": stamp}
+        headlines = [
+            opaque(1, "https://www.daily.example.com/", "Coral reefs survey shows change - Daily"),
+            opaque(2, "https://daily.example.com/", "Coral reefs survey broadens coverage - Daily"),
+            opaque(3, "https://independent.example.com/", "Coral reefs survey records recovery - Independent"),
+            opaque(4, "https://daily.example.com/", "Coral reefs study adds new locations - Daily"),
+        ]
+        direct = {"url": "https://independent.example.com/environment/study",
+                  "title": "Coral reefs survey records recovery"}
+        article = ("<article><h1>Coral reefs survey records recovery</h1>"
+                   "<p>Teams monitoring coral reefs published new evidence of recovery in a periodic survey across multiple areas and separately reported conditions at each site.</p>"
+                   "<p>The coral reefs survey uses a consistent field protocol; the researchers released records and methods so others can verify the published observations.</p></article>")
+        def fallback(query, on_provider=None):
+            return [direct] if query.endswith(" site:independent.example.com") else []
+        with patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=headlines), \
+                patch.object(engine, "search_bing", side_effect=fallback) as provider, \
+                patch("neral_news_articles.discover_publisher_articles", return_value=[]) as publishers, \
+                patch("neral_public_news.discover_public_news", return_value=[]), \
+                patch("neral_page_reader.fetch_and_extract", return_value={"url": direct["url"], "markup": article}) as fetch:
+            # Stub only the opaque discovery pass, not the actual page reader.
+            publishers.side_effect = lambda candidates, q, **kwargs: (
+                discover_publisher_articles(candidates, q, **kwargs) if kwargs else [])
+            result = search_live_sources(engine, query)
+        fetch.assert_called_once_with(direct["url"], query, include_markup=True)
+        self.assertEqual([c.args[0].split(" site:")[1] for c in provider.call_args_list],
+                         ["daily.example.com", "independent.example.com"])
+        self.assertEqual(publishers.call_args_list[0].args[0], [headlines[i] for i in (0, 2, 1, 3)])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([source["url"] for source in result["sources"]], [direct["url"]])
+
+    def test_short_opaque_title_does_not_consume_a_publisher_lookup_slot(self):
+        engine = WebSearch(opener=MagicMock())
+        stamp = datetime.now(timezone.utc).isoformat()
+        headlines = [
+            {"url": f"https://news.google.com/rss/articles/shortslot{i}",
+             "publisher_url": f"https://{publisher}.example.com/",
+             "published_at": stamp, "title": headline}
+            for i, (publisher, headline) in enumerate((
+                ("daily", "Coral reefs"), ("independent", "Coral reefs survey records recovery"),
+                ("daily", "Coral reefs survey shows change"),
+            ))
+        ]
+        with patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=headlines), \
+                patch.object(engine, "search_bing", return_value=[]) as provider:
+            engine.search("Latest news about coral reefs", news_only=True)
+        self.assertEqual([c.args[0].split(" site:")[1] for c in provider.call_args_list],
+                         ["independent.example.com", "daily.example.com"])
+
     def test_generic_weather_intent_retains_place_and_day(self):
         from neral_web_search import live_query_variants
         variants=live_query_variants("Wie ist das Wetter morgen in Berlin?")

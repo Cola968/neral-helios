@@ -1180,7 +1180,7 @@ class WebSearch:
             if prior is None or evidence_rank(hit) > evidence_rank(prior):
                 by_url[url] = {**hit,"url":url}
 
-        opaque = []
+        opaque_by_publisher = {}
         opaque_seen = set()
         headline_rows = []
         headline_seen = set()
@@ -1199,10 +1199,13 @@ class WebSearch:
                 if direct_news_url(hit.get("url")):
                     add(hit)
                 elif (link and link not in opaque_seen and live_topic_hits([hit],query)
-                      and recent_publication(hit.get("published_at"))
-                      and safe_result_url(hit.get("publisher_url",""))):
-                    opaque_seen.add(link)
-                    opaque.append(hit)
+                      and recent_publication(hit.get("published_at"))):
+                    publisher_url = safe_result_url(hit.get("publisher_url", ""))
+                    if publisher_url:
+                        publisher = (urlsplit(publisher_url).hostname or "").removeprefix("www.")
+                        if publisher:
+                            opaque_seen.add(link)
+                            opaque_by_publisher.setdefault(publisher, deque()).append(hit)
         variants=news_query_variants(query) or [cleaned]
         primary=variants[0]
         primary_language = _news_request_language(query)
@@ -1223,18 +1226,32 @@ class WebSearch:
                     collect(self.search_news(variant,on_provider=on_provider,language=language),"Google News RSS")
                 except WebSearchError:
                     continue
+        # Prioritize one candidate per publisher before trying more from the
+        # same publisher. Preserve feed rank within each publisher. This keeps
+        # one feed-heavy site from using the search slots or the reader's first
+        # worker batch before a different publisher is tried.
+        opaque = []
+        publisher_queue = deque(opaque_by_publisher.items())
+        while publisher_queue:
+            publisher, hits = publisher_queue.popleft()
+            opaque.append((publisher, hits.popleft()))
+            if hits:
+                publisher_queue.append((publisher, hits))
+
         # Discover the actual publisher article through the existing public
         # search endpoint. Never decode opaque aggregator IDs or assume a URL.
         if len(by_url)<3:
-            for hit in opaque[:2]:
-                publisher = urlsplit(hit["publisher_url"]).hostname or ""
-                publisher = publisher.removeprefix("www.")
+            attempts = 0
+            for publisher, hit in opaque:
+                if attempts >= 2:
+                    break
                 title = str(hit.get("title","")).rsplit(" - ",1)[0][:110]
                 if not title or not publisher:
                     continue
                 wanted = set(re.findall(r"[^\W_]+",title.casefold())) - _QUERY_STOP
                 if len(wanted)<3:
                     continue
+                attempts += 1
                 try:
                     candidates = self.search_bing((title+" site:"+publisher)[:MAX_QUERY_CHARS],on_provider=on_provider)
                     if "Bing RSS" not in contacted:
@@ -1251,7 +1268,7 @@ class WebSearch:
         if len(by_url)<3 and self._use_default_official_discovery and opaque:
             from neral_news_articles import discover_publisher_articles
             contacted.append("Public publisher pages")
-            for hit in discover_publisher_articles(opaque,query):
+            for hit in discover_publisher_articles([hit for _, hit in opaque],query):
                 add(hit)
         if len(by_url)<3 and airport_entity_codes(query):
             discovery = self._official_discovery
