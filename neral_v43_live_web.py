@@ -97,10 +97,14 @@ def search_live_sources(search, query, *, reader=None):
         return {"status": "unavailable", "error": "not_configured",
                 "sources": [], "context": "", "provider": None}
     try:
-        if reader is None:
-            from neral_page_reader import read_top_pages
-            reader = read_top_pages
         news = is_explicit_news_query(query)
+        if reader is None:
+            if news:
+                from neral_news_articles import read_direct_news_pages
+                reader = read_direct_news_pages
+            else:
+                from neral_page_reader import read_top_pages
+                reader = read_top_pages
         if news:
             found=search.search(query,news_only=True)
         elif isinstance(search,WebSearch):
@@ -139,14 +143,19 @@ def search_live_sources(search, query, *, reader=None):
                 excerpt=body.strip()[:8000 if full else 1100]
                 if not live_topic_matches(query,excerpt) or not live_version_evidence(query,excerpt):
                     continue
-                date=dates.get(page.get("discovered_url",url)) if news else None
+                discovered = page.get("discovered_url", url)
+                date = dates.get(discovered) if news else None
+                origin = date_origins.get(discovered)
+                if news and date and page.get("date_origin") == "publisher_metadata":
+                    date = page.get("published_at")
+                    origin = "publisher_metadata"
                 if news and (not recent_publication(date) or not direct_news_url(url)):
                     continue
                 row={"url":url,"title":str(page.get("title",""))[:120],
                      "page_read":True,"page_text":excerpt}
                 if news:
                     row["published_at"]=date
-                    if date_origins.get(page.get("discovered_url",url))=="publisher_metadata":
+                    if origin == "publisher_metadata":
                         row["date_origin"]="publisher_metadata"
                     if full:
                         row["article_chars"]=page["article_chars"]

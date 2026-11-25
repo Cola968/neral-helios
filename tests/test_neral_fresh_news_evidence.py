@@ -56,6 +56,32 @@ class FreshNewsEvidence(unittest.TestCase):
         self.assertEqual(out["status"],"ok")
         self.assertIn("published_at",out["sources"][0])
 
+    def test_default_direct_news_reader_requires_visible_article_and_checks_origin_date(self):
+        search=Mock()
+        search.search.return_value={"provider":"fixture","results":[HIT]}
+        title = HIT["title"]
+        paragraphs = (
+            "<p>Der Flughafen München baut sein Flugangebot aus und meldet neue Verbindungen für Reisende in mehrere Städte. Der Ausbau ist Teil des neuen Flugplans.</p>"
+            "<p>Die Änderungen betreffen mehrere Fluggesellschaften. Der Flughafen München veröffentlicht die konkreten Zeiten und Hinweise für Passagiere separat.</p>"
+        )
+        article = f"<article><h1>{title}</h1>{paragraphs}</article>"
+        fresh = (NOW - timedelta(days=1)).isoformat()
+        old = (NOW - timedelta(days=30)).isoformat()
+        for html, status in (
+            (f"<main><h1>{title}</h1><p>{BODY}</p></main>", "empty"),
+            (f'<meta name="pubdate" content="{old}">' + article, "empty"),
+            (f'<meta name="pubdate" content="{fresh}">' + article, "ok"),
+        ):
+            with self.subTest(status=status), patch("neral_page_reader.fetch_and_extract",
+                    return_value={"url": URL, "text": BODY, "markup": html}) as fetch:
+                out = search_live_sources(search,Q)
+                self.assertEqual(out["status"], status)
+                fetch.assert_called_once_with(URL, Q, include_markup=True)
+                if status == "ok":
+                    self.assertEqual(out["sources"][0]["published_at"], fresh)
+                    self.assertEqual(out["sources"][0]["date_origin"], "publisher_metadata")
+                    self.assertGreaterEqual(out["sources"][0]["article_chars"], 240)
+
     def test_stale_or_missing_date_never_counts_as_news(self):
         for stamp in (None,(NOW-timedelta(days=40)).isoformat()):
             with self.subTest(stamp=stamp):

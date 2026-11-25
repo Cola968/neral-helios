@@ -41,9 +41,13 @@ class VerifiedStartTests(unittest.TestCase):
         helios.respond_chat.return_value = "BER: Testmeldung."
         url = "https://ber.berlin-airport.de/de.html"
         hit = {"url": url, "title": "BER Test", "published_at":datetime.now(timezone.utc).isoformat()}
-        page = {**hit, "page_read": True, "page_text": "BER Testmeldung zur aktuellen Entwicklung."}
+        article = ("<article><h1>BER Test</h1>"
+                   "<p>Der BER veröffentlicht eine Testmeldung zur aktuellen Entwicklung am Flughafen und beschreibt dabei die geplanten Änderungen für Fluggäste in Berlin und Brandenburg.</p>"
+                   "<p>Der Flughafen berichtet über den Stand des Vorhabens und erklärt, wie Reisende sich bei ihrer Fluggesellschaft über ihre aktuellen Abflugzeiten informieren können.</p>"
+                   "</article>")
+        page = {"url": url, "markup": article}
         with patch("neral_web_search.WebSearch.search", return_value={"provider":"fixture","results":[hit]}) as search:
-            with patch("neral_page_reader.read_top_pages", return_value=[page]):
+            with patch("neral_page_reader.fetch_and_extract", return_value=page):
                 with patch.object(legacy, "unload", return_value=None):
                     with app.test_client() as client:
                         base = "http://127.0.0.1:9690"

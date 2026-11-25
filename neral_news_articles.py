@@ -4,7 +4,7 @@ from html.parser import HTMLParser
 import re
 from urllib.parse import urljoin, urlsplit, unquote
 import xml.etree.ElementTree as ET
-from neral_web_search import safe_result_url, airport_text_matches, recent_publication
+from neral_web_search import safe_result_url, direct_news_url, airport_text_matches, recent_publication
 
 _STOP = frozenset("der die das den dem des ein eine und oder im in am zu zum zur auf mit für von als ist sind es an bei nach vor über aus -".split())
 _HIDDEN = {"script","style","nav","footer","aside","form","button","noscript","iframe","svg","template","head"}
@@ -217,7 +217,7 @@ def article_text(markup):
     return {"title":title[:500],"text":body[:24000],"article_chars":len(body),
             "article_truncated":len(body)>24000}
 
-def _read_candidate(page,hit,query,home):
+def _read_candidate(page,hit,query,home,*,match_headline=True):
     if not isinstance(page,dict):
         return None
     url=safe_result_url(page.get("url",""))
@@ -225,7 +225,8 @@ def _read_candidate(page,hit,query,home):
         return None
     markup = page.get("markup","")
     body=article_text(markup)
-    if not body or not _similar(body["title"],hit["title"]) or not airport_text_matches(query,body["text"]):
+    if (not body or (match_headline and not _similar(body["title"],hit["title"]))
+            or not airport_text_matches(query,body["text"])):
         return None
     # The visible article can disprove freshness claimed by a recent feed.
     from neral_public_news import article_publication_provenance
@@ -238,6 +239,25 @@ def _read_candidate(page,hit,query,home):
     if published is not None:
         row.update(published_at=published, date_origin="publisher_metadata")
     return row
+
+def _read_direct_article(hit, query):
+    if not isinstance(hit, dict) or not recent_publication(hit.get("published_at")):
+        return None
+    url = direct_news_url(hit.get("url"))
+    if not url:
+        return None
+    from neral_page_reader import fetch_and_extract
+    result = _read_candidate(fetch_and_extract(url, query, include_markup=True), hit, query, url,
+                             match_headline=False)
+    if result is not None:
+        result["discovered_url"] = url
+    return result
+
+
+def read_direct_news_pages(hits, query):
+    """Validate visible publisher articles, not generic page excerpts or snippets."""
+    return discover_publisher_articles(hits[:3], query, resolver=_read_direct_article)
+
 
 def find_publisher_article(hit,query,*,fetch=None):
     if not isinstance(hit,dict) or not recent_publication(hit.get("published_at")):
