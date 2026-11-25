@@ -35,7 +35,7 @@ def evaluate_case(category, question, route, lookup):
         and source.get("article_truncated") is False
         for source in sources
     )
-    return {
+    row = {
         "category": category,
         "status": result["status"],
         "read_pages": read_pages,
@@ -44,6 +44,14 @@ def evaluate_case(category, question, route, lookup):
         "benchmark_blocked": benchmark_blocked,
         "passed": benchmark_blocked and result["status"] == "ok" and read_pages > 0,
     }
+    counts = result.get("stage_counts")
+    if isinstance(counts, dict):
+        from neral_v43_live_web import LIVE_STAGE_COUNT_KEYS
+        row["stage_counts"] = {
+            key: counts[key] for key in LIVE_STAGE_COUNT_KEYS
+            if type(counts.get(key)) is int and counts[key] >= 0
+        }
+    return row
 
 
 def main():
@@ -53,7 +61,7 @@ def main():
     rows = []
     for category, question in CASES:
         row = evaluate_case(category, question, route_live_query,
-                            lambda query: search_live_sources(WebSearch(), query))
+                            lambda query: search_live_sources(WebSearch(), query, include_diagnostics=True))
         print("GENERAL_LIVE " + json.dumps(row), flush=True)
         rows.append(row)
     failures = [row["category"] for row in rows if not row["passed"]]

@@ -43,6 +43,41 @@ class FeedFallbackTests(unittest.TestCase):
         self.assertEqual(len(out["sources"]),1)
         self.assertTrue(out["sources"][0]["title"].startswith("Flughafen München"))
 
+    def test_opt_in_stages_distinguish_headlines_from_dropped_reads(self):
+        candidate = {**H, "url": "https://publisher.example.com/daily/observations",
+                     "title": "Coral reefs survey results"}
+        headline = {**H, "title": candidate["title"]}
+        found = {"provider": "fixture", "headlines": [headline]}
+        query = "Latest news about coral reefs"
+        tests = (
+            ([], [], 0, 0, 0, 0),
+            ([candidate], [], 1, 0, 0, 0),
+            ([candidate], [{**candidate, "page_read": True,
+                            "page_text": "An unrelated private-text sentinel."}], 1, 1, 1, 0),
+            ([candidate], [{**candidate, "page_read": True, "page_text": "Coral reefs report.",
+                            "date_origin": "publisher_metadata",
+                            "published_at": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()}],
+             1, 1, 0, 1),
+        )
+        for hits, pages, requested, read, rejected, provenance in tests:
+            with self.subTest(requested=requested, read=read):
+                search = Mock()
+                search.search.return_value = {**found, "results": hits}
+                reader = Mock(return_value=pages)
+                normal = search_live_sources(search, query, reader=reader)
+                measured = search_live_sources(search, query, reader=reader, include_diagnostics=True)
+                counts = measured.pop("stage_counts")
+                self.assertEqual(normal, measured)
+                self.assertEqual(measured["status"], "headlines_only")
+                self.assertEqual(measured["context"], "")
+                self.assertEqual(counts["eligible_candidates"], requested)
+                self.assertEqual(counts["reader_candidates"], requested)
+                self.assertEqual(counts["reader_read_bodies"], read)
+                self.assertEqual(counts["rejected_relevance"], rejected)
+                self.assertEqual(counts["rejected_news_provenance"], provenance)
+                self.assertEqual(counts["display_only_headlines"], 1)
+                self.assertTrue(all(type(value) is int for value in counts.values()))
+
     def test_actual_flask_route_returns_feed_listing_without_model(self):
         legacy=OllamaLocalBackend("qwen3:8b")
         luna=Mock(model=LUNA,adapter_sha256=None,loaded=True)

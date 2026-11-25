@@ -24,6 +24,18 @@ class LiveProbeTests(unittest.TestCase):
                 self.assertFalse(self.evaluate(status, sources)["passed"])
         self.assertTrue(self.evaluate("ok", [{"page_read": True}])["passed"])
 
+    def test_probe_exports_only_recognized_nonnegative_integer_stage_counts(self):
+        route = Mock(side_effect=lambda question, *, benchmark=False:
+                     None if benchmark else question)
+        lookup = Mock(return_value={"status": "headlines_only", "sources": [],
+                                    "stage_counts": {"reader_candidates": 2,
+                                                     "reader_read_bodies": False,
+                                                     "rejected_relevance": -1,
+                                                     "private-provider": "private-url-sentinel"}})
+        row = evaluate_case("test", "public question", route, lookup)
+        self.assertEqual(row["stage_counts"], {"reader_candidates": 2})
+        self.assertFalse(row["passed"])
+
     def test_never_searches_if_offline_isolation_fails(self):
         lookup = Mock()
         result = evaluate_case("test", "public question", Mock(return_value="q"), lookup)
