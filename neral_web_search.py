@@ -26,6 +26,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BING_ENDPOINT = "https://www.bing.com/search"
 NEWS_ENDPOINT = "https://news.google.com/rss/search"
+BING_NEWS_ENDPOINT = "https://www.bing.com/news/search"
 MAX_RESPONSE_BYTES = 600_000
 MAX_RESULTS = 10
 MAX_QUERY_CHARS = 160
@@ -420,7 +421,7 @@ class _ResultsParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
-        classes = set(attrs.get("class", "").split())
+        classes = set((attrs.get("class") or "").split())
         if tag == "a" and "result__a" in classes:
             self._flush()
             self.current = {"url": attrs.get("href", ""), "title": "", "snippet": ""}
@@ -465,15 +466,57 @@ def is_fresh_news_query(query: str) -> bool:
     """Use a current news source only for queries that request recent events."""
     return (isinstance(query, str) and
             re.search(r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|"
-                      r"neuigkeiten|heute|gestern|live|this week|latest|breaking)\b",
+                      r"neuigkeiten|neues|heute|gestern|live|this week|latest|breaking)\b",
                       query, re.I) is not None)
+
+
+def is_explicit_news_query(query):
+    """A news request, not every question about a current price or fact."""
+    return isinstance(query, str) and bool(re.search(
+        r"\b(?:news|nachrichten|neuigkeiten|pressemitteilungen|schlagzeilen|"
+        r"breaking|headlines)\b|\b(?:was gibt es neues|was ist neu|what.s new)\b",
+        query, re.I))
+
+
+def recent_publication(value, *, now=None, days=7):
+    if not isinstance(value, str):
+        return False
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            return False
+        clock = now or datetime.now(timezone.utc)
+        return clock-timedelta(days=days) <= stamp <= clock+timedelta(minutes=10)
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def direct_news_url(value):
+    """Unwrap only the explicit publisher URL in a recognized Bing RSS link."""
+    value = safe_result_url(value)
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.hostname in ("bing.com", "www.bing.com") and parsed.path.casefold() == "/news/apiclick.aspx":
+        target = parse_qs(parsed.query).get("url", [])
+        if len(target) != 1:
+            return None
+        value = safe_result_url(target[0])
+        if not value:
+            return None
+        parsed = urlsplit(value)
+    host = parsed.hostname or ""
+    if (host in ("news.google.com", "google.com", "www.google.com", "bing.com", "www.bing.com")
+            or host == "wikipedia.org" or host.endswith(".wikipedia.org")):
+        return None
+    return value
 
 
 def news_subject(query: str) -> str:
     """Remove generic request words but preserve the user's topic verbatim."""
     subject = re.sub(
         r"\b(?:suche|bitte|im\s+web|im\s+internet|online|quellen|news|nachrichten|"
-        r"aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|neuigkeiten|heute|gestern|live|latest|breaking)\b",
+        r"aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|neuigkeiten|neues|heute|gestern|live|latest|breaking)\b",
         " ", query, flags=re.I)
     subject = re.sub(r"[?:!.,;]+", " ", subject)
     subject = re.sub(r"\s+", " ", subject).strip()
@@ -481,7 +524,7 @@ def news_subject(query: str) -> str:
 
 
 def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | None = None,
-                   now_utc: datetime | None = None) -> list[dict[str, str]]:
+                   now_utc: datetime | None = None, topic=None) -> list[dict[str, str]]:
     """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
     if not isinstance(xml, str) or not 1 <= limit <= MAX_RESULTS or len(xml) > MAX_RESPONSE_BYTES:
         raise WebSearchError("Ungültige RSS-Antwort.")
@@ -506,16 +549,36 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | No
         if max_age_days is not None:
             try:
                 published=parsedate_to_datetime(item.findtext("pubDate",default=""))
+                if published.tzinfo is None:
+                    continue
                 published=published.astimezone(timezone.utc)
             except (TypeError,ValueError,OverflowError):
                 continue
             if not clock-timedelta(days=max_age_days) <= published <= clock+timedelta(minutes=10):
                 continue
-        url = safe_result_url(item.findtext("link", default=""))
+        raw_link = item.findtext("link", default="")
+        # The fixed HTTPS news feed also emits HTTP *wrapper identifiers*.
+        # They are data, never a request destination. Validate the embedded
+        # public HTTPS publisher target with the same gate as HTTPS wrappers.
+        if max_age_days is not None and raw_link.startswith("http://www.bing.com/news/apiclick.aspx?"):
+            raw_link="https://"+raw_link[len("http://"):]
+        url = safe_result_url(raw_link)
+        if max_age_days is not None and url and urlsplit(url).hostname in ("bing.com", "www.bing.com") and urlsplit(url).path.casefold() == "/news/apiclick.aspx":
+            url = direct_news_url(url)
         title = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("title", default=""))), 180)
         snippet = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("description", default=""))), 350)
         if url and title and url not in seen:
-            output.append({"title": title, "url": url, "snippet": snippet})
+            row = {"title": title, "url": url, "snippet": snippet}
+            if max_age_days is not None:
+                row["published_at"] = published.isoformat()
+                source = item.find("source")
+                if source is not None:
+                    source_url = safe_result_url(source.get("url", ""))
+                    if source_url:
+                        row["publisher_url"] = source_url
+            if topic and not live_topic_hits([row],topic):
+                continue
+            output.append(row)
             seen.add(url)
         if len(output) >= limit:
             break
@@ -617,16 +680,296 @@ def topical_search_hit(hit, query):
     return False
 
 
+# Explicit airport identifiers are hard relevance anchors. The aliases
+# are query vocabulary, not evidence or assumed search results.
+_AIRPORT_ALIASES = {
+    "BER": ("Berlin Brandenburg", "Flughafen Berlin", "Berlin Airport"),
+    "FRA": ("Frankfurt am Main", "Flughafen Frankfurt", "Frankfurt Airport"),
+    "MUC": ("Flughafen München", "Munich Airport", "Flughafen Muenchen"),
+    "HAM": ("Flughafen Hamburg", "Hamburg Airport"),
+    "DUS": ("Flughafen Düsseldorf", "Dusseldorf Airport", "Flughafen Duesseldorf"),
+    "LHR": ("London Heathrow", "Heathrow Airport"),
+    "JFK": ("John F Kennedy", "Kennedy Airport", "New York JFK"),
+    "CDG": ("Charles de Gaulle", "Paris CDG"),
+    "AMS": ("Amsterdam Schiphol", "Schiphol Airport"),
+    "VIE": ("Flughafen Wien", "Vienna Airport", "Wien Schwechat"),
+}
+_AIRPORT_WORD = re.compile(r"\b(?:flughafen|airport|aéroport|aeroport)\b", re.I)
+_NON_AIRPORT_CODES = frozenset(("USA", "CEO", "FAQ", "RSS", "API", "ICA"))
+
+
+def airport_entity_codes(query):
+    """Recognize known IATA codes or explicit three-letter airport labels."""
+    if not isinstance(query, str) or not _AIRPORT_WORD.search(query):
+        return ()
+    codes = []
+    for match in re.finditer(r"(?<!\w)[A-Z]{3}(?!\w)", query):
+        code = match.group()
+        if code in _NON_AIRPORT_CODES:
+            continue
+        before = query[max(0, match.start()-24):match.start()]
+        after = query[match.end():match.end()+24]
+        adjacent = re.search(r"(?:flughafen|airport|aéroport|aeroport)\s*[-:(]?\s*$", before, re.I) or re.match(r"\s*[-):]?\s*(?:flughafen|airport|aéroport|aeroport)\b", after, re.I)
+        if code in _AIRPORT_ALIASES or adjacent:
+            if code not in codes:
+                codes.append(code)
+    return tuple(codes[:3])
+
+
+def airport_text_matches(query, value, *, case_insensitive_code=False):
+    codes = airport_entity_codes(query)
+    if not codes:
+        return True
+    if not isinstance(value, str):
+        return False
+    normalized = re.sub(r"[^\w]+", " ", value.casefold())
+    for code in codes:
+        if re.search(r"(?<!\w)" + re.escape(code) + r"(?!\w)", value,
+                     re.I if case_insensitive_code else 0):
+            return True
+        for alias in _AIRPORT_ALIASES.get(code, ()):
+            if re.search(r"(?<!\w)" + re.escape(alias.casefold()) + r"(?!\w)", normalized):
+                return True
+    return False
+
+
+def airport_hit_matches(hit, query):
+    if not isinstance(hit, dict):
+        return False
+    if not airport_entity_codes(query):
+        return True
+    url = safe_result_url(hit.get("url", ""))
+    if not url:
+        return False
+    from urllib.parse import unquote
+    parsed = urlsplit(url)
+    metadata = " ".join((str(hit.get("title") or "")[:200],
+                         str(hit.get("snippet") or "")[:420]))
+    return (airport_text_matches(query, metadata)
+            or airport_text_matches(query, (parsed.hostname or "") + " " + unquote(parsed.path)[:350],
+                                    case_insensitive_code=True))
+
+
 def ranked_topic_hits(hits, query):
-    """Filter only ambiguous numbered subjects; never invent a source hit."""
+    """Filter explicit airport identifiers and ambiguous numbered subjects."""
     if not isinstance(hits, list):
         return []
+    candidates = [hit for hit in hits[:MAX_RESULTS] if airport_hit_matches(hit, query)]
     subject = numbered_query_subject(query)
     terms = search_topic_terms(query)
     if not subject or not terms:
-        return [hit for hit in hits[:MAX_RESULTS] if isinstance(hit, dict)]
-    return [hit for hit in hits[:MAX_RESULTS]
-            if topical_search_hit(hit, query)]
+        return candidates
+    return [hit for hit in candidates if topical_search_hit(hit, query)]
+
+
+# Lexical topic requirements are a conservative relevance gate, not an
+# answer verifier. Preserve the user's entities; translate only vocabulary.
+_LIVE_TOPIC_STOP = _QUERY_STOP | frozenset("""
+    aktuelle aktueller aktuelles aktuellste aktuellsten neuesten neueste
+    neuesten neuigkeiten neues schlagzeilen pressemitteilungen heute gestern
+    morgen derzeit momentan jetzt breaking latest current recent today tomorrow
+    yesterday headlines this week what which is are was were the of for from
+    about with to and or on how when where tell please search find look up
+    wurde wurden werden gibt gibt es geht neues neue neuer neuen letzte letzten
+    letzter letztes nachricht news quelle quellen suche recherchiere suche
+    rund thema themen bezüglich bezueglich bezüglich über ueber informationen
+    infos entwicklungen entwicklung meldungen meldung berichten berichtet
+    stand status erfahren wissen frage fragen aktuellen neuesten aktuelle
+    deutschen deutsche deutscher deutsches german mission programm project
+    program aktuelle aktualisiert
+""".split())
+_LIVE_TOPIC_ALIASES = {
+    "version": ("version", "versionen", "release", "releases", "released", "download", "downloads"),
+    "wetter": ("wetter", "weather", "wettervorhersage", "forecast", "wetterbericht"),
+    "weather": ("wetter", "weather", "forecast", "wettervorhersage"),
+    "bundestag": ("bundestag", "german parliament", "federal parliament"),
+    "fußball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
+    "fussball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
+    "künstliche intelligenz": ("künstliche intelligenz", "künstlicher intelligenz",
+                              "künstlichen intelligenz", "artificial intelligence", "ki", "ai"),
+    "ki": ("ki", "ai", "artificial intelligence", "künstliche intelligenz"),
+    "ai": ("ai", "ki", "artificial intelligence", "künstliche intelligenz"),
+}
+_LIVE_TOPIC_COMPOUND = re.compile(r"\b(?:künstlich\w* intelligenz|artificial intelligence)\b", re.I)
+_LIVE_TOPIC_FRESH = re.compile(
+    r"\b(?:aktuell\w*|neuest\w*|heute|gestern|morgen|news|nachrichten|neuigkeiten|"
+    r"neues|latest|current\w*|recent\w*|today|tomorrow|yesterday|breaking|"
+    r"wetter|weather|preis\w*|kurs\w*|version\w*|ceo|präsident\w*|derzeit|jetzt|"
+    r"flugplan\w*|öffnungszeiten|leitzins|inflation)\b", re.I)
+
+
+def live_topic_requirements(query):
+    """Extract bounded AND groups of literal user topics and language aliases.
+
+    The older numbered-subject and airport rules retain their own semantics.
+    No external answer, preferred source URL, or benchmark label is embedded.
+    """
+    if not isinstance(query,str) or airport_entity_codes(query):
+        return ()
+    if not (_LIVE_TOPIC_FRESH.search(query) or is_explicit_news_query(query)):
+        return ()
+    plain=query.casefold()
+    groups=[]
+    if _LIVE_TOPIC_COMPOUND.search(plain):
+        groups.append(_LIVE_TOPIC_ALIASES["künstliche intelligenz"])
+        plain=_LIVE_TOPIC_COMPOUND.sub(" ",plain)
+    tokens=[]
+    for term in re.findall(r"(?u)[^\W_]+",plain):
+        if (len(term)<2 or term.isdigit() or term in _LIVE_TOPIC_STOP
+                or re.fullmatch(r"(?:aktuell|neuest|neuigkeit|schlagzeile|nachricht)\w*",term)):
+            continue
+        # Common request qualifiers are not separate subject entities.
+        if term in ("welche","welcher","welches","welchen","viel","hoch","mehr","neue","neues"):
+            continue
+        if term not in tokens:
+            tokens.append(term)
+    for term in tokens[:6]:
+        group=_LIVE_TOPIC_ALIASES.get(term,(term,))
+        if not any(term in g for g in groups):
+            groups.append(group)
+    return tuple(groups[:6])
+
+
+def _topic_group_matches(group,value):
+    if not isinstance(value,str):
+        return False
+    plain=" ".join(re.findall(r"(?u)[^\W_]+",value.casefold()))
+    for term in group:
+        term=" ".join(re.findall(r"(?u)[^\W_]+",term.casefold()))
+        if not term:
+            continue
+        suffix=r"(?:s|es|en|e|er|n)?" if len(term)>=5 and " " not in term else ""
+        if re.search(r"(?<!\w)"+re.escape(term)+suffix+r"(?!\w)",plain):
+            return True
+    return False
+
+
+def _version_subjects(query):
+    groups=live_topic_requirements(query)
+    if not any("release" in group for group in groups):
+        return ()
+    return tuple(group for group in groups if "release" not in group)
+
+
+def live_version_evidence(query,text):
+    """Do not equate a mention of a version with an actual release number."""
+    subjects=_version_subjects(query)
+    if not subjects:
+        return True
+    if not isinstance(text,str):
+        return False
+    # Some projects publish a major version without a dotted minor number.
+    # Require release wording adjacent to it and the subject in the same line.
+    for line in text.splitlines():
+        if (all(_topic_group_matches(group,line) for group in subjects)
+                and re.search(r"(?i)\b(?:version\s+\d{1,3}\b|\d{1,3}\s+(?:released|veröffentlicht|erschienen)\b)",line)):
+            return True
+    for number in re.finditer(r"(?<![\w.])\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?!\w|\.\d)",text):
+        window=text[max(0,number.start()-180):number.end()+180]
+        if all(_topic_group_matches(group,window) for group in subjects) and re.search(
+            r"(?i)\b(?:release\w*|version\w*|download\w*|stable|latest|current|aktuell\w*|stabil\w*|neueste\w*)\b",window):
+            return True
+    return False
+
+
+def live_topic_matches(query,value):
+    """All retained topic groups must appear in actual text, with synonyms."""
+    if not isinstance(value,str):
+        return False
+    if airport_entity_codes(query):
+        return airport_text_matches(query,value)
+    return all(_topic_group_matches(group,value) for group in live_topic_requirements(query))
+
+
+def live_topic_hits(hits,query):
+    """Filter metadata before reads. Metadata never constitutes evidence."""
+    candidates=ranked_topic_hits(hits,query)
+    if airport_entity_codes(query) or not live_topic_requirements(query):
+        return candidates
+    from urllib.parse import unquote
+    rows=[]
+    for hit in candidates:
+        url=safe_result_url(hit.get("url"))
+        if not url:
+            continue
+        parsed=urlsplit(url)
+        metadata=" ".join((str(hit.get("title") or "")[:250],
+                           str(hit.get("snippet") or "")[:500],
+                           unquote(parsed.path)[:300]))
+        version_subjects=_version_subjects(query)
+        primary=" ".join((str(hit.get("title") or ""),unquote(parsed.path)[:300]))
+        # The product's own homepage often lists releases only in the body.
+        # Allow a read candidate only for an exact product host label.
+        host_labels=(parsed.hostname or "").split(".")
+        product_home=(bool(version_subjects) and parsed.path in ("","/")
+                      and all(any(term in host_labels[:-1] for term in group) for group in version_subjects))
+        if product_home or (live_topic_matches(query,metadata) and all(_topic_group_matches(group,primary) for group in version_subjects)):
+            rows.append(hit)
+    return rows
+
+
+def _live_refined_query(query,cleaned):
+    """Retain all named terms; prefer the subject before generic intent."""
+    groups=live_topic_requirements(query)
+    if not groups:
+        return cleaned
+    words=cleaned.split()
+    generic={"version","versionen","wetter","weather","preis","kurs","aktuell","news"}
+    core=[w for w in words if w.casefold() not in generic]
+    tail=[w for w in words if w.casefold() in generic]
+    if any("release" in g for g in groups):
+        tail.append("release")
+    if any("forecast" in g for g in groups):
+        tail.append("Vorhersage")
+    output=" ".join(dict.fromkeys(core+tail))
+    return output[:MAX_QUERY_CHARS].rsplit(" ",1)[0] if len(output)>MAX_QUERY_CHARS else output
+
+
+def _distinct_queries(values):
+    result=[]
+    seen=set()
+    for value in values:
+        value=" ".join(value.split())
+        if not 2<=len(value)<=MAX_QUERY_CHARS or value.casefold() in seen:
+            continue
+        seen.add(value.casefold())
+        result.append(value)
+    return result[:3]
+
+
+def news_query_variants(query):
+    """Bounded lexical alternatives; never drop a named subject for recall."""
+    base=news_subject(rewrite_search_query(query))
+    if airport_entity_codes(query):
+        return _distinct_queries([base])
+    groups=list(live_topic_requirements(query))
+    if not groups:
+        return _distinct_queries([base])
+    # Redundant category terms (e.g. a league and its sport) may be
+    # represented by the more specific term already present in a group.
+    groups=[g for g in groups if not any(g is not h and h[0] in g and g[0] not in h for h in groups)]
+    normal=" ".join(g[0] for g in groups)
+    english=[]
+    for g in groups:
+        options=[x for x in g if x in ("artificial intelligence","german parliament","football","soccer","weather","forecast")]
+        english.append(options[0] if options else g[0])
+    return _distinct_queries([normal," ".join(english),base])
+
+
+def live_query_variants(query):
+    cleaned=_live_refined_query(query,rewrite_search_query(query))
+    groups=list(live_topic_requirements(query))
+    if not groups:
+        return _distinct_queries([cleaned])
+    canonical=" ".join(g[0] for g in groups)
+    temporal=" ".join(re.findall(r"(?i)\b(?:morgen|heute|gestern|tomorrow|today|yesterday)\b",query))
+    if temporal:
+        canonical+=" "+temporal
+    if any("forecast" in g for g in groups):
+        canonical+=" Vorhersage"
+    if any("release" in g for g in groups):
+        canonical+=" stable release"
+    return _distinct_queries([cleaned,canonical])
 
 
 def rewrite_search_query(query: str) -> str:
@@ -671,6 +1014,14 @@ def rewrite_search_query(query: str) -> str:
         ]
         if keywords:
             q = " ".join(keywords[:8])
+    # Preserve the literal code and add the first known name only for an
+    # explicitly identified airport. This avoids provider guessing.
+    for code in airport_entity_codes(original):
+        aliases = _AIRPORT_ALIASES.get(code, ())
+        if code not in q.split():
+            q += " " + code
+        if aliases and aliases[0].casefold() not in q.casefold():
+            q += " " + aliases[0]
     if fresh and not re.search(r"\b(?:aktuell|2026|news)\b", q, re.I):
         q += " aktuell"
     q = " ".join(q.split())
@@ -681,16 +1032,46 @@ def rewrite_search_query(query: str) -> str:
 
 class WebSearch:
     """A bounded, explicitly requested search. No external API key needed."""
-    def __init__(self, *, opener=None, max_per_minute: int = 6):
+    def __init__(self, *, opener=None, max_per_minute: int = 6, official_discovery=None):
         if not 1 <= max_per_minute <= 60:
             raise ValueError("Ungültiges Suchlimit.")
         self.opener = opener if opener is not None else fixed_search_opener()
+        self._official_discovery = official_discovery
+        self._use_default_official_discovery = opener is None and official_discovery is None
         self.max_per_minute = max_per_minute
         self._hits = deque()
         self._lock = threading.Lock()
+        self._last_status = "idle"
+        self._last_error = None
+        self._last_provider = None
 
+    def _record(self, status, error=None, provider=None):
+        # Diagnostics are classifications only: never store queries, URLs,
+        # response bodies, credentials, or raw exception messages.
+        with self._lock:
+            self._last_status = status
+            self._last_error = error
+            self._last_provider = provider
 
-    def search_news(self, query: str, on_provider=None) -> list[dict[str, str]]:
+    def status(self):
+        with self._lock:
+            return {"backend": "DuckDuckGo HTML / Bing RSS / Google News RSS / Wikipedia DE",
+                    "last_status": self._last_status,
+                    "last_error": self._last_error,
+                    "last_provider": self._last_provider}
+
+    def record_read_status(self, status, error=None):
+        """Only safe end-to-end classifications, no page content or URL."""
+        if status not in ("ok", "empty", "headlines_only", "timeout", "unavailable", "rate_limited"):
+            raise ValueError("Invalid search status")
+        if error not in (None, "no_readable_sources", "timeout",
+                         "provider_unavailable", "local_rate_limit"):
+            raise ValueError("Invalid search error")
+        with self._lock:
+            self._last_status = status
+            self._last_error = error
+
+    def search_news(self, query: str, on_provider=None, *, language="de") -> list[dict[str, str]]:
         """Public keyless Google News RSS metadata for explicit fresh/news queries.
 
         Links are provider-discovered HTTPS search hits, never article reads.
@@ -703,23 +1084,160 @@ class WebSearch:
             raise WebSearchInputError("Ungültiger Suchbegriff.")
         if on_provider is not None:
             on_provider("Google News RSS")
-        url = (NEWS_ENDPOINT+"?q="+quote_plus(news_subject(cleaned)+" when:7d")+"&hl=de&gl=DE&ceid=DE:de")
+        locale={"de":"&hl=de&gl=DE&ceid=DE:de","en":"&hl=en-US&gl=US&ceid=US:en"}.get(language)
+        if locale is None:
+            raise WebSearchInputError("Ungültige Suchsprache.")
+        url = (NEWS_ENDPOINT+"?q="+quote_plus(news_subject(cleaned)+" when:7d")+locale)
         req = Request(url, headers={
             "User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
             "Accept":"application/rss+xml, application/xml, text/xml",
             "Accept-Language":"de,en;q=0.8",
         }, method="GET")
         try:
-            with self.opener.open(req, timeout=4.0) as response:
+            with self.opener.open(req, timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(req.full_url, status, "provider_status", response.headers, None)
                 mime = response.headers.get("Content-Type","").lower()
                 if "xml" not in mime and "rss" not in mime:
                     raise WebSearchError("Nachrichten-Suchanbieter lieferte unerwarteten Inhaltstyp.")
                 raw = response.read(MAX_RESPONSE_BYTES+1)
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("Nachrichten-Suchantwort überschreitet das Limit.")
-            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7,topic="News "+query)
         except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
+
+    def search_bing_news(self, query, on_provider=None):
+        if not isinstance(query, str) or not 2 <= len(query) <= MAX_QUERY_CHARS or not query.isprintable():
+            raise WebSearchInputError("Ungültige Nachrichtenanfrage.")
+        if on_provider is not None:
+            on_provider("Bing News RSS")
+        url = BING_NEWS_ENDPOINT + "?q=" + quote_plus(news_subject(query)) + "&format=rss&setlang=de&cc=de"
+        req = Request(url, headers={"User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
+                                   "Accept":"application/rss+xml, application/xml, text/xml",
+                                   "Accept-Language":"de,en;q=0.8"}, method="GET")
+        try:
+            with self.opener.open(req, timeout=3.0) as response:
+                if getattr(response, "status", 200) not in (None, 200) or "xml" not in response.headers.get("Content-Type","").lower():
+                    raise WebSearchError("Invalid news response")
+                raw = response.read(MAX_RESPONSE_BYTES+1)
+            if len(raw)>MAX_RESPONSE_BYTES:
+                raise WebSearchError("News response too large")
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7,topic="News "+query)
+        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+            raise WebSearchError("Bing News RSS nicht verfügbar.") from None
+
+    def _recent_news(self, query, cleaned, on_provider):
+        by_url, contacted = {}, []
+        def add(hit):
+            if not isinstance(hit, dict) or not recent_publication(hit.get("published_at")):
+                return
+            url = direct_news_url(hit.get("url"))
+            if not url or not live_topic_hits([{**hit,"url":url}],query):
+                return
+            if url not in by_url or (hit.get("page_read") is True and not by_url[url].get("page_read")):
+                by_url[url]={**hit,"url":url}
+        opaque = []
+        headline_rows = []
+        headline_seen = set()
+        def collect(hits,name):
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                link = safe_result_url(hit.get("url"))
+                if (link and link not in headline_seen and recent_publication(hit.get("published_at"))
+                        and live_topic_hits([hit],query) and str(hit.get("title","")).strip()
+                        and (direct_news_url(link) or (urlsplit(link).hostname=="news.google.com"
+                             and urlsplit(link).path.startswith("/rss/articles/")))):
+                    headline_seen.add(link)
+                    headline_rows.append({"url":link,"title":str(hit["title"])[:180],
+                                          "published_at":hit["published_at"],"provider":name})
+                if direct_news_url(hit.get("url")):
+                    add(hit)
+                elif (live_topic_hits([hit],query) and recent_publication(hit.get("published_at"))
+                      and safe_result_url(hit.get("publisher_url",""))):
+                    opaque.append(hit)
+        variants=news_query_variants(query) or [cleaned]
+        primary=variants[0]
+        for name, method in (("Bing News RSS",self.search_bing_news),("Google News RSS",self.search_news)):
+            contacted.append(name)
+            try:
+                collect(method(primary,on_provider=on_provider),name)
+            except WebSearchError:
+                continue
+        # A distinct bounded query can rescue discovery; the original
+        # question still controls every relevance check.
+        if len(headline_rows)<3:
+            for variant in variants[1:]:
+                if len(headline_rows)>=3:
+                    break
+                language="en" if any(word in variant.casefold() for word in ("artificial intelligence","german parliament","football","soccer")) else "de"
+                try:
+                    collect(self.search_news(variant,on_provider=on_provider,language=language),"Google News RSS")
+                except WebSearchError:
+                    continue
+        # Discover the actual publisher article through the existing public
+        # search endpoint. Never decode opaque aggregator IDs or assume a URL.
+        if len(by_url)<3:
+            for hit in opaque[:2]:
+                publisher = urlsplit(hit["publisher_url"]).hostname or ""
+                publisher = publisher.removeprefix("www.")
+                title = str(hit.get("title","")).rsplit(" - ",1)[0][:110]
+                if not title or not publisher:
+                    continue
+                wanted = set(re.findall(r"[^\W_]+",title.casefold())) - _QUERY_STOP
+                if len(wanted)<3:
+                    continue
+                try:
+                    candidates = self.search_bing((title+" site:"+publisher)[:MAX_QUERY_CHARS],on_provider=on_provider)
+                    if "Bing RSS" not in contacted:
+                        contacted.append("Bing RSS")
+                except WebSearchError:
+                    continue
+                for candidate in candidates:
+                    url = direct_news_url(candidate.get("url"))
+                    host = (urlsplit(url).hostname or "").removeprefix("www.") if url else ""
+                    words = set(re.findall(r"[^\W_]+",str(candidate.get("title","")).casefold()))
+                    if host == publisher and len(wanted & words)/len(wanted)>=0.8:
+                        add({**candidate,"published_at":hit["published_at"]})
+                        break
+        if self._use_default_official_discovery and by_url:
+            from neral_news_articles import discover_publisher_articles,read_feed_article
+            direct=list(by_url.values())
+            by_url.clear()
+            for hit in discover_publisher_articles(direct,query,resolver=read_feed_article):
+                add(hit)
+        if self._use_default_official_discovery and opaque and not by_url:
+            from neral_news_articles import discover_publisher_articles
+            contacted.append("Public publisher pages")
+            for hit in discover_publisher_articles(opaque,query):
+                add(hit)
+        if len(by_url)<3 and airport_entity_codes(query):
+            discovery = self._official_discovery
+            if self._use_default_official_discovery:
+                from neral_official_news import discover_official_news
+                discovery = discover_official_news
+            if callable(discovery):
+                contacted.append("Official press index")
+                try:
+                    for hit in discovery(query):
+                        add(hit)
+                except (OSError,ValueError,TypeError,RuntimeError):
+                    pass
+        if self._use_default_official_discovery and not any(
+                h.get("page_read") is True and h.get("article_chars",0)>=240 for h in by_url.values()):
+            from neral_public_news import discover_public_news
+            contacted.append("GDELT DOC")
+            for hit in discover_public_news(query,opener=self.opener,on_provider=on_provider):
+                add(hit)
+        rows=sorted(by_url.values(),key=lambda x:(bool(x.get("page_read")),x["published_at"]),reverse=True)
+        provider = " / ".join(contacted)
+        self._record("ok" if rows else "empty",None if rows else "no_results",provider)
+        return {"query":cleaned,"provider":provider,"providers_contacted":contacted,
+                "external_request":True,"model_generated":False,"results":rows[:MAX_RESULTS],
+                "headlines":sorted(headline_rows,key=lambda x:x["published_at"],reverse=True)[:8],
+                "notice":"Aktuelle Nachrichten-Treffer, Artikelinhalt noch ungeprüft."}
 
     def search_wikipedia(self, query: str, on_provider=None, language="de") -> list[dict[str, str]]:
         """Keyless DE Wikipedia reference fallback for the exact consented query.
@@ -745,7 +1263,10 @@ class WebSearch:
             "Accept":"application/json", "Accept-Language":"de,en;q=0.8"
         },method="GET")
         try:
-            with self.opener.open(req,timeout=4.0) as response:
+            with self.opener.open(req,timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(req.full_url, status, "provider_status", response.headers, None)
                 mime=response.headers.get("Content-Type","").lower()
                 if "json" not in mime:
                     raise WebSearchError("Referenzsuche lieferte unerwarteten Inhaltstyp.")
@@ -800,7 +1321,10 @@ class WebSearch:
             "Accept-Language": "de,en;q=0.8",
         }, method="GET")
         try:
-            with self.opener.open(req, timeout=4.0) as response:
+            with self.opener.open(req, timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(req.full_url, status, "provider_status", response.headers, None)
                 mime = response.headers.get("Content-Type", "").lower()
                 if "xml" not in mime:
                     raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -811,12 +1335,15 @@ class WebSearch:
         except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
             raise WebSearchError("Bing RSS ist derzeit nicht erreichbar.") from None
 
-    def search(self, query: str, on_provider=None) -> dict:
+    def search(self, query: str, on_provider=None, *, news_only=False, strict_topic=False) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
         if len(query.strip()) > MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchanfrage überschreitet das Eingabelimit.")
         cleaned = rewrite_search_query(query)
+        variants=live_query_variants(query) if strict_topic and not news_only else []
+        if variants:
+            cleaned=variants[0]
         if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchbegriff muss 2 bis 160 Zeichen lang sein.")
         with self._lock:
@@ -824,9 +1351,19 @@ class WebSearch:
             while self._hits and now - self._hits[0] >= 60:
                 self._hits.popleft()
             if len(self._hits) >= self.max_per_minute:
+                self._last_status = "rate_limited"
+                self._last_error = "local_rate_limit"
                 raise WebSearchRateLimitError("Zu viele Websuchen. Bitte in einer Minute erneut versuchen.")
             self._hits.append(now)
+        if news_only:
+            return self._recent_news(query, cleaned, on_provider)
         contacted = []
+        airport_focus = bool(airport_entity_codes(query))
+
+        def relevant(rows):
+            if strict_topic:
+                return live_topic_hits(rows,query)
+            return ranked_topic_hits(rows, query) if airport_focus else rows
 
         def request_page(url: str, accept: str, expected_type: str) -> str:
             # Only fixed providers below. Never follow redirect or use proxies.
@@ -834,7 +1371,10 @@ class WebSearch:
                 "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
                 "Accept": accept, "Accept-Language": "de,en;q=0.8",
             }, method="GET")
-            with self.opener.open(req, timeout=4.0) as response:
+            with self.opener.open(req, timeout=3.0) as response:
+                status = getattr(response, "status", 200)
+                if status not in (None, 200):
+                    raise HTTPError(url, status, "provider_status", response.headers, None)
                 mime = response.headers.get("Content-Type", "").lower()
                 if expected_type not in mime:
                     raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -848,14 +1388,33 @@ class WebSearch:
             on_provider("DuckDuckGo HTML")
         ddg_problem = False
         bing_problem = False
-        try:
-            markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned), "text/html", "text/html")
-            results = parse_search_results(markup)
-        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
-            if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
-                raise  # Oversized responses are a hard failure.
-            ddg_problem = True
-            results = []
+        provider_error = None
+        results = []
+        # HTTP 202 can be a provider challenge instead of a search result.
+        # One bounded retry, then fail over. HTTP 429 immediately fails over.
+        for attempt in range(2):
+            try:
+                markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned),
+                                      "text/html", "text/html")
+                results = relevant(parse_search_results(markup))
+                if not results:
+                    provider_error = "empty_or_parser_changed"
+                break
+            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
+                if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
+                    self._record("unavailable", "response_too_large", "DuckDuckGo HTML")
+                    raise  # Oversized responses are a hard failure.
+                ddg_problem = True
+                provider_error = (
+                    "upstream_rate_limit" if isinstance(exc, HTTPError) and exc.code == 429
+                    else "upstream_accepted" if isinstance(exc, HTTPError) and exc.code == 202
+                    else "timeout" if isinstance(exc, TimeoutError)
+                    else "provider_unavailable"
+                )
+                if provider_error == "upstream_accepted" and attempt == 0:
+                    time.sleep(0.1)
+                    continue
+                break
 
         provider = "DuckDuckGo HTML"
         if not results:
@@ -865,27 +1424,41 @@ class WebSearch:
             rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss&setlang=de&cc=de"
             try:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
-                results = parse_bing_rss(xml)
+                results = relevant(parse_bing_rss(xml))
                 provider = "Bing RSS"
-            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
                 bing_problem = True
+                if isinstance(exc, HTTPError) and exc.code in (202, 429):
+                    provider_error = "upstream_rate_limit" if exc.code == 429 else "upstream_accepted"
                 results = []
+        if not results and strict_topic and variants[1:]:
+            alternate=variants[1]
+            contacted.append("Bing RSS alternative query")
+            try:
+                results=relevant(self.search_bing(alternate,on_provider=on_provider))
+                if results:
+                    provider="Bing RSS alternative query"
+            except WebSearchError:
+                pass
         if not results and is_fresh_news_query(cleaned):
             contacted.append("Google News RSS")
             try:
-                results=self.search_news(cleaned,on_provider=on_provider)
+                results=relevant(self.search_news(cleaned,on_provider=on_provider))
                 if results:
                     provider="Google News RSS"
             except WebSearchError:
                 results=[]
-        if not results:
+        transient_weather=strict_topic and any("forecast" in g for g in live_topic_requirements(query))
+        if not results and not transient_weather and not (airport_focus and is_fresh_news_query(cleaned)):
             contacted.append("Wikipedia DE")
             try:
-                results=self.search_wikipedia(cleaned,on_provider=on_provider)
+                results=relevant(self.search_wikipedia(cleaned,on_provider=on_provider))
                 if results:
                     provider="Wikipedia DE"
             except WebSearchError:
                 if ddg_problem and bing_problem:
+                    self._record("unavailable", provider_error or "providers_unavailable",
+                                 "DuckDuckGo HTML / Bing RSS")
                     raise WebSearchError("Websuche derzeit bei allen Anbietern nicht verfügbar.") from None
                 results=[]
 
@@ -917,7 +1490,9 @@ class WebSearch:
                         provider = provider + " + Wikipedia " + language.upper()
             results = results[:MAX_RESULTS]
 
+        self._record("ok" if results else "empty",
+                     None if results else (provider_error or "no_results"), provider)
         return {"query": cleaned, "provider": provider, "providers_contacted": contacted,
                 "external_request": True, "model_generated": False, "results": results,
-                "notice": "Nur dieser Suchbegriff wurde an " + " und ".join(contacted) +
+                "notice": "Nur Suchbegriffe aus dieser Anfrage wurden an " + " und ".join(contacted) +
                           " übertragen. Externe Treffer sind ungeprüft."}

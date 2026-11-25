@@ -1,0 +1,145 @@
+"""Independent regression cases for the topic gate; no real network."""
+import unittest
+from datetime import datetime,timezone
+from unittest.mock import Mock
+from neral_web_search import live_topic_matches, live_topic_hits
+from neral_v43_live_web import search_live_sources
+
+NOW=datetime.now(timezone.utc).isoformat()
+def hit(title,slug,body=""):
+    return {"title":title,"url":"https://example.org/"+slug,"snippet":body,
+            "published_at":NOW}
+def page(h,body):
+    return {**h,"page_read":True,"page_text":body}
+class TopicGate(unittest.TestCase):
+    def test_named_major_release_is_valid_without_a_minor_number(self):
+        from neral_web_search import live_version_evidence
+        query="Welche Version von BeispielDB ist aktuell?"
+        self.assertTrue(live_version_evidence(query,"BeispielDB 19 Released!"))
+        self.assertFalse(live_version_evidence(query,"BeispielDB hat 19 Downloads."))
+
+    def test_long_publisher_urls_keep_all_citations_within_native_budget(self):
+        from neral_three_tier_runtime import _encode_model_turns,_WEB_SOURCE_CONTEXT
+        captured=[]
+        def encode(messages,**kwargs):
+            captured.append(messages)
+            return [0]*sum(len(m["content"]) for m in messages)
+        labels=[f"[{i}] Datum und Titel" for i in (1,2,3)]
+        evidence={"intro":"Webdaten","query":"Thema","labels":labels,
+                  "pages":[("https://example.org/"+("x"*300),"Artikelinhalt. "*90) for _ in labels]}
+        token=_WEB_SOURCE_CONTEXT.set(evidence)
+        try:
+            tokens=_encode_model_turns(Mock(apply_chat_template=encode),[{"role":"user","content":"Thema?"}],896)
+        finally:
+            _WEB_SOURCE_CONTEXT.reset(token)
+        self.assertLessEqual(len(tokens),896)
+        for label in labels:
+            self.assertIn(label,captured[-1][-1]["content"])
+
+    def test_9b_allocator_leaves_room_for_existing_gpu_users(self):
+        from neral_three_tier_runtime import configure_cuda_allocator_limit
+        torch=Mock()
+        mib=1024**2
+        torch.cuda.mem_get_info.return_value=(9000*mib,12000*mib)
+        torch.cuda.memory_reserved.return_value=1000*mib
+        self.assertEqual(configure_cuda_allocator_limit(torch,reserve_external=True),10752-2000-384)
+
+    def test_product_home_may_supply_release_evidence_late_in_body(self):
+        q="Welche Version von BeispielDB ist aktuell?"
+        good={"url":"https://beispieldb.org/","title":"BeispielDB Gemeinschaft"}
+        wrong={**good,"url":"https://anderes.org/"}
+        self.assertEqual(live_topic_hits([wrong,good],q),[good])
+        engine=Mock()
+        engine.search.return_value={"results":[good]}
+        long_body="Archiv und Dokumentation. "*126+"BeispielDB 18.2 released."
+        out=search_live_sources(engine,q,reader=Mock(return_value=[page(good,long_body)]))
+        self.assertEqual(out["status"],"ok")
+        self.assertIn("BeispielDB 18.2 released.",out["context"])
+
+    def test_fit_web_context_preserves_history_urls_and_every_source(self):
+        from neral_three_tier_runtime import _encode_model_turns,_WEB_SOURCE_CONTEXT
+        turns=[{"role":"user","content":"Start"},{"role":"assistant","content":"Vorgeschichte"},
+               {"role":"user","content":"Mehr dazu"}]
+        captured=[]
+        def encode(messages,**kwargs):
+            captured.append(messages)
+            return [0]*sum(len(m["content"]) for m in messages)
+        evidence={"query":"Thema","intro":"Webdaten","pages":[(f"https://quelle{i}.org/",f"Fakt {i}. "*250) for i in range(3)]}
+        token=_WEB_SOURCE_CONTEXT.set(evidence)
+        try:
+            self.assertLessEqual(len(_encode_model_turns(Mock(apply_chat_template=encode),turns,1500)),1500)
+        finally:
+            _WEB_SOURCE_CONTEXT.reset(token)
+        self.assertEqual(captured[-1][:-1],turns[:-1])
+        for i in range(3):
+            self.assertIn(f"https://quelle{i}.org/",captured[-1][-1]["content"])
+            self.assertIn(f"Fakt {i}.",captured[-1][-1]["content"])
+
+    def test_software_version_requires_named_product(self):
+        q="Welche Version von Python ist aktuell?"
+        self.assertFalse(live_topic_matches(q,"Version Rechtschreibung Bedeutung"))
+        self.assertTrue(live_topic_matches(q,"Python release downloads and versions"))
+    def test_mission_is_not_same_as_agency(self):
+        q="Welche aktuellen Nachrichten gibt es zur NASA Artemis Mission?"
+        self.assertFalse(live_topic_matches(q,"NASA sucht Partner für einen Kernreaktor"))
+        self.assertTrue(live_topic_matches(q,"NASA prepares Artemis II crew"))
+    def test_location_is_not_same_as_category(self):
+        q="Wie ist das Wetter morgen in Berlin?"
+        self.assertFalse(live_topic_matches(q,"Wetter aktuell und Wettervorhersage"))
+        self.assertTrue(live_topic_matches(q,"Berlin weather tomorrow forecast"))
+    def test_german_english_technology_synonyms(self):
+        q="Welche aktuellen Nachrichten gibt es zu künstlicher Intelligenz?"
+        self.assertFalse(live_topic_matches(q,"K+S Aktie steigt"))
+        self.assertTrue(live_topic_matches(q,"KI-Dokumentation spart Zeit"))
+        self.assertTrue(live_topic_matches(q,"Artificial intelligence in healthcare"))
+    def test_politics_requires_actual_institution(self):
+        q="Welche aktuellen Nachrichten gibt es zum Deutschen Bundestag?"
+        self.assertFalse(live_topic_matches(q,"Der deutsche Sozialstaat wird in der Ukraine verteidigt"))
+        self.assertTrue(live_topic_matches(q,"Bundestag debattiert Haushalt"))
+    def test_metadata_rejects_wrong_search_hits(self):
+        q="Welche Version von Python ist aktuell?"
+        wrong=hit("Version Rechtschreibung","version")
+        good=hit("Python downloads","python")
+        self.assertEqual(live_topic_hits([wrong,good],q),[good])
+    def test_body_not_metadata_is_evidence(self):
+        q="Welche Version von Python ist aktuell?"
+        good=hit("Python release","python")
+        engine=Mock()
+        engine.search.return_value={"provider":"fixture","results":[good]}
+        out=search_live_sources(engine,q,reader=Mock(return_value=[page(good,"Windows Update ist verfügbar.")]))
+        self.assertEqual(out["status"],"empty")
+        self.assertFalse(out["context"])
+    def test_wrong_first_three_pages_do_not_prevent_later_match(self):
+        q="Welche Version von Python ist aktuell?"
+        hits=[hit("Python releases "+str(i),"python-"+str(i)) for i in range(5)]
+        engine=Mock()
+        engine.search.return_value={"provider":"fixture","results":hits}
+        def reader(batch,query):
+            return [page(h,"Python stable release 3.14.1." if h is hits[4] else "Windows Update.") for h in batch[:3]]
+        out=search_live_sources(engine,q,reader=reader)
+        self.assertEqual(out["status"],"ok")
+        self.assertEqual([x["url"] for x in out["sources"]],[hits[4]["url"]])
+    def test_version_page_must_be_about_the_requested_product(self):
+        q="Welche Version von Python ist aktuell?"
+        wrong=hit("PyCharm","pycharm","Python release versions")
+        right=hit("Python releases","python")
+        self.assertEqual(live_topic_hits([wrong,right],q),[right])
+    def test_version_source_must_have_actual_release_number(self):
+        q="Welche Version von Python ist aktuell?"
+        good=hit("Python releases","python")
+        engine=Mock()
+        engine.search.return_value={"provider":"fixture","results":[good]}
+        out=search_live_sources(engine,q,reader=Mock(return_value=[page(good,"Python has many releases and versions.")]))
+        self.assertEqual(out["status"],"empty")
+    def test_irrelevant_feed_headline_is_not_displayed(self):
+        q="Welche aktuellen Nachrichten gibt es zu künstlicher Intelligenz?"
+        wrong={**hit("Düngerkonzern Aktie steigt","stock"),"provider":"Google News RSS"}
+        right={**hit("KI-Dokumentation spart Zeit","ki"),"provider":"Google News RSS"}
+        engine=Mock()
+        engine.search.return_value={"provider":"fixture","results":[],"headlines":[wrong,right]}
+        out=search_live_sources(engine,q,reader=Mock())
+        self.assertEqual(out["status"],"headlines_only")
+        self.assertEqual([x["url"] for x in out["sources"]],[right["url"]])
+
+if __name__=="__main__":
+    unittest.main()

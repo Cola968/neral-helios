@@ -329,7 +329,8 @@ def register_web_search_api(app, service=None):
 
     @app.get("/api/web/search/status")
     def web_search_status():
-        return jsonify(configured=True, live_verified=False, free_for_all=True,
+        from neral_v43_live_web import search_diagnostics
+        return jsonify(**search_diagnostics(search), live_verified=False, free_for_all=True,
                        requires_account=False, requires_api_key=False,
                        provider="DuckDuckGo HTML / Bing RSS / Google News RSS (aktuell) / Wikipedia DE", model_provider="none",
                        disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing, Google News (aktuelle Nachrichten) oder Wikipedia gesendet.")

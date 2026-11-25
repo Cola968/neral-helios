@@ -130,12 +130,14 @@ class HttpRouteCPU(unittest.TestCase):
         self.assertEqual(r["text"],"Lichtstreuung.")
         self.assertEqual(r["generation_rounds"],1)
 
-    def test_http_web_timeout_without_legacy_agent(self):
-        self.search.search.side_effect=TimeoutError()
+    def test_http_benchmark_disables_explicit_web(self):
+        self.search.search.side_effect=AssertionError("Benchmark must never search")
         r=self.ask("In welchem Jahr landete Apollo 11?",["1969"],web_query="Apollo 11 Mondlandung")
         self.assertEqual(r["text"],"1969")
-        self.assertEqual(r["verification_status"],"verification_incomplete")
+        self.assertEqual(r["web_search_status"],"disabled_benchmark")
+        self.assertEqual(r["verification_status"],"verification_not_applicable")
         self.assertEqual(r["generation_rounds"],1)
+        self.search.search.assert_not_called()
 
     def test_http_math_repair(self):
         r=self.ask("Berechne 6*7.",["41","42"])

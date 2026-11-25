@@ -5,6 +5,7 @@ import re
 import socket
 import ssl
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor, wait
 from html.parser import HTMLParser
 from ipaddress import ip_address
@@ -12,10 +13,12 @@ from urllib.parse import urljoin, urlsplit
 
 from neral_web_search import (safe_result_url, numbered_query_subject,
                               search_topic_terms, topical_search_hit,
-                              ranked_topic_hits)
+                              ranked_topic_hits, airport_entity_codes,
+                              airport_text_matches)
 
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
+MAX_MARKUP_BYTES = 1600000
 
 
 _YEAR_CLIP_CODES = frozenset((
@@ -64,13 +67,15 @@ class MainText(HTMLParser):
                 self.infobox.append(data)
 
     def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
+        attributes = {key:value or "" for key,value in attrs}
         if (tag == "table" and self._infobox_depth is None and
                 re.search(r"(?i)\binfobox\b", str(attributes.get("class") or "") +
                           " " + str(attributes.get("id") or ""))):
             self._infobox_depth = len(self.stack) + 1
         hidden = (tag in _ignored or "hidden" in attributes or
                   attributes.get("aria-hidden") == "true" or
+                  any(flag in attributes.get("style","").replace(" ","").casefold()
+                      for flag in ("display:none","visibility:hidden")) or
                   attributes.get("role") in {"navigation", "banner", "contentinfo"})
         if tag in _blocks:
             self._add("\n")
@@ -422,14 +427,19 @@ def _public_address(host):
     return next((a for a in addresses if ':' not in a), addresses[0])
 
 
-def fetch_and_extract(url, query=""):
+def fetch_and_extract(url, query="", *, include_markup=False):
     """Read one public HTTPS page, rechecking and pinning every redirect."""
-    deadline = time.monotonic() + TIMEOUT
-    for _ in range(3):
+    deadline = time.monotonic() + (6.0 if include_markup else TIMEOUT)
+    cap = MAX_MARKUP_BYTES if include_markup else MAX_BYTES
+    visited=set()
+    for _ in range(6 if include_markup else 3):
         url = safe_result_url(url)
-        if url is None:
+        if url is None or url in visited:
             return None
+        visited.add(url)
         target = urlsplit(url)
+        if target.hostname=="consent.google.com":
+            return None  # no automated consent or retry loop
         connection = None
         try:
             address = _public_address(target.hostname)
@@ -440,8 +450,8 @@ def fetch_and_extract(url, query=""):
             path = (target.path or "/") + ("?" + target.query if target.query else "")
             connection.request("GET", path, headers={
                 "User-Agent": "Mozilla/5.0 (compatible; NERAL-PageReader/3.0)",
-                "Accept": "text/html, application/xhtml+xml, text/plain",
-                "Accept-Encoding": "identity", "Accept-Language": "de,en;q=0.8",
+                "Accept": ("text/html, application/xhtml+xml, application/rss+xml, application/atom+xml, application/xml, text/xml, text/plain" if include_markup else "text/html, application/xhtml+xml, text/plain"),
+                "Accept-Encoding": "gzip, identity", "Accept-Language": "de-DE,de;q=0.9,en;q=0.6",
             })
             sock = connection.sock
             with connection.getresponse() as response:
@@ -452,32 +462,46 @@ def fetch_and_extract(url, query=""):
                     url = urljoin(url, location)
                     continue
                 media = response.headers.get_content_type()
-                if (response.status != 200 or media not in
-                        {"text/html", "application/xhtml+xml", "text/plain"} or
-                        response.getheader("Content-Encoding", "identity").lower() != "identity"):
+                encoding=response.getheader("Content-Encoding","identity").lower().strip()
+                allowed_media={"text/html","application/xhtml+xml","text/plain"}
+                if include_markup:
+                    allowed_media.update({"application/rss+xml","application/atom+xml","application/xml","text/xml"})
+                if (response.status != 200 or media not in allowed_media or
+                        encoding not in ("identity","gzip")):
                     return None
                 data = bytearray()
-                while len(data) < MAX_BYTES:
+                while len(data) <= cap:
                     left = deadline - time.monotonic()
                     if left <= 0:
                         return None
                     if sock is not None:
                         sock.settimeout(left)
-                    block = response.read1(min(32768, MAX_BYTES-len(data)))
+                    block = response.read1(min(32768, cap+1-len(data)))
                     if not block:
                         break
                     data.extend(block)
+                if len(data)>cap:
+                    return None
+                if encoding=="gzip":
+                    inflater=zlib.decompressobj(16+zlib.MAX_WBITS)
+                    raw=inflater.decompress(bytes(data),cap+1)
+                    if len(raw)>cap or not inflater.eof or inflater.unconsumed_tail:
+                        return None
+                    data=bytearray(raw)
                 markup = data.decode(response.headers.get_content_charset() or "utf-8", "replace")
             parser = MainText()
-            if media == "text/plain":
+            if media not in ("text/html","application/xhtml+xml"):
                 parser.handle_data(markup)
             else:
                 parser.feed(markup)
                 parser.close()
             text = parser.text(query)
-            return {"url": url, "text": text,
-                    "year_clip_code": parser.year_clip_code} if text.strip() else None
-        except (OSError, ValueError, LookupError, http.client.HTTPException):
+            result = {"url": url, "text": text, "year_clip_code": parser.year_clip_code}
+            if include_markup:
+                result["markup"] = markup
+            return result if text.strip() or include_markup else None
+        except (OSError, ValueError, LookupError, http.client.HTTPException, zlib.error,
+                AttributeError, AssertionError, RecursionError, TypeError):
             return None
         finally:
             if connection is not None:
@@ -496,7 +520,8 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
     """
     subject = numbered_query_subject(query)
     focused = bool(subject and search_topic_terms(query))
-    selected_hits = ranked_topic_hits(hits, query) if focused else (
+    airport_focus = bool(airport_entity_codes(query))
+    selected_hits = ranked_topic_hits(hits, query) if (focused or airport_focus) else (
         hits if isinstance(hits, list) else [])
     seen = set()
     tried = 0
@@ -535,8 +560,11 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
                     "url":page.get("url") or url,
                 }, query):
                     continue
+            if airport_focus and (not page or not airport_text_matches(query, page.get("text", ""))):
+                continue
             rows.append({
                 "url": page["url"] if page else url,
+                **({"discovered_url":url} if hit.get("published_at") else {}),
                 "title": str(hit.get("title", ""))[:160],
                 "snippet": str(hit.get("snippet", ""))[:350],
                 "page_text": (
