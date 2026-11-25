@@ -2,7 +2,8 @@
 from concurrent.futures import ThreadPoolExecutor, wait
 from html.parser import HTMLParser
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, unquote
+import xml.etree.ElementTree as ET
 from neral_web_search import safe_result_url, airport_text_matches, recent_publication
 
 _STOP = frozenset("der die das den dem des ein eine und oder im in am zu zum zur auf mit für von als ist sind es an bei nach vor über aus -".split())
@@ -29,6 +30,7 @@ class _VisibleHTML(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack=[]
         self.links=[]
+        self.documents=[]
         self.anchor=None
         self.paragraph=None
         self.paragraphs=[]
@@ -45,6 +47,11 @@ class _VisibleHTML(HTMLParser):
                 or a.get("role") in {"navigation","banner","contentinfo"})
         article=(tag in {"article","main"} or a.get("itemprop")=="articleBody"
                  or a.get("role")=="main")
+        if tag=="link":
+            rel=a.get("rel","").casefold().split()
+            if "alternate" in rel and a.get("type","").casefold() in ("application/rss+xml","application/atom+xml"):
+                if a.get("href") and len(self.documents)<4:
+                    self.documents.append(a["href"])
         if tag=="meta":
             key=(a.get("property") or a.get("name") or "").casefold()
             if key in ("og:title","twitter:title") and not self.meta_title:
@@ -114,12 +121,84 @@ def publisher_links(markup,home,title):
         url=safe_result_url(urljoin(home,href)) if href else None
         if not url or _host(url)!=_host(home) or url in seen or urlsplit(url).path in ("","/"):
             continue
-        if _similar(label,title):
+        if _similar(label,title) or _similar(unquote(urlsplit(url).path).replace("-"," ").replace("_"," "),title):
             seen.add(url)
             rows.append(url)
         if len(rows)>=3:
             break
     return rows
+
+def _xml_document(markup):
+    # Never parse a DTD or entity declaration; keep all discovery bounded.
+    if not isinstance(markup,str) or len(markup)>1600000 or re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b",markup,re.I):
+        return None
+    try:
+        return ET.fromstring(markup)
+    except (ET.ParseError,ValueError):
+        return None
+
+def _local(tag):
+    return tag.rsplit("}",1)[-1] if isinstance(tag,str) else ""
+
+def _same_public_link(home,value):
+    url=safe_result_url(urljoin(home,value)) if isinstance(value,str) and value.strip() else None
+    if not url or _host(url)!=_host(home) or urlsplit(url).path in ("","/"):
+        return None
+    return url
+
+def publisher_document_links(markup,home,title):
+    root=_xml_document(markup)
+    if root is None:
+        return []
+    rows=[]
+    for item in root.iter():
+        kind=_local(item.tag)
+        if kind not in ("item","entry","url"):
+            continue
+        label=""
+        url=None
+        for node in item.iter():
+            key=_local(node.tag)
+            if key=="title" and node.text and not label:
+                label=node.text
+            elif key=="loc" and kind=="url":
+                url=node.text
+            elif key=="link" and kind in ("item","entry") and node.get("rel","alternate")=="alternate":
+                url=node.get("href") or node.text
+        url=_same_public_link(home,url)
+        if not url or url in rows:
+            continue
+        slug=unquote(urlsplit(url).path).replace("-"," ").replace("_"," ")
+        if _similar(label,title) or _similar(slug,title):
+            rows.append(url)
+        if len(rows)>=3:
+            break
+    return rows
+
+def _document_candidates(home,index):
+    p=_parse((index or {}).get("markup","")) if isinstance(index,dict) else None
+    urls=[]
+    if p:
+        for href in p.documents:
+            url=_same_public_link(home,href)
+            if url and url not in urls:
+                urls.append(url)
+    url=_same_public_link(home,"/sitemap.xml")
+    if url and url not in urls:
+        urls.append(url)
+    return urls[:3]
+
+def _nested_news_maps(markup,home):
+    root=_xml_document(markup)
+    if root is None or _local(root.tag)!="sitemapindex":
+        return []
+    rows=[]
+    for node in root.iter():
+        if _local(node.tag)=="loc":
+            url=_same_public_link(home,node.text)
+            if url and re.search(r"(?i)(?:news|nachricht|aktuell|article|artikel|presse)",urlsplit(url).path):
+                rows.append(url)
+    return list(dict.fromkeys(rows))[:2]
 
 def article_text(markup):
     p=_parse(markup)
@@ -163,6 +242,26 @@ def find_publisher_article(hit,query,*,fetch=None):
             found=_read_candidate(fetch(url),hit,query,home)
             if found:
                 return found
+    # Use public RSS/sitemap discoveries, not guessed article URLs. A matching
+    # link remains metadata until the visible article and title are checked.
+    if isinstance(index,dict) and _host(index.get("url",""))==_host(home):
+        for document_url in _document_candidates(home,index):
+            doc=fetch(document_url)
+            if not isinstance(doc,dict) or _host(doc.get("url",""))!=_host(home):
+                continue
+            markup=doc.get("markup","")
+            candidates=publisher_document_links(markup,home,hit["title"])
+            if not candidates:
+                for nested in _nested_news_maps(markup,home):
+                    sub=fetch(nested)
+                    if isinstance(sub,dict) and _host(sub.get("url",""))==_host(home):
+                        candidates.extend(publisher_document_links(sub.get("markup",""),home,hit["title"]))
+                    if candidates:
+                        break
+            for url in list(dict.fromkeys(candidates))[:2]:
+                found=_read_candidate(fetch(url),hit,query,home)
+                if found:
+                    return found
     # Follow only ordinary public HTTPS redirects. Do not submit consent
     # forms, set consent cookies, decode opaque IDs or bypass access walls.
     link=safe_result_url(hit.get("url",""))

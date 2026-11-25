@@ -43,7 +43,12 @@ class PublicPublisherTests(unittest.TestCase):
     def test_mismatched_redirect_rejected(self):
         index=f'<a href="/news/airport-growth">{HEAD}</a>'
         article=f'<article><h1>{HEAD}</h1><p>{BODY*3}</p><p>{BODY*2}</p></article>'
-        fetch=Mock(side_effect=[{"url":HOME,"markup":index},{"url":"https://other.example.com/news","markup":article},None])
+        def fetch(url):
+            if url==HOME:
+                return {"url":HOME,"markup":index}
+            if url==URL:
+                return {"url":"https://other.example.com/news","markup":article}
+            return None
         self.assertIsNone(find_publisher_article(HIT,"Aktuelle Nachrichten Flughafen BER",fetch=fetch))
 
     def test_ordinary_aggregator_http_redirect_to_publisher(self):

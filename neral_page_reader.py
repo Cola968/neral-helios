@@ -448,7 +448,7 @@ def fetch_and_extract(url, query="", *, include_markup=False):
             path = (target.path or "/") + ("?" + target.query if target.query else "")
             connection.request("GET", path, headers={
                 "User-Agent": "Mozilla/5.0 (compatible; NERAL-PageReader/3.0)",
-                "Accept": "text/html, application/xhtml+xml, text/plain",
+                Accept": ("text/html, application/xhtml+xml, application/rss+xml, application/atom+xml, application/xml, text/xml, text/plain" if include_markup else "text/html, application/xhtml+xml, text/plain"),
                 "Accept-Encoding": "gzip, identity", "Accept-Language": "de-DE,de;q=0.9,en;q=0.6",
             })
             sock = connection.sock
@@ -461,8 +461,10 @@ def fetch_and_extract(url, query="", *, include_markup=False):
                     continue
                 media = response.headers.get_content_type()
                 encoding=response.getheader("Content-Encoding","identity").lower().strip()
-                if (response.status != 200 or media not in
-                        {"text/html", "application/xhtml+xml", "text/plain"} or
+                allowed_media={"text/html","application/xhtml+xml","text/plain"}
+                if include_markup:
+                    allowed_media.update({"application/rss+xml","application/atom+xml","application/xml","text/xml"})
+                if (response.status != 200 or media not in allowed_media or
                         encoding not in ("identity","gzip")):
                     return None
                 data = bytearray()
@@ -486,7 +488,7 @@ def fetch_and_extract(url, query="", *, include_markup=False):
                     data=bytearray(raw)
                 markup = data.decode(response.headers.get_content_charset() or "utf-8", "replace")
             parser = MainText()
-            if media == "text/plain":
+            if media not in ("text/html","application/xhtml+xml"):
                 parser.handle_data(markup)
             else:
                 parser.feed(markup)
