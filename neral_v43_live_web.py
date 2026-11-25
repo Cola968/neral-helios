@@ -6,9 +6,12 @@ never treated as read-page evidence; the benchmark gate precedes all I/O.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 from neral_local_wiki import fresh_question, source_required
-from neral_web_search import WebSearchError, WebSearchRateLimitError, safe_result_url
+from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
+                              airport_entity_codes, airport_text_matches, ranked_topic_hits,
+                              is_explicit_news_query, recent_publication, direct_news_url)
 
 _PRIVATE = re.compile(
     r"(?i)\b(?:mein(?:e|er|en|em|es)?|unser(?:e|er|en|em|es)?|my|our|"
@@ -53,12 +56,38 @@ def route_live_query(question, *, explicit_query=None, benchmark=False,
                 or _PRIVATE.search(explicit_query) or _TASK.search(explicit_query)):
             return None
         return explicit_query.strip()
-    if (fresh_question(question) or source_required(question)
+    if (is_explicit_news_query(question) or fresh_question(question) or source_required(question)
             or _EXPLICIT.search(question) or _FACT.search(question)):
         # The search provider rewrites the natural-language question itself.
         # Never transmit unbounded history or prompt augmentation.
         return question.strip()[:160].rsplit(" ", 1)[0] if len(question.strip()) > 160 else question.strip()
     return None
+
+
+def _public_feed_headlines(found, query):
+    """Display feed records only, never put them into model evidence."""
+    candidates = found.get("headlines", [])
+    if not isinstance(candidates, list):
+        return []
+    rows, seen = [], set()
+    for hit in ranked_topic_hits(candidates,query):
+        url = safe_result_url(hit.get("url"))
+        title = hit.get("title")
+        stamp = hit.get("published_at")
+        provider = hit.get("provider")
+        if not url or url in seen or not recent_publication(stamp) or not isinstance(title,str) or not title.strip():
+            continue
+        if provider not in ("Google News RSS","Bing News RSS"):
+            continue
+        parsed = urlsplit(url)
+        if not direct_news_url(url) and not (parsed.hostname=="news.google.com" and parsed.path.startswith("/rss/articles/")):
+            continue
+        if not airport_text_matches(query,title.rsplit(" - ",1)[0]):
+            continue
+        seen.add(url)
+        rows.append({"url":url,"title":" ".join(title.split())[:180],"published_at":stamp,
+                     "provider":provider,"page_read":False,"source_kind":"feed_headline"})
+    return rows[:5]
 
 
 def search_live_sources(search, query, *, reader=None):
@@ -70,11 +99,17 @@ def search_live_sources(search, query, *, reader=None):
         if reader is None:
             from neral_page_reader import read_top_pages
             reader = read_top_pages
-        found = search.search(query)
+        news = is_explicit_news_query(query)
+        found = search.search(query, news_only=True) if news else search.search(query)
         provider = found.get("provider")
         hits = found.get("results", [])
         if not isinstance(hits, list):
             raise WebSearchError("invalid_results")
+        if airport_entity_codes(query):
+            hits = ranked_topic_hits(hits, query)
+        if news:
+            hits = [h for h in hits if isinstance(h, dict) and direct_news_url(h.get("url")) and recent_publication(h.get("published_at"))]
+        dates = {h.get("url"): h.get("published_at") for h in hits if isinstance(h, dict)} if news else {}
         pages = reader(hits[:10], query) if hits else []
         rows = []
         for page in pages[:3] if isinstance(pages, list) else []:
@@ -82,11 +117,25 @@ def search_live_sources(search, query, *, reader=None):
                 continue
             url = safe_result_url(page.get("url", ""))
             body = page.get("page_text")
-            if not url or not isinstance(body, str) or not body.strip():
+            if (not url or not isinstance(body, str) or not body.strip()
+                    or not airport_text_matches(query, body.strip()[:1100])):
                 continue
-            rows.append({"url": url, "title": str(page.get("title", ""))[:120],
-                         "page_read": True, "page_text": body.strip()[:1100]})
+            date = dates.get(page.get("discovered_url", url)) if news else None
+            if news and (not recent_publication(date) or not direct_news_url(url)):
+                continue
+            row = {"url": url, "title": str(page.get("title", ""))[:120],
+                   "page_read": True, "page_text": body.strip()[:1100]}
+            if news:
+                row["published_at"] = date
+            rows.append(row)
         if not rows:
+            headlines = _public_feed_headlines(found,query) if news else []
+            if headlines:
+                update = getattr(search,"record_read_status",None)
+                if callable(update):
+                    update("headlines_only","no_readable_sources")
+                return {"status":"headlines_only","error":"no_readable_sources",
+                        "sources":headlines,"context":"","provider":provider}
             update = getattr(search, "record_read_status", None)
             if callable(update):
                 update("empty", "no_readable_sources")
@@ -100,14 +149,15 @@ def search_live_sources(search, query, *, reader=None):
         ]
         for index, row in enumerate(rows, 1):
             chunks.append(
-                f"[Webquelle {index}] {row['title']} | {row['url']}\n{row['page_text']}"
+                f"[Webquelle {index}] {row['title']} | {row['url']}" +
+                (" | Feed-Veröffentlichung: " + row["published_at"] if news else "") + "\n" + row["page_text"]
             )
         chunks.append("ENDE DER WEBQUELLEN.")
         update = getattr(search, "record_read_status", None)
         if callable(update):
             update("ok")
         return {"status": "ok", "error": None, "provider": provider,
-                "sources": [{"url": row["url"], "title": row["title"], "page_read": True}
+                "sources": [{key: value for key, value in row.items() if key != "page_text"}
                             for row in rows],
                 "context": "\n\n".join(chunks)}
     except WebSearchRateLimitError:

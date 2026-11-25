@@ -2326,6 +2326,25 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                     or requested_tier in ("Amber", "Luna")
                     or not runtime.evidence_agent):
                 preloaded_web = search_live_sources(live_search_service, live_web_query)
+                if preloaded_web["status"] == "headlines_only":
+                    # Deterministic, attributed feed listing; no generation,
+                    # independent verification, or training capture.
+                    rows = preloaded_web["sources"]
+                    lines = ["Aktuelle Schlagzeilen aus Nachrichtenfeeds (letzte 7 Tage). "
+                             "Die Originalartikel konnten nicht gelesen werden; "
+                             "es folgt keine geprüfte Zusammenfassung."]
+                    for row in rows:
+                        lines.append("- " + row["published_at"][:10] + ": " + row["title"])
+                    return jsonify(text="\n\n".join(lines), tier=requested_tier,
+                                   model="web_feed_headlines", model_generated=False,
+                                   model_origin="local_source_unverified_tools_only",
+                                   verified=False, safe_to_promote=False, adapter_loaded=False,
+                                   adapter_sha256=None, proof_backend=None, verification_scope="none",
+                                   runtime_tier_verified=True, verifier_ok=False,
+                                   web_search_status="headlines_only",
+                                   web_search_error="no_readable_sources",
+                                   web_search_provider=preloaded_web["provider"],
+                                   web_sources=rows, seconds=round(time.monotonic()-started,4))
                 if preloaded_web["status"] != "ok":
                     return jsonify(
                         error="Websuche konnte keine lesbaren Quellen liefern; "

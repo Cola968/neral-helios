@@ -12,7 +12,8 @@ from urllib.parse import urljoin, urlsplit
 
 from neral_web_search import (safe_result_url, numbered_query_subject,
                               search_topic_terms, topical_search_hit,
-                              ranked_topic_hits)
+                              ranked_topic_hits, airport_entity_codes,
+                              airport_text_matches)
 
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
@@ -422,7 +423,7 @@ def _public_address(host):
     return next((a for a in addresses if ':' not in a), addresses[0])
 
 
-def fetch_and_extract(url, query=""):
+def fetch_and_extract(url, query="", *, include_markup=False):
     """Read one public HTTPS page, rechecking and pinning every redirect."""
     deadline = time.monotonic() + TIMEOUT
     for _ in range(3):
@@ -475,8 +476,10 @@ def fetch_and_extract(url, query=""):
                 parser.feed(markup)
                 parser.close()
             text = parser.text(query)
-            return {"url": url, "text": text,
-                    "year_clip_code": parser.year_clip_code} if text.strip() else None
+            result = {"url": url, "text": text, "year_clip_code": parser.year_clip_code}
+            if include_markup:
+                result["markup"] = markup
+            return result if text.strip() or include_markup else None
         except (OSError, ValueError, LookupError, http.client.HTTPException):
             return None
         finally:
@@ -496,7 +499,8 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
     """
     subject = numbered_query_subject(query)
     focused = bool(subject and search_topic_terms(query))
-    selected_hits = ranked_topic_hits(hits, query) if focused else (
+    airport_focus = bool(airport_entity_codes(query))
+    selected_hits = ranked_topic_hits(hits, query) if (focused or airport_focus) else (
         hits if isinstance(hits, list) else [])
     seen = set()
     tried = 0
@@ -535,8 +539,11 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
                     "url":page.get("url") or url,
                 }, query):
                     continue
+            if airport_focus and (not page or not airport_text_matches(query, page.get("text", ""))):
+                continue
             rows.append({
                 "url": page["url"] if page else url,
+                **({"discovered_url":url} if hit.get("published_at") else {}),
                 "title": str(hit.get("title", ""))[:160],
                 "snippet": str(hit.get("snippet", ""))[:350],
                 "page_text": (

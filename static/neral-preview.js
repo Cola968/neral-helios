@@ -1141,7 +1141,13 @@
       }else if(result.model_origin!=="local_foundation_not_neral_adapter" ||
                result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
-      if(agentWebQuery || result.web_search_status==="ok"){
+      if(result.web_search_status==="headlines_only"){
+        sources=Array.isArray(result.web_sources) ? result.web_sources : [];
+        if(result.model_generated!==false || result.verified!==false || !sources.length ||
+           !sources.every(src=>src.page_read===false && src.source_kind==="feed_headline"))
+          throw new Error("Ungültige Nachrichtenfeed-Antwort.");
+        webAttempted=true;
+      }else if(agentWebQuery || result.web_search_status==="ok"){
         sources=Array.isArray(result.web_sources) ? result.web_sources :
           (Array.isArray(result.sources) ? result.sources : []);
         webAttempted=result.web_search_status==="ok" ||
@@ -1177,7 +1183,9 @@
       partialNode=null;
       const verified=result.verified===true && result.model_generated===false &&
         result.verification_scope!=="none";
-      let origin = verified
+      let origin = result.web_search_status==="headlines_only"
+        ? "Nachrichtenfeed · Artikel nicht gelesen"
+        : verified
         ? (result.tool_used === "z3_solver"
             ? "Werkzeug: Z3-Solver (verifiziert)"
             : "Werkzeug: Python-Sandbox (verifiziert)")

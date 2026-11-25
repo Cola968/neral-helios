@@ -26,6 +26,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BING_ENDPOINT = "https://www.bing.com/search"
 NEWS_ENDPOINT = "https://news.google.com/rss/search"
+BING_NEWS_ENDPOINT = "https://www.bing.com/news/search"
 MAX_RESPONSE_BYTES = 600_000
 MAX_RESULTS = 10
 MAX_QUERY_CHARS = 160
@@ -465,15 +466,57 @@ def is_fresh_news_query(query: str) -> bool:
     """Use a current news source only for queries that request recent events."""
     return (isinstance(query, str) and
             re.search(r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|"
-                      r"neuigkeiten|heute|gestern|live|this week|latest|breaking)\b",
+                      r"neuigkeiten|neues|heute|gestern|live|this week|latest|breaking)\b",
                       query, re.I) is not None)
+
+
+def is_explicit_news_query(query):
+    """A news request, not every question about a current price or fact."""
+    return isinstance(query, str) and bool(re.search(
+        r"\b(?:news|nachrichten|neuigkeiten|pressemitteilungen|schlagzeilen|"
+        r"breaking|headlines)\b|\b(?:was gibt es neues|was ist neu|what.s new)\b",
+        query, re.I))
+
+
+def recent_publication(value, *, now=None, days=7):
+    if not isinstance(value, str):
+        return False
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            return False
+        clock = now or datetime.now(timezone.utc)
+        return clock-timedelta(days=days) <= stamp <= clock+timedelta(minutes=10)
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def direct_news_url(value):
+    """Unwrap only the explicit publisher URL in a recognized Bing RSS link."""
+    value = safe_result_url(value)
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.hostname in ("bing.com", "www.bing.com") and parsed.path.casefold() == "/news/apiclick.aspx":
+        target = parse_qs(parsed.query).get("url", [])
+        if len(target) != 1:
+            return None
+        value = safe_result_url(target[0])
+        if not value:
+            return None
+        parsed = urlsplit(value)
+    host = parsed.hostname or ""
+    if (host in ("news.google.com", "google.com", "www.google.com", "bing.com", "www.bing.com")
+            or host == "wikipedia.org" or host.endswith(".wikipedia.org")):
+        return None
+    return value
 
 
 def news_subject(query: str) -> str:
     """Remove generic request words but preserve the user's topic verbatim."""
     subject = re.sub(
         r"\b(?:suche|bitte|im\s+web|im\s+internet|online|quellen|news|nachrichten|"
-        r"aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|neuigkeiten|heute|gestern|live|latest|breaking)\b",
+        r"aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|neuigkeiten|neues|heute|gestern|live|latest|breaking)\b",
         " ", query, flags=re.I)
     subject = re.sub(r"[?:!.,;]+", " ", subject)
     subject = re.sub(r"\s+", " ", subject).strip()
@@ -506,16 +549,29 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | No
         if max_age_days is not None:
             try:
                 published=parsedate_to_datetime(item.findtext("pubDate",default=""))
+                if published.tzinfo is None:
+                    continue
                 published=published.astimezone(timezone.utc)
             except (TypeError,ValueError,OverflowError):
                 continue
             if not clock-timedelta(days=max_age_days) <= published <= clock+timedelta(minutes=10):
                 continue
-        url = safe_result_url(item.findtext("link", default=""))
+        raw_link = item.findtext("link", default="")
+        url = safe_result_url(raw_link)
+        if max_age_days is not None and url and urlsplit(url).hostname in ("bing.com", "www.bing.com") and urlsplit(url).path.casefold() == "/news/apiclick.aspx":
+            url = direct_news_url(url)
         title = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("title", default=""))), 180)
         snippet = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("description", default=""))), 350)
         if url and title and url not in seen:
-            output.append({"title": title, "url": url, "snippet": snippet})
+            row = {"title": title, "url": url, "snippet": snippet}
+            if max_age_days is not None:
+                row["published_at"] = published.isoformat()
+                source = item.find("source")
+                if source is not None:
+                    source_url = safe_result_url(source.get("url", ""))
+                    if source_url:
+                        row["publisher_url"] = source_url
+            output.append(row)
             seen.add(url)
         if len(output) >= limit:
             break
@@ -617,16 +673,86 @@ def topical_search_hit(hit, query):
     return False
 
 
+# Explicit airport identifiers are hard relevance anchors. The aliases
+# are query vocabulary, not evidence or assumed search results.
+_AIRPORT_ALIASES = {
+    "BER": ("Berlin Brandenburg", "Flughafen Berlin", "Berlin Airport"),
+    "FRA": ("Frankfurt am Main", "Flughafen Frankfurt", "Frankfurt Airport"),
+    "MUC": ("Flughafen München", "Munich Airport", "Flughafen Muenchen"),
+    "HAM": ("Flughafen Hamburg", "Hamburg Airport"),
+    "DUS": ("Flughafen Düsseldorf", "Dusseldorf Airport", "Flughafen Duesseldorf"),
+    "LHR": ("London Heathrow", "Heathrow Airport"),
+    "JFK": ("John F Kennedy", "Kennedy Airport", "New York JFK"),
+    "CDG": ("Charles de Gaulle", "Paris CDG"),
+    "AMS": ("Amsterdam Schiphol", "Schiphol Airport"),
+    "VIE": ("Flughafen Wien", "Vienna Airport", "Wien Schwechat"),
+}
+_AIRPORT_WORD = re.compile(r"\b(?:flughafen|airport|aéroport|aeroport)\b", re.I)
+_NON_AIRPORT_CODES = frozenset(("USA", "CEO", "FAQ", "RSS", "API", "ICA"))
+
+
+def airport_entity_codes(query):
+    """Recognize known IATA codes or explicit three-letter airport labels."""
+    if not isinstance(query, str) or not _AIRPORT_WORD.search(query):
+        return ()
+    codes = []
+    for match in re.finditer(r"(?<!\w)[A-Z]{3}(?!\w)", query):
+        code = match.group()
+        if code in _NON_AIRPORT_CODES:
+            continue
+        before = query[max(0, match.start()-24):match.start()]
+        after = query[match.end():match.end()+24]
+        adjacent = re.search(r"(?:flughafen|airport|aéroport|aeroport)\s*[-:(]?\s*$", before, re.I) or re.match(r"\s*[-):]?\s*(?:flughafen|airport|aéroport|aeroport)\b", after, re.I)
+        if code in _AIRPORT_ALIASES or adjacent:
+            if code not in codes:
+                codes.append(code)
+    return tuple(codes[:3])
+
+
+def airport_text_matches(query, value, *, case_insensitive_code=False):
+    codes = airport_entity_codes(query)
+    if not codes:
+        return True
+    if not isinstance(value, str):
+        return False
+    normalized = re.sub(r"[^\w]+", " ", value.casefold())
+    for code in codes:
+        if re.search(r"(?<!\w)" + re.escape(code) + r"(?!\w)", value,
+                     re.I if case_insensitive_code else 0):
+            return True
+        for alias in _AIRPORT_ALIASES.get(code, ()):
+            if re.search(r"(?<!\w)" + re.escape(alias.casefold()) + r"(?!\w)", normalized):
+                return True
+    return False
+
+
+def airport_hit_matches(hit, query):
+    if not isinstance(hit, dict):
+        return False
+    if not airport_entity_codes(query):
+        return True
+    url = safe_result_url(hit.get("url", ""))
+    if not url:
+        return False
+    from urllib.parse import unquote
+    parsed = urlsplit(url)
+    metadata = " ".join((str(hit.get("title") or "")[:200],
+                         str(hit.get("snippet") or "")[:420]))
+    return (airport_text_matches(query, metadata)
+            or airport_text_matches(query, (parsed.hostname or "") + " " + unquote(parsed.path)[:350],
+                                    case_insensitive_code=True))
+
+
 def ranked_topic_hits(hits, query):
-    """Filter only ambiguous numbered subjects; never invent a source hit."""
+    """Filter explicit airport identifiers and ambiguous numbered subjects."""
     if not isinstance(hits, list):
         return []
+    candidates = [hit for hit in hits[:MAX_RESULTS] if airport_hit_matches(hit, query)]
     subject = numbered_query_subject(query)
     terms = search_topic_terms(query)
     if not subject or not terms:
-        return [hit for hit in hits[:MAX_RESULTS] if isinstance(hit, dict)]
-    return [hit for hit in hits[:MAX_RESULTS]
-            if topical_search_hit(hit, query)]
+        return candidates
+    return [hit for hit in candidates if topical_search_hit(hit, query)]
 
 
 def rewrite_search_query(query: str) -> str:
@@ -671,6 +797,14 @@ def rewrite_search_query(query: str) -> str:
         ]
         if keywords:
             q = " ".join(keywords[:8])
+    # Preserve the literal code and add the first known name only for an
+    # explicitly identified airport. This avoids provider guessing.
+    for code in airport_entity_codes(original):
+        aliases = _AIRPORT_ALIASES.get(code, ())
+        if code not in q.split():
+            q += " " + code
+        if aliases and aliases[0].casefold() not in q.casefold():
+            q += " " + aliases[0]
     if fresh and not re.search(r"\b(?:aktuell|2026|news)\b", q, re.I):
         q += " aktuell"
     q = " ".join(q.split())
@@ -681,10 +815,12 @@ def rewrite_search_query(query: str) -> str:
 
 class WebSearch:
     """A bounded, explicitly requested search. No external API key needed."""
-    def __init__(self, *, opener=None, max_per_minute: int = 6):
+    def __init__(self, *, opener=None, max_per_minute: int = 6, official_discovery=None):
         if not 1 <= max_per_minute <= 60:
             raise ValueError("Ungültiges Suchlimit.")
         self.opener = opener if opener is not None else fixed_search_opener()
+        self._official_discovery = official_discovery
+        self._use_default_official_discovery = opener is None and official_discovery is None
         self.max_per_minute = max_per_minute
         self._hits = deque()
         self._lock = threading.Lock()
@@ -709,7 +845,7 @@ class WebSearch:
 
     def record_read_status(self, status, error=None):
         """Only safe end-to-end classifications, no page content or URL."""
-        if status not in ("ok", "empty", "timeout", "unavailable", "rate_limited"):
+        if status not in ("ok", "empty", "headlines_only", "timeout", "unavailable", "rate_limited"):
             raise ValueError("Invalid search status")
         if error not in (None, "no_readable_sources", "timeout",
                          "provider_unavailable", "local_rate_limit"):
@@ -751,6 +887,106 @@ class WebSearch:
             return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
         except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
+
+    def search_bing_news(self, query, on_provider=None):
+        if not isinstance(query, str) or not 2 <= len(query) <= MAX_QUERY_CHARS or not query.isprintable():
+            raise WebSearchInputError("Ungültige Nachrichtenanfrage.")
+        if on_provider is not None:
+            on_provider("Bing News RSS")
+        url = BING_NEWS_ENDPOINT + "?q=" + quote_plus(news_subject(query)) + "&format=rss&setlang=de&cc=de"
+        req = Request(url, headers={"User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
+                                   "Accept":"application/rss+xml, application/xml, text/xml",
+                                   "Accept-Language":"de,en;q=0.8"}, method="GET")
+        try:
+            with self.opener.open(req, timeout=3.0) as response:
+                if getattr(response, "status", 200) not in (None, 200) or "xml" not in response.headers.get("Content-Type","").lower():
+                    raise WebSearchError("Invalid news response")
+                raw = response.read(MAX_RESPONSE_BYTES+1)
+            if len(raw)>MAX_RESPONSE_BYTES:
+                raise WebSearchError("News response too large")
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
+        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+            raise WebSearchError("Bing News RSS nicht verfügbar.") from None
+
+    def _recent_news(self, query, cleaned, on_provider):
+        rows, contacted, seen = [], [], set()
+        def add(hit):
+            if not isinstance(hit, dict) or not recent_publication(hit.get("published_at")):
+                return
+            url = direct_news_url(hit.get("url"))
+            if not url or url in seen or not airport_hit_matches({**hit,"url":url},query):
+                return
+            seen.add(url)
+            rows.append({**hit,"url":url})
+        opaque = []
+        headline_rows = []
+        headline_seen = set()
+        for name, method in (("Bing News RSS",self.search_bing_news),("Google News RSS",self.search_news)):
+            contacted.append(name)
+            try:
+                hits = method(cleaned,on_provider=on_provider)
+            except WebSearchError:
+                continue
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                link = safe_result_url(hit.get("url"))
+                if (link and link not in headline_seen and recent_publication(hit.get("published_at"))
+                        and airport_hit_matches(hit,query) and str(hit.get("title","")).strip()
+                        and (direct_news_url(link) or (urlsplit(link).hostname=="news.google.com"
+                             and urlsplit(link).path.startswith("/rss/articles/")))):
+                    headline_seen.add(link)
+                    headline_rows.append({"url":link,"title":str(hit["title"])[:180],
+                                          "published_at":hit["published_at"],"provider":name})
+                if direct_news_url(hit.get("url")):
+                    add(hit)
+                elif (airport_hit_matches(hit,query) and recent_publication(hit.get("published_at"))
+                      and safe_result_url(hit.get("publisher_url",""))):
+                    opaque.append(hit)
+        # Discover the actual publisher article through the existing public
+        # search endpoint. Never decode opaque aggregator IDs or assume a URL.
+        if len(rows)<3:
+            for hit in opaque[:2]:
+                publisher = urlsplit(hit["publisher_url"]).hostname or ""
+                publisher = publisher.removeprefix("www.")
+                title = str(hit.get("title","")).rsplit(" - ",1)[0][:110]
+                if not title or not publisher:
+                    continue
+                wanted = set(re.findall(r"[^\W_]+",title.casefold())) - _QUERY_STOP
+                if len(wanted)<3:
+                    continue
+                try:
+                    candidates = self.search_bing((title+" site:"+publisher)[:MAX_QUERY_CHARS],on_provider=on_provider)
+                    if "Bing RSS" not in contacted:
+                        contacted.append("Bing RSS")
+                except WebSearchError:
+                    continue
+                for candidate in candidates:
+                    url = direct_news_url(candidate.get("url"))
+                    host = (urlsplit(url).hostname or "").removeprefix("www.") if url else ""
+                    words = set(re.findall(r"[^\W_]+",str(candidate.get("title","")).casefold()))
+                    if host == publisher and len(wanted & words)/len(wanted)>=0.8:
+                        add({**candidate,"published_at":hit["published_at"]})
+                        break
+        if len(rows)<3 and airport_entity_codes(query):
+            discovery = self._official_discovery
+            if self._use_default_official_discovery:
+                from neral_official_news import discover_official_news
+                discovery = discover_official_news
+            if callable(discovery):
+                contacted.append("Official press index")
+                try:
+                    for hit in discovery(query):
+                        add(hit)
+                except (OSError,ValueError,TypeError,RuntimeError):
+                    pass
+        rows.sort(key=lambda x:x["published_at"],reverse=True)
+        provider = " / ".join(contacted)
+        self._record("ok" if rows else "empty",None if rows else "no_results",provider)
+        return {"query":cleaned,"provider":provider,"providers_contacted":contacted,
+                "external_request":True,"model_generated":False,"results":rows[:MAX_RESULTS],
+                "headlines":sorted(headline_rows,key=lambda x:x["published_at"],reverse=True)[:8],
+                "notice":"Aktuelle Nachrichten-Treffer, Artikelinhalt noch ungeprüft."}
 
     def search_wikipedia(self, query: str, on_provider=None, language="de") -> list[dict[str, str]]:
         """Keyless DE Wikipedia reference fallback for the exact consented query.
@@ -848,7 +1084,7 @@ class WebSearch:
         except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
             raise WebSearchError("Bing RSS ist derzeit nicht erreichbar.") from None
 
-    def search(self, query: str, on_provider=None) -> dict:
+    def search(self, query: str, on_provider=None, *, news_only=False) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
         if len(query.strip()) > MAX_QUERY_CHARS:
@@ -865,7 +1101,13 @@ class WebSearch:
                 self._last_error = "local_rate_limit"
                 raise WebSearchRateLimitError("Zu viele Websuchen. Bitte in einer Minute erneut versuchen.")
             self._hits.append(now)
+        if news_only:
+            return self._recent_news(query, cleaned, on_provider)
         contacted = []
+        airport_focus = bool(airport_entity_codes(query))
+
+        def relevant(rows):
+            return ranked_topic_hits(rows, query) if airport_focus else rows
 
         def request_page(url: str, accept: str, expected_type: str) -> str:
             # Only fixed providers below. Never follow redirect or use proxies.
@@ -898,7 +1140,7 @@ class WebSearch:
             try:
                 markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned),
                                       "text/html", "text/html")
-                results = parse_search_results(markup)
+                results = relevant(parse_search_results(markup))
                 if not results:
                     provider_error = "empty_or_parser_changed"
                 break
@@ -926,7 +1168,7 @@ class WebSearch:
             rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss&setlang=de&cc=de"
             try:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
-                results = parse_bing_rss(xml)
+                results = relevant(parse_bing_rss(xml))
                 provider = "Bing RSS"
             except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
                 bing_problem = True
@@ -936,15 +1178,15 @@ class WebSearch:
         if not results and is_fresh_news_query(cleaned):
             contacted.append("Google News RSS")
             try:
-                results=self.search_news(cleaned,on_provider=on_provider)
+                results=relevant(self.search_news(cleaned,on_provider=on_provider))
                 if results:
                     provider="Google News RSS"
             except WebSearchError:
                 results=[]
-        if not results:
+        if not results and not (airport_focus and is_fresh_news_query(cleaned)):
             contacted.append("Wikipedia DE")
             try:
-                results=self.search_wikipedia(cleaned,on_provider=on_provider)
+                results=relevant(self.search_wikipedia(cleaned,on_provider=on_provider))
                 if results:
                     provider="Wikipedia DE"
             except WebSearchError:
