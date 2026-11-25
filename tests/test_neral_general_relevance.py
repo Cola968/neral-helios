@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime,timezone
 from unittest.mock import Mock
-from neral_web_search import live_topic_matches, live_topic_hits
+from neral_web_search import live_topic_matches, live_topic_hits, news_query_variants
 from neral_v43_live_web import search_live_sources
 
 NOW=datetime.now(timezone.utc).isoformat()
@@ -29,6 +29,16 @@ class TopicGate(unittest.TestCase):
         self.assertFalse(live_topic_matches(q,"K+S Aktie steigt"))
         self.assertTrue(live_topic_matches(q,"KI-Dokumentation spart Zeit"))
         self.assertTrue(live_topic_matches(q,"Artificial intelligence in healthcare"))
+    def test_named_league_is_not_replaced_by_generic_sport(self):
+        q = "Welche aktuellen Nachrichten gibt es zur Fußball Bundesliga?"
+        self.assertFalse(live_topic_matches(q, "Football: Premier League results"))
+        self.assertTrue(live_topic_matches(q, "Bundesliga: Ergebnisse vom Samstag"))
+        variants = news_query_variants(q)
+        self.assertTrue(variants)
+        self.assertTrue(all("bundesliga" in query.casefold() for query in variants))
+        self.assertTrue(live_topic_matches("Aktuelle Nachrichten über Fußball", "Football news"))
+        self.assertFalse(live_topic_matches("Latest football news about Bundesliga", "Premier League football"))
+        self.assertTrue(live_topic_matches("Latest football news about Bundesliga", "Bundesliga results"))
     def test_politics_requires_actual_institution(self):
         q="Welche aktuellen Nachrichten gibt es zum Deutschen Bundestag?"
         self.assertFalse(live_topic_matches(q,"Der deutsche Sozialstaat wird in der Ukraine verteidigt"))

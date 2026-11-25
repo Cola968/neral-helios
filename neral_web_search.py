@@ -771,13 +771,14 @@ _LIVE_TOPIC_STOP = _QUERY_STOP | frozenset("""
     deutschen deutsche deutscher deutsches german mission programm project
     program aktuelle aktualisiert
 """.split())
+_FOOTBALL_TOPICS = ("fußball", "fussball", "football", "soccer", "bundesliga")
 _LIVE_TOPIC_ALIASES = {
     "version": ("version", "versionen", "release", "releases", "download", "downloads"),
     "wetter": ("wetter", "weather", "wettervorhersage", "forecast", "wetterbericht"),
     "weather": ("wetter", "weather", "forecast", "wettervorhersage"),
     "bundestag": ("bundestag", "german parliament", "federal parliament"),
-    "fußball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
-    "fussball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
+    **dict.fromkeys(_FOOTBALL_TOPICS[:-1], _FOOTBALL_TOPICS),
+    "bundesliga": ("bundesliga",),
     "künstliche intelligenz": ("künstliche intelligenz", "künstlicher intelligenz",
                               "künstlichen intelligenz", "artificial intelligence", "ki", "ai"),
     "ki": ("ki", "ai", "artificial intelligence", "künstliche intelligenz"),
@@ -818,9 +819,10 @@ def live_topic_requirements(query):
             tokens.append(term)
     for term in tokens[:6]:
         group=_LIVE_TOPIC_ALIASES.get(term,(term,))
-        if not any(term in g for g in groups):
+        if group not in groups and (term in _LIVE_TOPIC_ALIASES or not any(term in g for g in groups)):
             groups.append(group)
-    return tuple(groups[:6])
+    # A specific term can satisfy its broad category, never the reverse.
+    return tuple(g for g in groups if not any(set(h) < set(g) for h in groups))[:6]
 
 
 def _topic_group_matches(group,value):
@@ -927,9 +929,6 @@ def news_query_variants(query):
     groups=list(live_topic_requirements(query))
     if not groups:
         return _distinct_queries([base])
-    # Redundant category terms (e.g. a league and its sport) may be
-    # represented by the more specific term already present in a group.
-    groups=[g for g in groups if not any(g is not h and h[0] in g and g[0] not in h for h in groups)]
     normal=" ".join(g[0] for g in groups)
     english=[]
     for g in groups:

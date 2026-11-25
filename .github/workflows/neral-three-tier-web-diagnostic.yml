@@ -47,27 +47,8 @@ jobs:
             $env:PYTHONPATH=$src+';'+$testDeps
             & $py -B -m pytest -q tests/test_neral_v43_live_web_cpu.py tests/test_neral_web_v4_cpu.py tests/test_neral_v43_reference50_live_cpu.py
             if($LASTEXITCODE -ne 0){throw 'Web or benchmark isolation failed'}
-            $code=@'
-          import json,time
-          from neral_web_search import WebSearch
-          from neral_v43_live_web import search_live_sources,route_live_query
-          cases=(
-              ("aviation","Welche aktuellen Nachrichten gibt es zum Flughafen BER?"),
-              ("aviation_2","Was gibt es Neues am Flughafen MUC?"),
-              ("space","Welche aktuellen Nachrichten gibt es zur NASA Artemis Mission?"),
-              ("technology","Welche aktuellen Nachrichten gibt es zu künstlicher Intelligenz?"),
-              ("politics","Welche aktuellen Nachrichten gibt es zum Deutschen Bundestag?"),
-              ("sport","Welche aktuellen Nachrichten gibt es zur Fußball Bundesliga?"),
-              ("fact","In welchem Jahr landete Apollo 11 auf dem Mond?"),
-              ("software","Welche Version von Python ist aktuell?"),
-              ("weather","Wie ist das Wetter morgen in Berlin?"),
-          )
-          for category,q in cases:
-              start=time.monotonic()
-              routed=route_live_query(q)
-              result=search_live_sources(WebSearch(),routed) if routed else {"status":"not_routed","sources":[]}
-              print("GENERAL_LIVE "+json.dumps({"category":category,"status":result["status"],"read_pages":sum(x.get("page_read") is True for x in result["sources"]),"full_articles":sum(x.get("page_read") is True and x.get("article_chars",0)>=240 and not x.get("article_truncated") for x in result["sources"]),"sources":[{"title":x.get("title"),"page_read":x.get("page_read"),"article_chars":x.get("article_chars")} for x in result["sources"]],"seconds":round(time.monotonic()-start,3),"benchmark_blocked":route_live_query(q,benchmark=True) is None},ensure_ascii=True),flush=True)
-          '@
-            $code | & $py -B -
-            if($LASTEXITCODE -ne 0){throw 'General live probe crashed'}
+            & $py -B -m unittest discover -s tests -p test_neral_v43_live_probe.py -v
+            if($LASTEXITCODE -ne 0){throw 'Live acceptance gate regression failed'}
+            & $py -B -m scripts.neral_v43_live_probe
+            if($LASTEXITCODE -ne 0){throw 'Cross-topic live evidence gate failed'}
           }finally{Pop-Location}
