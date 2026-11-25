@@ -59,7 +59,7 @@ class _PublicationMeta(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.values=[]
     def handle_starttag(self,tag,attrs):
-        a=dict(attrs)
+        a={key:value or "" for key,value in attrs}
         key=(a.get("property") or a.get("name") or a.get("itemprop") or "").casefold()
         if tag=="meta" and key in ("article:published_time","datepublished","pubdate","publication_date","dc.date.issued","parsely-pub-date"):
             self.values.append(a.get("content",""))
@@ -70,8 +70,11 @@ def article_publication_date(markup):
     if not isinstance(markup,str) or not 1<=len(markup)<=1600000:
         return None
     p=_PublicationMeta()
-    p.feed(markup)
-    p.close()
+    try:
+        p.feed(markup)
+        p.close()
+    except (ValueError,TypeError,AttributeError,AssertionError,RecursionError):
+        return None
     dates=[]
     for value in p.values[:12]:
         try:

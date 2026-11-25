@@ -67,13 +67,15 @@ class MainText(HTMLParser):
                 self.infobox.append(data)
 
     def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
+        attributes = {key:value or "" for key,value in attrs}
         if (tag == "table" and self._infobox_depth is None and
                 re.search(r"(?i)\binfobox\b", str(attributes.get("class") or "") +
                           " " + str(attributes.get("id") or ""))):
             self._infobox_depth = len(self.stack) + 1
         hidden = (tag in _ignored or "hidden" in attributes or
                   attributes.get("aria-hidden") == "true" or
+                  any(flag in attributes.get("style","").replace(" ","").casefold()
+                      for flag in ("display:none","visibility:hidden")) or
                   attributes.get("role") in {"navigation", "banner", "contentinfo"})
         if tag in _blocks:
             self._add("\n")
@@ -498,7 +500,8 @@ def fetch_and_extract(url, query="", *, include_markup=False):
             if include_markup:
                 result["markup"] = markup
             return result if text.strip() or include_markup else None
-        except (OSError, ValueError, LookupError, http.client.HTTPException, zlib.error):
+        except (OSError, ValueError, LookupError, http.client.HTTPException, zlib.error,
+                AttributeError, AssertionError, RecursionError, TypeError):
             return None
         finally:
             if connection is not None:

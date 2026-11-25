@@ -115,6 +115,7 @@ def search_live_sources(search, query, *, reader=None):
         if news:
             hits = [h for h in hits if isinstance(h, dict) and direct_news_url(h.get("url")) and recent_publication(h.get("published_at"))]
         dates = {h.get("url"): h.get("published_at") for h in hits if isinstance(h, dict)} if news else {}
+        date_origins={h.get("url"):h.get("date_origin","feed") for h in hits} if news else {}
         # A page is counted only AFTER actual-body relevance and provenance.
         # Failed, duplicate or off-topic pages do not consume the three slots.
         resolved = [h for h in hits if news and h.get("page_read") is True
@@ -145,6 +146,8 @@ def search_live_sources(search, query, *, reader=None):
                      "page_read":True,"page_text":excerpt}
                 if news:
                     row["published_at"]=date
+                    if date_origins.get(page.get("discovered_url",url))=="publisher_metadata":
+                        row["date_origin"]="publisher_metadata"
                     if full:
                         row["article_chars"]=page["article_chars"]
                         row["article_truncated"]=bool(page.get("article_truncated"))
@@ -178,7 +181,7 @@ def search_live_sources(search, query, *, reader=None):
         for index, row in enumerate(rows, 1):
             chunks.append(
                 f"[Webquelle {index}] {row['title']} | {row['url']}" +
-                (" | Feed-Veröffentlichung: " + row["published_at"] if news else "") + "\n" + row["page_text"]
+                ((" | Artikel-Veröffentlichung: " if row.get("date_origin")=="publisher_metadata" else " | Feed-Veröffentlichung: ") + row["published_at"] if news else "") + "\n" + row["page_text"]
             )
         chunks.append("ENDE DER WEBQUELLEN.")
         update = getattr(search, "record_read_status", None)

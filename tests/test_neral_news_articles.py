@@ -72,5 +72,24 @@ class PublicPublisherTests(unittest.TestCase):
         self.assertEqual(len(out),1)
         self.assertEqual(out[0]["url"],URL)
 
+    def test_valueless_html_attributes_do_not_crash_reader(self):
+        article=f'<html><head><link rel type href><meta property="og:title" content></head><article style><h1>{HEAD}</h1><p>{BODY*3}</p><p style>{BODY*2}</p><div style="visibility:hidden"><p>Hidden text must not count as public article evidence.</p></div></article></html>'
+        out=article_text(article)
+        self.assertIsNotNone(out)
+        self.assertIn(HEAD,out["title"])
+        self.assertNotIn("Hidden text",out["text"])
+
+    def test_broken_publisher_worker_cannot_abort_later_free_article(self):
+        from neral_news_articles import discover_publisher_articles
+        hits=[{**HIT,"url":HIT["url"]+str(i)} for i in range(6)]
+        def resolver(hit,query):
+            if hit is hits[0]:
+                raise AttributeError("malformed provider attribute")
+            if hit is hits[5]:
+                return {**hit,"url":URL,"page_read":True,"article_chars":500}
+            return None
+        out=discover_publisher_articles(hits,"Aktuelle Nachrichten Flughafen BER",resolver=resolver)
+        self.assertEqual([row["url"] for row in out],[URL])
+
 if __name__=="__main__":
     unittest.main()

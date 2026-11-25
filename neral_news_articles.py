@@ -41,9 +41,10 @@ class _VisibleHTML(HTMLParser):
         self.paywall=False
 
     def handle_starttag(self,tag,attrs):
-        a=dict(attrs)
+        a={key:value or "" for key,value in attrs}
         hidden=(tag in _HIDDEN or "hidden" in a or a.get("aria-hidden")=="true"
                 or "display:none" in a.get("style","").replace(" ","").casefold()
+                or "visibility:hidden" in a.get("style","").replace(" ","").casefold()
                 or a.get("role") in {"navigation","banner","contentinfo"})
         article=(tag in {"article","main"} or a.get("itemprop")=="articleBody"
                  or a.get("role")=="main")
@@ -105,8 +106,11 @@ def _parse(markup):
     if not isinstance(markup,str) or not 1<=len(markup)<=1600000:
         return None
     p=_VisibleHTML()
-    p.feed(markup)
-    p.close()
+    try:
+        p.feed(markup)
+        p.close()
+    except (ValueError,TypeError,AttributeError,AssertionError,RecursionError):
+        return None
     return p
 
 def publisher_links(markup,home,title):
@@ -289,7 +293,9 @@ def discover_publisher_articles(hits,query,*,resolver=find_publisher_article):
                     continue
                 try:
                     row=future.result()
-                except (OSError,ValueError,TypeError,RuntimeError):
+                except Exception:
+                    # Fault isolation for untrusted remote pages: one broken
+                    # publisher must not abort the other independent reads.
                     continue
                 if isinstance(row,dict) and row.get("url") not in seen:
                     seen.add(row["url"])
