@@ -33,9 +33,16 @@ Das Skript **ruft kein Modell auf** und kann keinen Test selbst starten. Es ben�
 
 **Primärziel:** NERAL C schlägt Pure Qwen3.5 A auf bisher unbekannten Aufgaben um mindestens +10 Prozentpunkte, gepaarter p≤0,05, ohne kritische Regressionen; zusätzlich klarer C-vs-B-Mehrwert. Median und p95 separat optimieren, nicht nur Accuracy/Sekunde. Auch bei einem erfolgreichen Entwicklungs-Pilot bleiben alle Freigabe-Flags im Scorer **false**. Kein automatisches Training, kein Modellwechsel, kein Release-Override.
 
-**Offen:** echter Windows-GPU-Sammler, Router-Feature-Gate, unabhängige Code-/Tool-Oracles, VRAM-/Cancel-Tests, erlaubter GPU-Slot und finale Freigabe.
+**Offen:** echte autorisierte Windows-GPU-Messung, Router-Feature-Gate, unabhängige Code-/Tool-Oracles, VRAM-/Cancel-Tests, erlaubter GPU-Slot und finale Freigabe.
+
 ## Ziel für Anfang Dezember
 
 Zielwert: **+20 % relative Genauigkeit je vorab festgelegter Domäne** gegenüber dem unveränderten Qwen3.5-Vergleichsarm. Das ist eine Zielmarke, kein Ergebnis. Die Auswertung nennt je Domäne die Zahl der Aufgaben, korrekte Antworten je Arm, Prozentpunkte und relativen Gewinn. 10/12 gegenüber 12/12 sind beispielsweise +16,7 Prozentpunkte und +20 % relativ. Bei null korrekten Basisantworten ist der relative Wert undefiniert; oberhalb von 83⅓ % Basisgenauigkeit sind +20 % auf dieser Skala unmöglich. Der rohe Vergleich bleibt sichtbar. Punktziele allein sind kein Überlegenheitsnachweis.
 
 Für V4.3 werden Amber gegen das unveränderte lokale Qwen3.5-4B und Quartz/Obsidian gegen das unveränderte Qwen3.5-9B verglichen. Das vorliegende Dreiarm-Skript umfasst **nur** seinen bestehenden lokalen Qwen3.5:9B-Diagnosepfad. Für jeden weiteren Vergleich vorab Modellrevision beziehungsweise Modell-Digest, Quantisierung, Engine, identische Eingaben, Decoding-Parameter und Budgets einfrieren. Werkzeuge und zusätzliche Rechenschritte getrennt ausweisen; V4.3-Web-Smokes sind keine Offline-Modellbenchmarks. Laufzeit und Spitzen-VRAM separat dokumentieren (Grenze: 10,5 GiB). Neue private Entwicklungsaufgaben und unabhängige Testdaten getrennt halten; vorhandene versiegelte Daten unverändert lassen. Generischer Code und Werkzeuge benötigen weiterhin unabhängige Grader jenseits des Integer-Scorers.
+
+### Gepaarte Domänenevidenz
+
+Der Offline-Scorer lehnt identische Aufgabenprompts unter unterschiedlichen IDs ab (auch bei wechselnden LF/CRLF-Zeilenenden); der Abgleich der tatsächlich verwendeten Eingaben bleibt bytegenau. Das erkennt keine semantischen Dubletten und ersetzt keine unabhängige Prüfung der Aufgabenherkunft.
+
+`paired_domain_vs_raw_qwen35` gibt je Kandidat und Domäne Siege, Niederlagen und Gleichstände gegen das Basismodell aus. Ein Sieg heißt: NERAL korrekt, die Basis falsch; eine Niederlage ist der umgekehrte Fall. Der zweiseitige exakte McNemar-Test nutzt nur diese unterschiedlichen Paare. Holm korrigiert eine vorab feste Familie aus beiden Kandidaten × allen vorgesehenen Domänen (6 beim 36er-Pilot; 8 beim 120er-Format). Eine positive Richtung bei korrigiertem α = 0,05 ist getrennt vom +20-%-Punktziel zu lesen: Das eine ersetzt das andere nicht. Beide Maße beschreiben die ausgewerteten Aufgaben; ohne unabhängige, vorab festgelegte Testaufgaben und belastbaren Sammler sind sie kein Release-, Modell- oder Generalisierungsnachweis.

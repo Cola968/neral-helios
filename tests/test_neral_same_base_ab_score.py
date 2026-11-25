@@ -4,6 +4,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 from scripts.neral_same_base_ab_score import SameBaseError, score_private_pairs, _correct
 
@@ -74,6 +78,62 @@ class SameBaseScoring(unittest.TestCase):
         self.assertNotIn("PRIVATE_CASE_TEXT", output)
         self.assertNotIn("FINAL_ANSWER", output)
         self.assertNotIn("case-00", output)
+
+    def test_same_prompt_cannot_be_counted_twice_under_distinct_ids(self):
+        data = make_data()
+        original = data["cases"][0]["prompt"] + "\nFINAL:"
+        duplicate = original.replace("\n", "\r\n")
+        for i, prompt in enumerate((original, duplicate)):
+            data["cases"][i]["prompt"] = prompt
+            for observation in data["observations"][i]["arms"].values():
+                observation["prompt_sha256"] = hashlib.sha256(prompt.encode()).hexdigest()
+        with self.assertRaisesRegex(SameBaseError, "Duplicate private prompt"):
+            score_private_pairs(data)
+
+    def test_paired_domain_report_corrects_the_complete_comparison_family(self):
+        result = score_private_pairs(make_data())["paired_domain_vs_raw_qwen35"]
+        self.assertEqual(result["hypothesis_count"], 6)
+        self.assertEqual(result["correction"], "holm")
+        router = result["candidates"]["neral_high_router"]
+        self.assertEqual((router["math"]["wins"], router["math"]["losses"]), (0, 0))
+        self.assertEqual(router["math"]["exact_mcnemar_p"], 1.0)
+        self.assertEqual(router["reasoning"]["wins"], 12)
+        self.assertEqual(router["reasoning"]["exact_mcnemar_p"], 0.000488281)
+        self.assertEqual(router["reasoning"]["holm_adjusted_p"], 0.002929688)
+        self.assertTrue(router["reasoning"]["positive_at_adjusted_alpha"])
+        self.assertEqual(router["code_trace"]["wins"], 6)
+        self.assertEqual(router["code_trace"]["exact_mcnemar_p"], 0.03125)
+        self.assertEqual(router["code_trace"]["holm_adjusted_p"], 0.125)
+        self.assertFalse(router["code_trace"]["positive_at_adjusted_alpha"])
+
+    def test_adjusted_result_does_not_hide_negative_direction(self):
+        data = make_data()
+        for i in range(12):
+            data["observations"][i]["arms"]["neral_high_router"]["text"] = "FINAL: 10000"
+        math_row = score_private_pairs(data)["paired_domain_vs_raw_qwen35"]["candidates"]["neral_high_router"]["math"]
+        self.assertEqual((math_row["wins"], math_row["losses"]), (0, 12))
+        self.assertLess(math_row["holm_adjusted_p"], 0.05)
+        self.assertFalse(math_row["positive_at_adjusted_alpha"])
+
+    def test_scorer_cli_emits_only_aggregate_domain_evidence(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            private = Path(tmp) / "private.json"
+            aggregate = Path(tmp) / "aggregate.json"
+            private.write_text(json.dumps(make_data()), encoding="utf8")
+            proc = subprocess.run(
+                [sys.executable, "-B", "-m", "scripts.neral_same_base_ab_score",
+                 "--private-input", str(private), "--aggregate-output", str(aggregate)],
+                cwd=root, text=True, capture_output=True, check=True, timeout=15,
+            )
+            summary = json.loads(proc.stdout)
+            self.assertFalse(summary["independent_holdout_verified"])
+            emitted = aggregate.read_text(encoding="utf8")
+            result = json.loads(emitted)
+            self.assertEqual(result["paired_domain_vs_raw_qwen35"]["hypothesis_count"], 6)
+            for token in ("PRIVATE_CASE_TEXT", "FINAL_ANSWER", "case-00"):
+                self.assertNotIn(token, emitted)
+                self.assertNotIn(token, proc.stdout)
 
     def test_identical_question_digest_required(self):
         data = make_data()

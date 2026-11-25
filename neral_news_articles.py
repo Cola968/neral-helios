@@ -9,6 +9,13 @@ from neral_web_search import safe_result_url, direct_news_url, airport_text_matc
 _STOP = frozenset("der die das den dem des ein eine und oder im in am zu zum zur auf mit für von als ist sind es an bei nach vor über aus -".split())
 _HIDDEN = {"script","style","nav","footer","aside","form","button","noscript","iframe","svg","template","head"}
 _VOID = {"area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr"}
+# HTML permits </p> to be omitted before these block starts.
+_P_END_STARTS = frozenset(
+    ("address", "article", "aside", "blockquote", "details", "div", "dl",
+     "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3",
+     "h4", "h5", "h6", "header", "hgroup", "hr", "main", "menu", "nav",
+     "ol", "p", "pre", "search", "section", "table", "ul")
+)
 _BLOCKED = re.compile(r"(?i)\b(?:nur für abonnenten|jetzt abonnieren um|weiterlesen mit abonnement|subscribe to continue|sign in to continue|access denied|verify you are human)\b")
 
 def _words(text):
@@ -40,7 +47,23 @@ class _VisibleHTML(HTMLParser):
         self.meta_title=""
         self.paywall=False
 
+    def _finish_paragraph(self):
+        if self.paragraph is None:
+            return
+        parts, main = self.paragraph
+        self.paragraph = None
+        p = " ".join(" ".join(parts).split())
+        if len(p) >= 45:
+            self.paragraphs.append(p)
+            if main:
+                self.main_paragraphs.append(p)
+
     def handle_starttag(self,tag,attrs):
+        # Recover ordinary optional HTML closes, but never pop an unclosed
+        # inline wrapper (which may still hide its descendants).
+        if tag in _P_END_STARTS and self.stack and self.stack[-1][0] == "p":
+            self._finish_paragraph()
+            self.stack.pop()
         a={key:value or "" for key,value in attrs}
         hidden=(tag in _HIDDEN or "hidden" in a or a.get("aria-hidden")=="true"
                 or "display:none" in a.get("style","").replace(" ","").casefold()
@@ -90,16 +113,12 @@ class _VisibleHTML(HTMLParser):
             if len(self.links)<2000:
                 self.links.append((url," ".join(" ".join(parts).split())[:600]))
             self.anchor=None
-        if tag=="p" and self.paragraph is not None:
-            parts,main=self.paragraph
-            p=" ".join(" ".join(parts).split())
-            if len(p)>=45:
-                self.paragraphs.append(p)
-                if main:
-                    self.main_paragraphs.append(p)
-            self.paragraph=None
+        if tag == "p":
+            self._finish_paragraph()
         for i in range(len(self.stack)-1,-1,-1):
             if self.stack[i][0]==tag:
+                if self.stack[-1][0] == "p":
+                    self._finish_paragraph()
                 del self.stack[i:]
                 break
 

@@ -82,6 +82,34 @@ class FreshNewsEvidence(unittest.TestCase):
                     self.assertEqual(out["sources"][0]["date_origin"], "publisher_metadata")
                     self.assertGreaterEqual(out["sources"][0]["article_chars"], 240)
 
+    def test_default_reader_accepts_html_with_omitted_paragraph_end_tags(self):
+        query = "Latest news about coral reefs"
+        url = "https://publisher.example.com/science/coral-reefs"
+        title = "Coral reefs survey results"
+        first = ("Researchers monitoring coral reefs published a new set of observations. "
+                 "Their field teams surveyed several reef habitats and recorded changes in local conditions.")
+        second = ("The coral reefs survey describes which sites were monitored and how the results were verified. "
+                  "The research team published a table of observations alongside the article.")
+        candidate = {"url": url, "title": title, "published_at": DATE}
+        search = Mock()
+        search.search.return_value = {"provider": "fixture", "results": [candidate]}
+        for article, status in (
+            (f"<article><h1>{title}</h1><p>{first}<p>{second}</article>", "ok"),
+            (f"<article><h1>{title}</h1><p>{first}<p hidden>{second}</article>", "empty"),
+            (f"<article><h1>{title}</h1><p>{first}<p>{second} Subscribe to continue.</article>", "empty"),
+        ):
+            with self.subTest(status=status, article=article), patch("neral_page_reader.fetch_and_extract",
+                    return_value={"url": url, "markup": article}) as fetch:
+                out = search_live_sources(search, query)
+                self.assertEqual(out["status"], status)
+                fetch.assert_called_once_with(url, query, include_markup=True)
+                if status == "ok":
+                    self.assertIn(first + "\n\n" + second, out["context"])
+                    self.assertEqual(out["sources"][0]["article_chars"], len(first) + 2 + len(second))
+                else:
+                    self.assertEqual(out["context"], "")
+                    self.assertEqual(out["sources"], [])
+
     def test_stale_or_missing_date_never_counts_as_news(self):
         for stamp in (None,(NOW-timedelta(days=40)).isoformat()):
             with self.subTest(stamp=stamp):

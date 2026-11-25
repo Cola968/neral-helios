@@ -42,8 +42,8 @@ class VerifiedStartTests(unittest.TestCase):
         url = "https://ber.berlin-airport.de/de.html"
         hit = {"url": url, "title": "BER Test", "published_at":datetime.now(timezone.utc).isoformat()}
         article = ("<article><h1>BER Test</h1>"
-                   "<p>Der BER veröffentlicht eine Testmeldung zur aktuellen Entwicklung am Flughafen und beschreibt dabei die geplanten Änderungen für Fluggäste in Berlin und Brandenburg.</p>"
-                   "<p>Der Flughafen berichtet über den Stand des Vorhabens und erklärt, wie Reisende sich bei ihrer Fluggesellschaft über ihre aktuellen Abflugzeiten informieren können.</p>"
+                   "<p>Der BER veröffentlicht eine Testmeldung zur aktuellen Entwicklung am Flughafen und beschreibt dabei die geplanten Änderungen für Fluggäste in Berlin und Brandenburg."
+                   "<p>Der Flughafen berichtet über den Stand des Vorhabens und erklärt, wie Reisende sich bei ihrer Fluggesellschaft über ihre aktuellen Abflugzeiten informieren können."
                    "</article>")
         page = {"url": url, "markup": article}
         with patch("neral_web_search.WebSearch.search", return_value={"provider":"fixture","results":[hit]}) as search:

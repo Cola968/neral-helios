@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from collections import Counter
+from collections import Counter, defaultdict
 import re
 import statistics
 
@@ -77,6 +77,37 @@ def _relative_target(baseline: int, candidate: int, count: int) -> dict:
     }
 
 
+def _paired_domain_evidence(successes: dict[str, set[str]],
+                            cases_by_domain: dict[str, set[str]]) -> dict:
+    """Control one predeclared family: two candidates vs. raw across all domains."""
+    alpha = 0.05
+    baseline = successes["raw_qwen35"]
+    hypotheses = []
+    candidates = {}
+    for arm in ARMS[1:]:
+        rows = candidates[arm] = {}
+        wins = successes[arm] - baseline
+        losses = baseline - successes[arm]
+        for domain, ids in sorted(cases_by_domain.items()):
+            n_wins = len(wins & ids)
+            n_losses = len(losses & ids)
+            row = rows[domain] = {
+                "count": len(ids),
+                "wins": n_wins,
+                "losses": n_losses,
+                "ties": len(ids) - n_wins - n_losses,
+            }
+            hypotheses.append((_mcnemar(n_wins, n_losses), row))
+    # Holm step-down adjusted p-values use the full family, including ties.
+    adjusted = 0.0
+    for i, (p_value, row) in enumerate(sorted(hypotheses, key=lambda entry: entry[0])):
+        adjusted = max(adjusted, min(1.0, (len(hypotheses) - i) * p_value))
+        row.update(exact_mcnemar_p=round(p_value, 9), holm_adjusted_p=round(adjusted, 9),
+                   positive_at_adjusted_alpha=row["wins"] > row["losses"] and adjusted <= alpha)
+    return {"correction": "holm", "alpha": alpha, "hypothesis_count": len(hypotheses),
+            "candidates": candidates}
+
+
 def score_private_pairs(private: dict) -> dict:
     """Return aggregate-only, 36-case pilot or 120-case development results.
 
@@ -94,7 +125,10 @@ def score_private_pairs(private: dict) -> dict:
     if (type(cases) is not list or len(cases) not in (36, 120)
             or type(observations) is not list or len(observations) != len(cases)):
         raise SameBaseError("Only complete 36-case pilot or 120-case gate supported")
-    case_by_id, domains, families = {}, set(), set()
+    case_by_id, families = {}, set()
+    exact_prompt_hashes = {}
+    seen_prompts = set()
+    cases_by_domain = defaultdict(set)
     for case in cases:
         if (type(case) is not dict or set(case) != {"id", "domain", "family", "prompt", "answer"}
                 or type(case["id"]) is not str or CASE_ID.fullmatch(case["id"]) is None
@@ -104,9 +138,18 @@ def score_private_pairs(private: dict) -> dict:
                 or type(case["family"]) is not str or not 1 <= len(case["family"]) <= 80
                 or type(case["answer"]) is not int):
             raise SameBaseError("Malformed or duplicate private case")
+        # Compare duplicates across IDs and domains. Only normalise platform
+        # line endings; preserve indentation, case and exact bytes for pairing.
+        prompt = case["prompt"]
+        canonical = prompt.replace("\r\n", "\n").replace("\r", "\n")
+        if canonical in seen_prompts:
+            raise SameBaseError("Duplicate private prompt")
+        seen_prompts.add(canonical)
+        exact_prompt_hashes[case["id"]] = hashlib.sha256(prompt.encode("utf8")).hexdigest()
         case_by_id[case["id"]] = case
-        domains.add(case["domain"])
+        cases_by_domain[case["domain"]].add(case["id"])
         families.add((case["domain"], case["family"]))
+    domains = sorted(cases_by_domain)
     distribution = Counter(c["domain"] for c in cases)
     expected_distribution = ({"math": 12, "reasoning": 12, "code_trace": 12}
                              if len(cases) == 36 else
@@ -125,7 +168,7 @@ def score_private_pairs(private: dict) -> dict:
             raise SameBaseError("Unpaired or duplicate model observations")
         seen.add(row["id"])
         case = case_by_id[row["id"]]
-        digest = hashlib.sha256(case["prompt"].encode("utf8")).hexdigest()
+        digest = exact_prompt_hashes[row["id"]]
         for arm in ARMS:
             obs = row["arms"][arm]
             if (type(obs) is not dict or set(obs) != {"text", "complete", "http_error", "seconds", "tool_used", "model", "model_digest", "profile", "prompt_sha256"}
@@ -173,10 +216,11 @@ def score_private_pairs(private: dict) -> dict:
         for arm in ARMS if arm != "raw_qwen35"
     }
     return {
-        "schema": 1, "status": SCHEMA, "cases": n, "domains": sorted(domains),
+        "schema": 1, "status": SCHEMA, "cases": n, "domains": domains,
         "family_count": len(families), "model": MODEL, "model_digest": meta["model_digest"],
         "profile": PROFILE, "token_budget": 2048, "arms": scores, "paired": paired,
         "relative_accuracy_target_percent": 20, "qwen35_relative_target": target,
+        "paired_domain_vs_raw_qwen35": _paired_domain_evidence(successes, cases_by_domain),
         "private_prompts_or_answers_uploaded": False,
         "independent_holdout_verified": False,
         "release_validated": False, "router_superiority_proven": False,
