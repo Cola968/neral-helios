@@ -60,6 +60,37 @@ class GenericDiscoveryTests(unittest.TestCase):
         self.assertEqual(result["published_at"], fresh)
         self.assertEqual(result["date_origin"], "publisher_metadata")
 
+    def test_relative_feed_and_article_links_use_actual_document_urls(self):
+        index = HOME + "public/news/"
+        feed = index + "feeds/updates.xml"
+        article = index + "stories/mission-report"
+        pages = {
+            HOME: {"url": index, "markup": '<link rel="alternate" type="application/rss+xml; charset=utf-8" href="feeds/updates.xml">'},
+            feed: {"url": feed, "markup": f"<rss><channel><item><title>{TITLE}</title><link>../stories/mission-report</link></item></channel></rss>"},
+            article: {"url": article, "markup": ARTICLE},
+        }
+        result = find_publisher_article(HIT, "Aktuelle Nachrichten zur NASA", fetch=pages.get)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["url"], article)
+        self.assertTrue(result["page_read"])
+
+    def test_relative_feed_discovery_rejects_off_publisher_document_redirect(self):
+        feed = HOME + "feed.xml"
+        attempted = []
+        def fetch(url):
+            attempted.append(url)
+            if url == HOME:
+                return {"url": HOME, "markup": '<link rel="alternate" type="application/rss+xml" href="feed.xml">'}
+            if url == feed:
+                return {"url": "https://other.example.com/feed.xml", "markup": (
+                        f"<rss><channel><item><title>{TITLE}</title>"
+                        f"<link>{URL}</link></item></channel></rss>")}
+            if url == URL:
+                return {"url": URL, "markup": ARTICLE}
+            return None
+        self.assertIsNone(find_publisher_article(HIT, "Aktuelle Nachrichten zur NASA", fetch=fetch))
+        self.assertNotIn(URL, attempted)
+
     def test_no_fabricated_article_when_sitemap_link_wrong(self):
         def fetch(url):
             if url==HOME:

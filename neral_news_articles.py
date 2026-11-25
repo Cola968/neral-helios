@@ -50,7 +50,8 @@ class _VisibleHTML(HTMLParser):
                  or a.get("role")=="main")
         if tag=="link":
             rel=a.get("rel","").casefold().split()
-            if "alternate" in rel and a.get("type","").casefold() in ("application/rss+xml","application/atom+xml"):
+            media_type = a.get("type", "").split(";", 1)[0].strip().casefold()
+            if "alternate" in rel and media_type in ("application/rss+xml","application/atom+xml"):
                 if a.get("href") and len(self.documents)<4:
                     self.documents.append(a["href"])
         if tag=="meta":
@@ -180,11 +181,12 @@ def publisher_document_links(markup,home,title):
     return rows
 
 def _document_candidates(home,index):
-    p=_parse((index or {}).get("markup","")) if isinstance(index,dict) else None
+    base = safe_result_url(index.get("url", "")) if isinstance(index, dict) else None
+    p = _parse(index.get("markup", "")) if base and _host(base) == _host(home) else None
     urls=[]
     if p:
         for href in p.documents:
-            url=_same_public_link(home,href)
+            url=_same_public_link(base,href)
             if url and url not in urls:
                 urls.append(url)
     url=_same_public_link(home,"/sitemap.xml")
@@ -280,15 +282,17 @@ def find_publisher_article(hit,query,*,fetch=None):
     if isinstance(index,dict) and _host(index.get("url",""))==_host(home):
         for document_url in _document_candidates(home,index):
             doc=fetch(document_url)
-            if not isinstance(doc,dict) or _host(doc.get("url",""))!=_host(home):
+            final_document = safe_result_url(doc.get("url", "")) if isinstance(doc, dict) else None
+            if not final_document or _host(final_document) != _host(home):
                 continue
             markup=doc.get("markup","")
-            candidates=publisher_document_links(markup,home,hit["title"])
+            candidates=publisher_document_links(markup,final_document,hit["title"])
             if not candidates:
-                for nested in _nested_news_maps(markup,home):
+                for nested in _nested_news_maps(markup,final_document):
                     sub=fetch(nested)
-                    if isinstance(sub,dict) and _host(sub.get("url",""))==_host(home):
-                        candidates.extend(publisher_document_links(sub.get("markup",""),home,hit["title"]))
+                    final_nested = safe_result_url(sub.get("url", "")) if isinstance(sub, dict) else None
+                    if final_nested and _host(final_nested) == _host(home):
+                        candidates.extend(publisher_document_links(sub.get("markup",""),final_nested,hit["title"]))
                     if candidates:
                         break
             for url in list(dict.fromkeys(candidates))[:2]:
