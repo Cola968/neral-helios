@@ -1,4 +1,4 @@
-name: NERAL V4.3 verified launcher CPU test and staging
+name: NERAL V4.3 actual public provider and source read probe
 on:
   workflow_dispatch:
 permissions:
@@ -7,50 +7,42 @@ concurrency:
   group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  stage:
+  probe:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: v43-launcher-${{ github.run_id }}
-          persist-credentials: false
-      - name: CPU regression tests and copy only two new user-launchable files
+      - name: Read current service status and exercise public provider without GPU
         run: |
           $ErrorActionPreference='Stop'
           $root='C:\NERAL-V43-Websearch'
-          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-launcher-'+$env:GITHUB_RUN_ID)
           $py='D:\neral-qlora\venv\Scripts\python.exe'
-          $deps=Join-Path $root 'local_state/three-tier-web-deps'
-          if(-not (Test-Path -LiteralPath (Join-Path $deps 'waitress/__init__.py'))){throw 'Missing isolated waitress'}
-          if((& git -C $root rev-parse HEAD).Trim() -ne '1e86f52f73c2521d7591ac3d8d79c5dd78041508'){throw 'Unexpected local source head'}
-          foreach($file in @('neral_preview_server.py','neral_three_tier_runtime.py','neral_v43_live_web.py','neral_web_search.py')){
-            $actual=(& git -C $root hash-object -- $file).Trim()
-            $expected=(& git -C $src rev-parse ('HEAD:'+$file)).Trim()
-            if($actual -ne $expected){throw 'Local source differs from tested version'}
-          }
-          $env:PYTHONPATH=$src+';'+$deps
-          $env:HF_HUB_OFFLINE='1'
-          $env:TRANSFORMERS_OFFLINE='1'
-          $env:HF_DATASETS_OFFLINE='1'
-          $env:PYTHONDONTWRITEBYTECODE='1'
-          Push-Location -LiteralPath $src
+          $base='http://127.0.0.1:9690'
           try{
-            & $py -B -m unittest discover -s tests -p test_neral_v43_verified_start.py -v
-            if($LASTEXITCODE -ne 0){throw 'Launcher CPU regression failed; no files copied'}
+            $h=Invoke-RestMethod ($base+'/health') -TimeoutSec 5
+            Write-Host ('HEALTH '+($h|ConvertTo-Json -Depth 5 -Compress))
+            $s=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            Invoke-WebRequest ($base+'/') -UseBasicParsing -WebSession $s -TimeoutSec 5 | Out-Null
+            $status=Invoke-RestMethod ($base+'/api/neral/chat/three-tier/status') -WebSession $s -TimeoutSec 5
+            Write-Host ('PROFILE '+(@{v43=$status.v43_profile;web=$status.web_search}|ConvertTo-Json -Depth 6 -Compress))
+          }catch{Write-Host 'SERVICE_STATUS_UNAVAILABLE'}
+          Push-Location -LiteralPath $root
+          try{
+            $env:PYTHONPATH=$root
+            $env:PYTHONDONTWRITEBYTECODE='1'
+            $code=@'
+          import json, time
+          from neral_web_search import WebSearch
+          from neral_v43_live_web import route_live_query, search_live_sources
+          for q in ("Welche aktuellen Nachrichten gibt es zum Flughafen BER?", "In welchem Jahr landete Apollo 11 auf dem Mond?"):
+              search=WebSearch()
+              start=time.monotonic()
+              routed=route_live_query(q)
+              result=search_live_sources(search,routed)
+              print("PUBLIC_PROBE "+json.dumps({"query":q,"routed":bool(routed),"status":result["status"],"error":result["error"],"provider":result["provider"],"sources":result["sources"],"seconds":round(time.monotonic()-start,3)},ensure_ascii=True),flush=True)
+          '@
+            $code | & $py -B -
+            if($LASTEXITCODE -ne 0){throw 'Public provider probe crashed'}
           }finally{Pop-Location}
-          foreach($file in @('neral_v43_verified_start.py','Start NERAL V4.3 Web.cmd')){
-            $from=Join-Path $src $file
-            $to=Join-Path $root $file
-            if(Test-Path -LiteralPath $to){
-              if((Get-FileHash -LiteralPath $from).Hash -ne (Get-FileHash -LiteralPath $to).Hash){throw 'Existing destination differs; not overwritten'}
-            }else{
-              Copy-Item -LiteralPath $from -Destination $to -ErrorAction Stop
-            }
-            if((Get-FileHash -LiteralPath $from).Hash -ne (Get-FileHash -LiteralPath $to).Hash){throw 'Staged file integrity failure'}
-            Write-Host ('STAGED '+$file)
-          }
-          Write-Host 'NERAL_V43_LAUNCHER_READY_NO_PROCESS_CHANGES'
