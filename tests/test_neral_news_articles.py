@@ -46,5 +46,26 @@ class PublicPublisherTests(unittest.TestCase):
         fetch=Mock(side_effect=[{"url":HOME,"markup":index},{"url":"https://other.example.com/news","markup":article}])
         self.assertIsNone(find_publisher_article(HIT,"Aktuelle Nachrichten Flughafen BER",fetch=fetch))
 
+    def test_ordinary_aggregator_http_redirect_to_publisher(self):
+        article=f'<article><h1>{HEAD}</h1><p>{BODY*3}</p><p>{BODY*2}</p></article>'
+        def fetch(url):
+            if url==HIT["url"]:
+                return {"url":URL,"markup":article}
+            return None
+        result=find_publisher_article(HIT,"Aktuelle Nachrichten Flughafen BER",fetch=fetch)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["url"],URL)
+
+    def test_multi_source_fallback_after_first_four_fail(self):
+        from neral_news_articles import discover_publisher_articles
+        hits=[{**HIT,"url":HIT["url"]+str(i)} for i in range(6)]
+        def resolver(hit,query):
+            if hit is hits[5]:
+                return {**hit,"url":URL,"page_read":True,"article_chars":500}
+            return None
+        out=discover_publisher_articles(hits,"Aktuelle Nachrichten Flughafen BER",resolver=resolver)
+        self.assertEqual(len(out),1)
+        self.assertEqual(out[0]["url"],URL)
+
 if __name__=="__main__":
     unittest.main()
