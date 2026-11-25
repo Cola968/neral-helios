@@ -1,4 +1,4 @@
-name: NERAL V4.3 actual public provider and source read probe
+name: NERAL airport relevance regression on owner PC
 on:
   workflow_dispatch:
 permissions:
@@ -7,42 +7,25 @@ concurrency:
   group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  probe:
+  regression:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Read current service status and exercise public provider without GPU
+      - uses: actions/checkout@v4
+        with:
+          path: v43-relevance-${{ github.run_id }}
+          persist-credentials: false
+      - name: Run focused CPU tests
         run: |
           $ErrorActionPreference='Stop'
-          $root='C:\NERAL-V43-Websearch'
-          $py='D:\neral-qlora\venv\Scripts\python.exe'
-          $base='http://127.0.0.1:9690'
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-relevance-'+$env:GITHUB_RUN_ID)
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:PYTHONPATH=$src
+          Push-Location -LiteralPath $src
           try{
-            $h=Invoke-RestMethod ($base+'/health') -TimeoutSec 5
-            Write-Host ('HEALTH '+($h|ConvertTo-Json -Depth 5 -Compress))
-            $s=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-            Invoke-WebRequest ($base+'/') -UseBasicParsing -WebSession $s -TimeoutSec 5 | Out-Null
-            $status=Invoke-RestMethod ($base+'/api/neral/chat/three-tier/status') -WebSession $s -TimeoutSec 5
-            Write-Host ('PROFILE '+(@{v43=$status.v43_profile;web=$status.web_search}|ConvertTo-Json -Depth 6 -Compress))
-          }catch{Write-Host 'SERVICE_STATUS_UNAVAILABLE'}
-          Push-Location -LiteralPath $root
-          try{
-            $env:PYTHONPATH=$root
-            $env:PYTHONDONTWRITEBYTECODE='1'
-            $code=@'
-          import json, time
-          from neral_web_search import WebSearch
-          from neral_v43_live_web import route_live_query, search_live_sources
-          for q in ("Welche aktuellen Nachrichten gibt es zum Flughafen BER?", "In welchem Jahr landete Apollo 11 auf dem Mond?"):
-              search=WebSearch()
-              start=time.monotonic()
-              routed=route_live_query(q)
-              result=search_live_sources(search,routed)
-              print("PUBLIC_PROBE "+json.dumps({"query":q,"routed":bool(routed),"status":result["status"],"error":result["error"],"provider":result["provider"],"sources":result["sources"],"seconds":round(time.monotonic()-start,3)},ensure_ascii=True),flush=True)
-          '@
-            $code | & $py -B -
-            if($LASTEXITCODE -ne 0){throw 'Public provider probe crashed'}
+            & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_airport_relevance.py -v
+            if($LASTEXITCODE -ne 0){throw 'Airport relevance regression failed'}
           }finally{Pop-Location}
