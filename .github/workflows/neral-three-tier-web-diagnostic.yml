@@ -26,6 +26,8 @@ jobs:
           $env:PYTHONPATH=$src
           Push-Location -LiteralPath $src
           try{
+            & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_official_news.py -v
+            if($LASTEXITCODE -ne 0){throw 'Official index regression failed'}
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_fresh_news_evidence.py -v
             if($LASTEXITCODE -ne 0){throw 'Fresh news regression failed'}
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_airport_relevance.py -v
