@@ -851,7 +851,7 @@ def live_version_evidence(query,text):
         return True
     if not isinstance(text,str):
         return False
-    for number in re.finditer(r"(?<![\w.])\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?![\w.])",text):
+    for number in re.finditer(r"(?<![\w.])\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?!\w|\.\d)",text):
         window=text[max(0,number.start()-180):number.end()+180]
         if all(_topic_group_matches(group,window) for group in subjects) and re.search(
             r"(?i)\b(?:release\w*|version\w*|download\w*|stable|latest|current|aktuell\w*|stabil\w*|neueste\w*)\b",window):
