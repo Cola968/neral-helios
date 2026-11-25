@@ -1,6 +1,9 @@
 name: NERAL cross-topic discovery regression and live probe
 on:
   workflow_dispatch:
+  push:
+    branches: [fix/v43-read-source-gate]
+    paths: [.github/workflows/neral-three-tier-web-diagnostic.yml]
 permissions:
   contents: read
 concurrency:
