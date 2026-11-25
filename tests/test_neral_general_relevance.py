@@ -52,10 +52,22 @@ class TopicGate(unittest.TestCase):
         engine=Mock()
         engine.search.return_value={"provider":"fixture","results":hits}
         def reader(batch,query):
-            return [page(h,"Python stable release 3.XX." if h is hits[4] else "Windows Update.") for h in batch[:3]]
+            return [page(h,"Python stable release 3.14.1." if h is hits[4] else "Windows Update.") for h in batch[:3]]
         out=search_live_sources(engine,q,reader=reader)
         self.assertEqual(out["status"],"ok")
         self.assertEqual([x["url"] for x in out["sources"]],[hits[4]["url"]])
+    def test_version_page_must_be_about_the_requested_product(self):
+        q="Welche Version von Python ist aktuell?"
+        wrong=hit("PyCharm","pycharm","Python release versions")
+        right=hit("Python releases","python")
+        self.assertEqual(live_topic_hits([wrong,right],q),[right])
+    def test_version_source_must_have_actual_release_number(self):
+        q="Welche Version von Python ist aktuell?"
+        good=hit("Python releases","python")
+        engine=Mock()
+        engine.search.return_value={"provider":"fixture","results":[good]}
+        out=search_live_sources(engine,q,reader=Mock(return_value=[page(good,"Python has many releases and versions.")]))
+        self.assertEqual(out["status"],"empty")
     def test_irrelevant_feed_headline_is_not_displayed(self):
         q="Welche aktuellen Nachrichten gibt es zu künstlicher Intelligenz?"
         wrong={**hit("Düngerkonzern Aktie steigt","stock"),"provider":"Google News RSS"}
