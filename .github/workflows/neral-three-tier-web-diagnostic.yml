@@ -46,7 +46,7 @@ jobs:
           import neral_v43_live_web as w
           print("IMPORT "+json.dumps({"server":str(pathlib.Path(s.__file__).resolve()),"runtime":str(pathlib.Path(t.__file__).resolve()),"router":str(pathlib.Path(w.__file__).resolve()),"ctor":str(inspect.signature(t.ThreeTierRuntime.__init__)),"sets_profile":"self.v43_profile = bool(v43_profile)" in inspect.getsource(t.ThreeTierRuntime.__init__),"route":bool(w.route_live_query("Welche aktuellen Nachrichten gibt es zum Flughafen BER?"))}))
           '@
-            & $py -B -c $code
+            $code | & $py -B -
             if($LASTEXITCODE -ne 0){throw 'CPU module import failed'}
           }finally{Pop-Location}
           $s=New-Object Microsoft.PowerShell.Commands.WebRequestSession
