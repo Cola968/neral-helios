@@ -6,6 +6,7 @@ never treated as read-page evidence; the benchmark gate precedes all I/O.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 from neral_local_wiki import fresh_question, source_required
 from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
@@ -63,6 +64,32 @@ def route_live_query(question, *, explicit_query=None, benchmark=False,
     return None
 
 
+def _public_feed_headlines(found, query):
+    """Display feed records only, never put them into model evidence."""
+    candidates = found.get("headlines", [])
+    if not isinstance(candidates, list):
+        return []
+    rows, seen = [], set()
+    for hit in ranked_topic_hits(candidates,query):
+        url = safe_result_url(hit.get("url"))
+        title = hit.get("title")
+        stamp = hit.get("published_at")
+        provider = hit.get("provider")
+        if not url or url in seen or not recent_publication(stamp) or not isinstance(title,str) or not title.strip():
+            continue
+        if provider not in ("Google News RSS","Bing News RSS"):
+            continue
+        parsed = urlsplit(url)
+        if not direct_news_url(url) and not (parsed.hostname=="news.google.com" and parsed.path.startswith("/rss/articles/")):
+            continue
+        if not airport_text_matches(query,title):
+            continue
+        seen.add(url)
+        rows.append({"url":url,"title":" ".join(title.split())[:180],"published_at":stamp,
+                     "provider":provider,"page_read":False,"source_kind":"feed_headline"})
+    return rows[:5]
+
+
 def search_live_sources(search, query, *, reader=None):
     """Read actual HTTPS pages BEFORE model generation (no snippet-only answers)."""
     if search is None:
@@ -102,6 +129,13 @@ def search_live_sources(search, query, *, reader=None):
                 row["published_at"] = date
             rows.append(row)
         if not rows:
+            headlines = _public_feed_headlines(found,query) if news else []
+            if headlines:
+                update = getattr(search,"record_read_status",None)
+                if callable(update):
+                    update("headlines_only","no_readable_sources")
+                return {"status":"headlines_only","error":"no_readable_sources",
+                        "sources":headlines,"context":"","provider":provider}
             update = getattr(search, "record_read_status", None)
             if callable(update):
                 update("empty", "no_readable_sources")

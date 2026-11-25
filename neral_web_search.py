@@ -845,7 +845,7 @@ class WebSearch:
 
     def record_read_status(self, status, error=None):
         """Only safe end-to-end classifications, no page content or URL."""
-        if status not in ("ok", "empty", "timeout", "unavailable", "rate_limited"):
+        if status not in ("ok", "empty", "headlines_only", "timeout", "unavailable", "rate_limited"):
             raise ValueError("Invalid search status")
         if error not in (None, "no_readable_sources", "timeout",
                          "provider_unavailable", "local_rate_limit"):
@@ -919,6 +919,8 @@ class WebSearch:
             seen.add(url)
             rows.append({**hit,"url":url})
         opaque = []
+        headline_rows = []
+        headline_seen = set()
         for name, method in (("Bing News RSS",self.search_bing_news),("Google News RSS",self.search_news)):
             contacted.append(name)
             try:
@@ -926,6 +928,16 @@ class WebSearch:
             except WebSearchError:
                 continue
             for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                link = safe_result_url(hit.get("url"))
+                if (link and link not in headline_seen and recent_publication(hit.get("published_at"))
+                        and airport_hit_matches(hit,query) and str(hit.get("title","")).strip()
+                        and (direct_news_url(link) or (urlsplit(link).hostname=="news.google.com"
+                             and urlsplit(link).path.startswith("/rss/articles/")))):
+                    headline_seen.add(link)
+                    headline_rows.append({"url":link,"title":str(hit["title"])[:180],
+                                          "published_at":hit["published_at"],"provider":name})
                 if direct_news_url(hit.get("url")):
                     add(hit)
                 elif (airport_hit_matches(hit,query) and recent_publication(hit.get("published_at"))
@@ -973,6 +985,7 @@ class WebSearch:
         self._record("ok" if rows else "empty",None if rows else "no_results",provider)
         return {"query":cleaned,"provider":provider,"providers_contacted":contacted,
                 "external_request":True,"model_generated":False,"results":rows[:MAX_RESULTS],
+                "headlines":sorted(headline_rows,key=lambda x:x["published_at"],reverse=True)[:8],
                 "notice":"Aktuelle Nachrichten-Treffer, Artikelinhalt noch ungeprüft."}
 
     def search_wikipedia(self, query: str, on_provider=None, language="de") -> list[dict[str, str]]:

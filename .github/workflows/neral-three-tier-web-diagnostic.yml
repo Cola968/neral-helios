@@ -1,4 +1,4 @@
-name: NERAL stage verified V4.3 candidate without restarting owner
+name: NERAL final news feed fallback CPU and real public acceptance
 on:
   workflow_dispatch:
 permissions:
@@ -7,93 +7,61 @@ concurrency:
   group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  stage:
+  verify:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
-    timeout-minutes: 6
+    timeout-minutes: 7
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: c2285d2ee16f6a88b3a2bc9a9f4c0a5d1b632363
-          path: v43-stage-${{ github.run_id }}
+          path: v43-final-${{ github.run_id }}
           persist-credentials: false
-      - name: Stage tested source into separate worktree; never stop or start services
+      - name: Run CPU tests and actual public news requests
         run: |
           $ErrorActionPreference='Stop'
-          $old='C:\NERAL-V43-Websearch'
-          $dest='C:\NERAL-V43-Verified'
-          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-stage-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-final-'+$env:GITHUB_RUN_ID)
           $py='D:\neral-qlora\venv\Scripts\python.exe'
-          $expected='c2285d2ee16f6a88b3a2bc9a9f4c0a5d1b632363'
-          if((& git -C $src rev-parse HEAD).Trim() -ne $expected){throw 'Candidate commit mismatch'}
-          if((& git -C $old rev-parse HEAD).Trim() -ne '1e86f52f73c2521d7591ac3d8d79c5dd78041508'){throw 'Original worktree head changed'}
-          $deps=Join-Path $old 'local_state/three-tier-web-deps'
-          if(-not(Test-Path -LiteralPath (Join-Path $deps 'waitress/__init__.py'))){throw 'Isolated dependency directory absent'}
-          if(Test-Path -LiteralPath $dest){throw 'Destination already exists; no overwrite'}
-          & git -C $old fetch --no-tags $src $expected
-          if($LASTEXITCODE -ne 0){throw 'Local source object transfer failed'}
-          & git -C $old worktree add --detach $dest $expected
-          if($LASTEXITCODE -ne 0){throw 'New worktree creation failed'}
-          if((& git -C $dest rev-parse HEAD).Trim() -ne $expected){throw 'Staged commit mismatch'}
-          $local=Join-Path $dest 'local_state'
-          New-Item -ItemType Directory -Path $local -Force | Out-Null
-          $newDeps=Join-Path $local 'three-tier-web-deps'
-          if(Test-Path -LiteralPath $newDeps){throw 'Unexpected existing dependencies'}
-          Copy-Item -LiteralPath $deps -Destination $newDeps -Recurse
-          if(-not(Test-Path -LiteralPath (Join-Path $newDeps 'waitress/__init__.py'))){throw 'Dependency copy failed'}
-          $env:PYTHONPATH=$dest+';'+$newDeps
           $env:PYTHONDONTWRITEBYTECODE='1'
-          $env:HF_HUB_OFFLINE='1'
-          $env:TRANSFORMERS_OFFLINE='1'
-          $env:HF_DATASETS_OFFLINE='1'
-          Push-Location -LiteralPath $dest
+          $env:PYTHONPATH=$src
+          Push-Location -LiteralPath $src
           try{
-            & $py -B -m unittest discover -s tests -p test_neral_v43_verified_start.py -v
-            if($LASTEXITCODE -ne 0){throw 'Staged boot contract failed'}
+            foreach($test in @('test_neral_feed_fallback.py','test_neral_official_news.py','test_neral_fresh_news_evidence.py','test_neral_airport_relevance.py','test_neral_web_search.py','test_neral_v43_verified_start.py')){
+              & $py -B -m unittest discover -s tests -p $test -v
+              if($LASTEXITCODE -ne 0){throw ('CPU regression failed '+$test)}
+            }
+            $testDeps=Join-Path $env:RUNNER_TEMP ('neral-final-tests-'+$env:GITHUB_RUN_ID)
+            & $py -B -m pip install --disable-pip-version-check --no-input --target $testDeps 'pytest==8.3.5'
+            if($LASTEXITCODE -ne 0){throw 'Isolated test dependency setup failed'}
+            $env:PYTHONPATH=$src+';'+$testDeps
+            & $py -B -m pytest -q tests/test_neral_v43_live_web_cpu.py tests/test_neral_web_v4_cpu.py
+            if($LASTEXITCODE -ne 0){throw 'Web regressions failed'}
+            & node --check static/neral-preview.js
+            if($LASTEXITCODE -ne 0){throw 'Frontend syntax failed'}
             $code=@'
-          from neral_three_tier_runtime import FrozenQwen35HF
-          from pathlib import Path
-          import waitress
-          luna=FrozenQwen35HF(Path("D:/neral-qlora-v2/qwen35-4b-hf"))
-          raw=FrozenQwen35HF(Path("D:/neral-qlora/checkpoint"),raw_9b=True)
-          assert not luna.loaded and not raw.loaded
-          print("PINNED_MODELS_CPU_CONSTRUCTOR_PASS")
+          import json,time
+          from unittest.mock import Mock
+          from neral_v43_verified_start import build_verified_app
+          from neral_three_tier_runtime import LUNA,RAW_9B
+          from neral_agent_autonomy import OllamaLocalBackend
+          from neral_v43_live_web import search_live_sources
+          from neral_web_search import WebSearch
+          rt,app=build_verified_app(OllamaLocalBackend("qwen3:8b"),Mock(model=LUNA,adapter_sha256=None,loaded=True),Mock(model=RAW_9B,adapter_sha256=None,loaded=True),execute_python=Mock())
+          for q in ("Welche aktuellen Nachrichten gibt es zum Flughafen BER?","Was gibt es Neues am Flughafen MUC?"):
+              start=time.monotonic()
+              with app.test_client() as c:
+                  base="http://127.0.0.1:9690"
+                  c.get("/",base_url=base)
+                  csrf=c.get("/api/neral/preview/session",base_url=base).json["csrf"]
+                  r=c.post("/api/neral/chat/three-tier",base_url=base,headers={"X-Neral-CSRF":csrf},json={"tier":"Quartz","prompt":q,"history":[],"force_sandbox":False})
+                  data=r.get_json()
+                  print("LIVE_HTTP "+json.dumps({"query":q,"http":r.status_code,"status":data.get("web_search_status"),"sources":data.get("web_sources",[]),"model_generated":data.get("model_generated"),"seconds":round(time.monotonic()-start,3)},ensure_ascii=True),flush=True)
+                  assert r.status_code==200 and data.get("web_search_status")=="headlines_only" and data["web_sources"] and data["model_generated"] is False
+          result=search_live_sources(WebSearch(),"In welchem Jahr landete Apollo 11 auf dem Mond?")
+          print("FACT_LIVE "+json.dumps({"status":result["status"],"sources":result["sources"]},ensure_ascii=True),flush=True)
+          assert result["status"]=="ok" and any(x.get("page_read") for x in result["sources"])
           '@
             $code | & $py -B -
-            if($LASTEXITCODE -ne 0){throw 'CPU model-path preflight failed'}
-            Write-Host ('STAGED_HEAD '+(& git rev-parse HEAD).Trim())
-            Write-Host 'STAGED_LAUNCHER C:\NERAL-V43-Verified\Start NERAL V4.3 Web.cmd'
-            Write-Host 'NO_SERVICE_RESTART_OR_MODEL_LOAD'
-          }finally{Pop-Location}
-      - name: Read-only public provider diagnostics
-        run: |
-          $ErrorActionPreference='Stop'
-          $dest='C:\NERAL-V43-Verified'
-          $env:PYTHONPATH=$dest
-          $env:PYTHONDONTWRITEBYTECODE='1'
-          Push-Location -LiteralPath $dest
-          try{
-            $code=@'
-          import json
-          from urllib.parse import urlsplit
-          from neral_web_search import WebSearch,rewrite_search_query,direct_news_url
-          from neral_official_news import discover_official_news,OFFICIAL_NEWS_INDEXES
-          from neral_page_reader import fetch_and_extract
-          for q,code in (("Flughafen BER aktuelle Nachrichten","BER"),("Flughafen MUC aktuelle Nachrichten","MUC")):
-              engine=WebSearch()
-              query=rewrite_search_query(q)
-              for name,method in (("Bing News",engine.search_bing_news),("Google News",engine.search_news)):
-                  try:
-                      rows=method(query)
-                      print("PROVIDER "+json.dumps({"code":code,"provider":name,"count":len(rows),"direct":sum(bool(direct_news_url(r.get("url"))) for r in rows),"publishers":[urlsplit(r.get("publisher_url","")).hostname for r in rows[:3]]}),flush=True)
-                  except Exception as exc:
-                      print("PROVIDER "+json.dumps({"code":code,"provider":name,"error":type(exc).__name__}),flush=True)
-              page=fetch_and_extract(OFFICIAL_NEWS_INDEXES[code],"",include_markup=True)
-              recent=discover_official_news(q,fetch=lambda _:page)
-              print("OFFICIAL "+json.dumps({"code":code,"reachable":bool(page),"recent_links":len(recent),"markup_chars":len((page or {}).get("markup",""))}),flush=True)
-          '@
-            $code | & 'D:\neral-qlora\venv\Scripts\python.exe' -B -
-            if($LASTEXITCODE -ne 0){throw 'Provider diagnostic error'}
+            if($LASTEXITCODE -ne 0){throw 'Actual public search acceptance failed'}
           }finally{Pop-Location}
