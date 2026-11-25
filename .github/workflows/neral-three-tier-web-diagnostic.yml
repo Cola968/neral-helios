@@ -1,4 +1,4 @@
-name: NERAL public article regression and service identity preflight
+name: NERAL V4.3 accepted release staging and service preflight
 on:
   workflow_dispatch:
 permissions:
@@ -7,57 +7,72 @@ concurrency:
   group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  verify:
+  preflight:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
-    timeout-minutes: 8
+    timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
         with:
-          path: v43-article-${{ github.run_id }}
+          ref: 49415bb37afe439e92f95e1aec1f2ec099a3092e
+          path: v43-service-preflight-${{ github.run_id }}
           persist-credentials: false
-      - name: Read existing service identity and run new article contract
+      - name: Stage pinned source and inspect the existing NERAL task without restarting anything
         run: |
           $ErrorActionPreference='Stop'
-          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-article-'+$env:GITHUB_RUN_ID)
-          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
-          if($task){
-            Write-Host ('TASK '+(@{state=[string]$task.State;actions=@($task.Actions).Count;trigger_types=@($task.Triggers|ForEach-Object{$_.CimClass.CimClassName});known_service=([string]$task.Actions[0].Arguments -match 'Start-Neral-Three-Tier-Service.ps1')}|ConvertTo-Json -Compress))
-          }else{Write-Host 'TASK_NOT_FOUND'}
-          $env:PYTHONPATH=$src
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-service-preflight-'+$env:GITHUB_RUN_ID)
+          $original='C:\NERAL-V43-Websearch'
+          $dest='C:\NERAL-V43-Live-49415bb3'
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          $expected='49415bb37afe439e92f95e1aec1f2ec099a3092e'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $expected){throw 'Unexpected candidate source'}
+          $deps=Join-Path $original 'local_state/three-tier-web-deps'
+          if(-not(Test-Path -LiteralPath (Join-Path $deps 'waitress/__init__.py'))){throw 'Existing web deps missing'}
+          if(-not(Test-Path -LiteralPath $dest)){
+            & git -C $original fetch --no-tags $src $expected
+            if($LASTEXITCODE -ne 0){throw 'Source object transfer failed'}
+            & git -C $original worktree add --detach $dest $expected
+            if($LASTEXITCODE -ne 0){throw 'Staging worktree failed'}
+            New-Item -ItemType Directory -Path (Join-Path $dest 'local_state') -Force | Out-Null
+            Copy-Item -LiteralPath $deps -Destination (Join-Path $dest 'local_state/three-tier-web-deps') -Recurse
+          }
+          if((& git -C $dest rev-parse HEAD).Trim() -ne $expected){throw 'Staged head mismatch'}
+          & git -C $dest diff --quiet HEAD --
+          if($LASTEXITCODE -ne 0){throw 'Staged tracked source differs'}
+          $env:PYTHONPATH=$dest+';'+(Join-Path $dest 'local_state/three-tier-web-deps')
           $env:PYTHONDONTWRITEBYTECODE='1'
-          Push-Location -LiteralPath $src
+          Push-Location -LiteralPath $dest
           try{
-            & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_news_articles.py -v
-            if($LASTEXITCODE -ne 0){throw 'Public article regression failed'}
-            $py='D:\neral-qlora\venv\Scripts\python.exe'
-            foreach($test in @('test_neral_feed_fallback.py','test_neral_official_news.py','test_neral_fresh_news_evidence.py','test_neral_airport_relevance.py','test_neral_web_search.py','test_neral_v43_verified_start.py')){
-              & $py -B -m unittest discover -s tests -p $test -v
-              if($LASTEXITCODE -ne 0){throw ('Regression failed '+$test)}
-            }
-            $testDeps=Join-Path $env:RUNNER_TEMP ('neral-article-tests-'+$env:GITHUB_RUN_ID)
-            & $py -B -m pip install --disable-pip-version-check --no-input --target $testDeps 'pytest==8.3.5'
-            if($LASTEXITCODE -ne 0){throw 'Isolated test deps failed'}
-            $env:PYTHONPATH=$src+';'+$testDeps
-            & $py -B -m pytest -q tests/test_neral_v43_live_web_cpu.py tests/test_neral_web_v4_cpu.py tests/test_neral_v43_reference50_live_cpu.py
-            if($LASTEXITCODE -ne 0){throw 'Web or benchmark isolation failed'}
-            & node --check static/neral-preview.js
-            if($LASTEXITCODE -ne 0){throw 'Frontend syntax failed'}
+            & $py -B -m unittest discover -s tests -p test_neral_v43_verified_start.py -v
+            if($LASTEXITCODE -ne 0){throw 'Staged boot test failed'}
             $code=@'
-          import json,time
-          from neral_web_search import WebSearch
-          from neral_v43_live_web import search_live_sources
-          full=0
-          for q in ("Welche aktuellen Nachrichten gibt es zum Flughafen BER?","Was gibt es Neues am Flughafen MUC?"):
-              start=time.monotonic()
-              result=search_live_sources(WebSearch(),q)
-              print("ARTICLE_LIVE "+json.dumps({"query":q,"status":result["status"],"provider":result["provider"],"sources":[{k:v for k,v in x.items() if k!="page_text"} for x in result["sources"]],"seconds":round(time.monotonic()-start,3)},ensure_ascii=True),flush=True)
-              full += int(result["status"]=="ok" and any(x.get("page_read") and x.get("article_chars",0)>=240 and not x.get("article_truncated") for x in result["sources"]))
-          print("FULL_ARTICLE_COUNT",full,flush=True)
-          assert full>=1,"No full publisher article retrieved"
+          from pathlib import Path
+          from neral_three_tier_runtime import FrozenQwen35HF
+          import waitress
+          a=FrozenQwen35HF(Path("D:/neral-qlora-v2/qwen35-4b-hf"))
+          q=FrozenQwen35HF(Path("D:/neral-qlora/checkpoint"),raw_9b=True)
+          assert not a.loaded and not q.loaded
+          print("MODEL_PATHS_OK_NO_GPU_LOAD")
           '@
             $code | & $py -B -
-            if($LASTEXITCODE -ne 0){throw 'Live full article acceptance failed'}
+            if($LASTEXITCODE -ne 0){throw 'Model-path preflight failed'}
           }finally{Pop-Location}
+          Write-Host ('STAGED_HEAD '+$expected)
+          $t=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+          $act=@($t.Actions)
+          $owned=($act.Count -eq 1 -and [string]$act[0].Arguments -match 'Start-Neral-Three-Tier-Service.ps1')
+          Write-Host ('TASK_STATE '+(@{known_service=$owned;state=[string]$t.State;logon_type=[string]$t.Principal.LogonType;run_level=[string]$t.Principal.RunLevel;triggers=@($t.Triggers|ForEach-Object{$_.CimClass.CimClassName});enabled=$t.Settings.Enabled}|ConvertTo-Json -Depth 4 -Compress))
+          if(-not $owned){throw 'Unknown task action; no deployment'}
+          $listen=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue|Select-Object -ExpandProperty OwningProcess -Unique)
+          foreach($id in $listen){
+            $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$id)
+            Write-Host ('OWNER '+(@{preview=([string]$p.CommandLine -match 'neral_preview_server');verified_launcher=([string]$p.CommandLine -match 'neral_v43_verified_start.py');python=($p.Name -match '^pythonw?\.exe$');profile_flag=([string]$p.CommandLine -match '--v43-profile');parent_python=([string](Get-CimInstance Win32_Process -Filter ("ProcessId="+$p.ParentProcessId)).Name -match '^pythonw?\.exe$')}|ConvertTo-Json -Compress))
+          }
+          $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          Invoke-WebRequest 'http://127.0.0.1:9690/' -UseBasicParsing -WebSession $session -TimeoutSec 6|Out-Null
+          $s=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/status' -WebSession $session -TimeoutSec 6
+          $b=Invoke-RestMethod 'http://127.0.0.1:9690/api/neral/chat/three-tier/availability' -WebSession $session -TimeoutSec 6
+          Write-Host ('CURRENT '+(@{v43=$s.v43_profile;web=$s.web_search;busy=$b.busy;listener_count=$listen.Count}|ConvertTo-Json -Depth 5 -Compress))
+          Write-Host 'PREFLIGHT_ONLY_NO_PROCESS_OR_TASK_CHANGES'
