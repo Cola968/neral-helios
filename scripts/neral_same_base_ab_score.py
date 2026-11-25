@@ -56,6 +56,27 @@ def _p95(values: list[float]) -> float:
     return round(sorted_values[math.ceil(len(values) * 0.95) - 1], 3)
 
 
+def _relative_target(baseline: int, candidate: int, count: int) -> dict:
+    # Compare unrounded, exact fractions. A point-target hit is not evidence
+    # of statistical significance or independence.
+    if baseline == 0:
+        status = "zero_baseline"
+    elif 6 * baseline > 5 * count:
+        status = "ceiling_limited"
+    elif 5 * candidate >= 6 * baseline:
+        status = "meets_point_target"
+    else:
+        status = "below_point_target"
+    return {
+        "count": count,
+        "baseline_correct": baseline,
+        "candidate_correct": candidate,
+        "delta_pp": round(100 * (candidate - baseline) / count, 3),
+        "relative_gain_percent": round(100 * (candidate - baseline) / baseline, 3) if baseline else None,
+        "status": status,
+    }
+
+
 def score_private_pairs(private: dict) -> dict:
     """Return aggregate-only, 36-case pilot or 120-case development results.
 
@@ -143,10 +164,19 @@ def score_private_pairs(private: dict) -> dict:
             "wins": wins, "losses": losses, "delta_pp": round(100 * (wins - losses) / n, 3),
             "exact_mcnemar_p": round(_mcnemar(wins, losses), 9),
         }
+    target = {
+        arm: {
+            domain: _relative_target(by_domain["raw_qwen35"][domain]["correct"],
+                                     by_domain[arm][domain]["correct"], data["count"])
+            for domain, data in by_domain["raw_qwen35"].items()
+        }
+        for arm in ARMS if arm != "raw_qwen35"
+    }
     return {
         "schema": 1, "status": SCHEMA, "cases": n, "domains": sorted(domains),
         "family_count": len(families), "model": MODEL, "model_digest": meta["model_digest"],
         "profile": PROFILE, "token_budget": 2048, "arms": scores, "paired": paired,
+        "relative_accuracy_target_percent": 20, "qwen35_relative_target": target,
         "private_prompts_or_answers_uploaded": False,
         "independent_holdout_verified": False,
         "release_validated": False, "router_superiority_proven": False,

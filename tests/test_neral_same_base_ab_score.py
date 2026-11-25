@@ -50,6 +50,24 @@ class SameBaseScoring(unittest.TestCase):
         self.assertFalse(output["weight_improvement_proven"])
         self.assertFalse(output["automatic_promotion_authorized"])
 
+    def test_relative_targets_keep_raw_values_and_handle_ceiling_and_zero(self):
+        data = make_data()
+        for i in (10, 11):
+            case = data["cases"][i]
+            data["observations"][i]["arms"]["raw_qwen35"]["text"] = "FINAL: 10000"
+        for i in range(12, 23):
+            case = data["cases"][i]
+            data["observations"][i]["arms"]["raw_qwen35"]["text"] = f"FINAL: {case['answer']}"
+        out = score_private_pairs(data)["qwen35_relative_target"]["neral_high_router"]
+        self.assertEqual(out["math"]["baseline_correct"], 10)
+        self.assertEqual(out["math"]["candidate_correct"], 12)
+        self.assertEqual(out["math"]["relative_gain_percent"], 20.0)
+        self.assertEqual(out["math"]["status"], "meets_point_target")
+        self.assertEqual(out["reasoning"]["status"], "ceiling_limited")
+        self.assertEqual(out["code_trace"]["status"], "zero_baseline")
+        self.assertIsNone(out["code_trace"]["relative_gain_percent"])
+        self.assertEqual(out["code_trace"]["delta_pp"], 50.0)
+
     def test_private_questions_and_model_text_not_exported(self):
         data = make_data()
         output = json.dumps(score_private_pairs(data))
