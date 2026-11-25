@@ -71,6 +71,31 @@ class QueryPlanning(unittest.TestCase):
         self.assertEqual([source["url"] for source in result["sources"]], [known["url"]])
         self.assertEqual(result["sources"][0]["date_origin"], "publisher_metadata")
 
+    def test_rescue_can_change_feed_locale_for_language_neutral_entity(self):
+        engine = WebSearch(opener=MagicMock())
+        q = "Aktuelle Nachrichten zur NASA Artemis Mission"
+        stamp = datetime.now(timezone.utc).isoformat()
+        source = {"url": "https://example.org/space/nasa-artemis-report",
+                  "title": "NASA Artemis public report", "published_at": stamp}
+        def google(query, on_provider=None, *, language="de"):
+            return [source] if language == "en" and "nasa" in query.casefold() and "artemis" in query.casefold() else []
+        with patch.object(engine, "search_bing_news", return_value=[]), patch.object(engine, "search_news", side_effect=google) as feed:
+            result = engine.search(q, news_only=True)
+        self.assertEqual([hit["url"] for hit in result["results"]], [source["url"]])
+        self.assertLessEqual(feed.call_count, 3)
+
+    def test_airport_rescue_query_uses_english_name_without_losing_airport(self):
+        engine = WebSearch(opener=MagicMock())
+        q = "Was gibt es Neues am Flughafen MUC?"
+        stamp = datetime.now(timezone.utc).isoformat()
+        source = {"url": "https://example.org/aviation/munich-airport",
+                  "title": "Munich Airport public announcement", "published_at": stamp}
+        def google(query, on_provider=None, *, language="de"):
+            return [source] if language == "en" and "munich airport" in query.casefold() else []
+        with patch.object(engine, "search_bing_news", return_value=[]), patch.object(engine, "search_news", side_effect=google):
+            result = engine.search(q, news_only=True)
+        self.assertEqual([hit["url"] for hit in result["results"]], [source["url"]])
+
     def test_generic_weather_intent_retains_place_and_day(self):
         from neral_web_search import live_query_variants
         variants=live_query_variants("Wie ist das Wetter morgen in Berlin?")

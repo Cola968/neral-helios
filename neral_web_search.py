@@ -948,6 +948,41 @@ def _news_request_language(query):
     return "en" if _ENGLISH_NEWS_REQUEST.search(query) else "de"
 
 
+def _news_feed_alternatives(query, variants, primary_language):
+    """Try at most two additional query/locale pairs for the same topic."""
+    primary = variants[0]
+    other_language = "en" if primary_language == "de" else "de"
+    options = [
+        (variant, "en" if any(word in variant.casefold() for word in
+                            ("artificial intelligence", "german parliament", "football", "soccer"))
+         else primary_language)
+        for variant in variants[1:]
+    ]
+    codes = airport_entity_codes(query)
+    english_airports = [
+        f"{alias} {code}"
+        for code in codes
+        for alias in [next((name for name in _AIRPORT_ALIASES.get(code, ())
+                           if "airport" in name.casefold()), None)]
+        if alias is not None
+    ]
+    cross_locale = (" ".join(english_airports) if other_language == "en" and
+                    english_airports and len(english_airports) == len(codes) else primary)
+    # Prefer a translation if supplied, otherwise give the unchanged named
+    # entity a chance in the other feed before generic same-locale rewrites.
+    ordered = [pair for pair in options if pair[1] == other_language]
+    ordered.append((cross_locale, other_language))
+    ordered.extend(options)
+    seen = {(primary.casefold(), primary_language)}
+    distinct = []
+    for variant, language in ordered:
+        key = (variant.casefold(), language)
+        if key not in seen and 2 <= len(variant) <= MAX_QUERY_CHARS:
+            seen.add(key)
+            distinct.append((variant, language))
+    return distinct[:2]
+
+
 def live_query_variants(query):
     cleaned=_live_refined_query(query,rewrite_search_query(query))
     groups=list(live_topic_requirements(query))
@@ -1181,12 +1216,9 @@ class WebSearch:
         # question still controls every relevance check. Feed headlines alone
         # do not make these direct publisher candidate slots redundant.
         if len(by_url)<3:
-            for variant in variants[1:]:
+            for variant, language in _news_feed_alternatives(query, variants, primary_language):
                 if len(by_url)>=3:
                     break
-                language = ("en" if any(word in variant.casefold() for word in
-                            ("artificial intelligence","german parliament","football","soccer"))
-                            else primary_language)
                 try:
                     collect(self.search_news(variant,on_provider=on_provider,language=language),"Google News RSS")
                 except WebSearchError:
