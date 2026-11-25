@@ -3,13 +3,21 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 import re
 from urllib.parse import urljoin, urlsplit
-from neral_web_search import safe_result_url, airport_entity_codes, recent_publication
+from xml.etree import ElementTree
+from neral_web_search import (safe_result_url, direct_news_url, airport_entity_codes,
+                              live_topic_hits, recent_publication)
 
 # Public publisher directories, not cached answers or fabricated article links.
 OFFICIAL_NEWS_INDEXES = {
     "BER": "https://corporate.berlin-airport.de/de/unternehmen-presse/presseportal/pressemitteilungen.html",
     "MUC": "https://www.munich-airport.de/pressemitteilungen-88963",
 }
+# Complement the operator's own press page with the published feed of the
+# responsible transport authority. These are indices, not stored articles.
+OFFICIAL_NEWS_FEEDS = {
+    "MUC": "https://www.stmb.bayern.de/rss/pm/atom.xml",
+}
+_ATOM = "{http://www.w3.org/2005/Atom}"
 MONTHS = {name: i for i, names in enumerate(
     ("januar january", "februar february", "märz maerz march", "april",
      "mai may", "juni june", "juli july", "august", "september",
@@ -107,9 +115,59 @@ def parse_official_news_index(markup, base_url, *, now=None):
     return sorted(rows.values(),key=lambda row:(row["published_at"],row["url"]),reverse=True)[:10]
 
 
+def parse_official_atom(markup, feed_url, query, *, now=None):
+    """Discover explicitly dated same-host public articles from an official Atom feed."""
+    if (not isinstance(markup, str) or len(markup) > 800000 or
+            not safe_result_url(feed_url) or re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", markup, re.I)):
+        return []
+    try:
+        root = ElementTree.fromstring(markup)
+    except (ElementTree.ParseError, ValueError):
+        return []
+    if root.tag != _ATOM + "feed":
+        return []
+
+    host = urlsplit(feed_url).hostname
+    rows = []
+    seen = set()
+    for entry in root.findall(_ATOM + "entry")[:40]:
+        title = " ".join(entry.findtext(_ATOM + "title", "").split())[:180]
+        published = entry.findtext(_ATOM + "published", "").strip()
+        if not title or not recent_publication(published, now=now):
+            continue
+        for link in entry.findall(_ATOM + "link")[:8]:
+            if link.get("rel", "alternate") != "alternate":
+                continue
+            href = link.get("href", "").strip()
+            if not href:
+                continue
+            try:
+                parts = urlsplit(urljoin(feed_url, href))
+            except ValueError:
+                continue
+            if parts.hostname != host or parts.scheme not in ("http", "https"):
+                continue
+            # Some authoritative feeds publish legacy http: links. Request
+            # only HTTPS on the feed's own authority; never fetch plaintext.
+            url = direct_news_url(parts._replace(scheme="https").geturl())
+            if not url or url == feed_url or url in seen:
+                continue
+            row = {"url": url, "title": title, "snippet": title,
+                   "published_at": published, "date_origin": "official_feed"}
+            if not live_topic_hits([row], query):
+                continue
+            rows.append(row)
+            seen.add(url)
+            break
+        if len(rows) >= 10:
+            break
+    return rows
+
+
 def discover_official_news(query, *, fetch=None, now=None):
     codes=airport_entity_codes(query)
-    indices=[OFFICIAL_NEWS_INDEXES[code] for code in codes if code in OFFICIAL_NEWS_INDEXES]
+    indices = [(OFFICIAL_NEWS_INDEXES[code], False) for code in codes if code in OFFICIAL_NEWS_INDEXES]
+    indices.extend((OFFICIAL_NEWS_FEEDS[code], True) for code in codes if code in OFFICIAL_NEWS_FEEDS)
     if not indices:
         return []
     if fetch is None:
@@ -117,7 +175,7 @@ def discover_official_news(query, *, fetch=None, now=None):
         def fetch(url):
             return fetch_and_extract(url, "", include_markup=True)
     rows=[]
-    for index in indices[:2]:
+    for index, atom in indices[:2]:
         try:
             page=fetch(index)
         except (OSError,ValueError,TypeError,RuntimeError):
@@ -126,5 +184,8 @@ def discover_official_news(query, *, fetch=None, now=None):
             continue
         if urlsplit(page["url"]).hostname!=urlsplit(index).hostname:
             continue
-        rows.extend(parse_official_news_index(page.get("markup",""),page["url"],now=now))
+        if atom:
+            rows.extend(parse_official_atom(page.get("markup", ""), page["url"], query, now=now))
+        else:
+            rows.extend(parse_official_news_index(page.get("markup", ""), page["url"], now=now))
     return rows[:10]

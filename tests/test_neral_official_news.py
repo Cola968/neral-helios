@@ -23,6 +23,28 @@ class OfficialNewsTests(unittest.TestCase):
         html='<a href="/2026-10-01-old.html">24. November 2026 BER</a><a href="/2026-11-30-future.html">30. November 2026 BER</a>'
         self.assertEqual(parse_official_news_index(html,BASE,now=CLOCK),[])
 
+    def test_authority_atom_uses_same_host_https_and_explicit_publication(self):
+        feed = "https://press.example.org/feeds/civic.xml"
+        stamp = "2026-11-22T12:00:00+00:00"
+        def entry(href, title, date_tag="published", date=stamp):
+            return (f'<entry><title>{title}</title><link href="{href}"/>'
+                    f'<{date_tag}>{date}</{date_tag}></entry>')
+        markup = '<feed xmlns="http://www.w3.org/2005/Atom">' + "".join([
+            entry("http://press.example.org/news/terminal", "Flughafen München ändert Terminalzugang"),
+            entry("http://other.example.org/news/external", "Flughafen München fremd"),
+            entry("/news/undated", "Flughafen München undatiert", "updated"),
+            entry("/news/past", "Flughafen München alt", date="2026-11-10T12:00:00+00:00"),
+            entry("/news/street", "Die Stadt erneuert eine Straße"),
+        ]) + '</feed>'
+        fetch = Mock(return_value={"url": feed, "markup": markup})
+        with patch("neral_official_news.OFFICIAL_NEWS_INDEXES", {}), \
+                patch("neral_official_news.OFFICIAL_NEWS_FEEDS", {"MUC": feed}, create=True):
+            rows = discover_official_news("Was gibt es Neues am Flughafen MUC?", fetch=fetch, now=CLOCK)
+        self.assertEqual([row["url"] for row in rows], ["https://press.example.org/news/terminal"])
+        self.assertEqual(rows[0]["published_at"], stamp)
+        self.assertNotIn("page_text", rows[0])
+        fetch.assert_called_once_with(feed)
+
     def test_unknown_entity_does_not_contact_any_official_index(self):
         fetch=Mock()
         self.assertEqual(discover_official_news("Aktuelle Nachrichten zur NASA",fetch=fetch),[])
