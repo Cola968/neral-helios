@@ -1,4 +1,4 @@
-name: NERAL isolated V4.3 source identity diagnosis
+name: NERAL V4.3 verified launcher CPU test and staging
 on:
   workflow_dispatch:
 permissions:
@@ -7,49 +7,50 @@ concurrency:
   group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  diagnose:
+  stage:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
     timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Inspect active local sources and actual Python imports
+      - uses: actions/checkout@v4
+        with:
+          path: v43-launcher-${{ github.run_id }}
+          persist-credentials: false
+      - name: CPU regression tests and copy only two new user-launchable files
         run: |
           $ErrorActionPreference='Stop'
           $root='C:\NERAL-V43-Websearch'
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-launcher-'+$env:GITHUB_RUN_ID)
           $py='D:\neral-qlora\venv\Scripts\python.exe'
-          $base='http://127.0.0.1:9690'
-          $owners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
-          foreach($ownerId in $owners){
-            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId="+$ownerId)
-            Write-Host ('OWNER '+(@{id=$ownerId;preview=($proc.CommandLine -match 'neral_preview_server');v43=($proc.CommandLine -match '--v43-profile');expectedPython=($proc.ExecutablePath -ieq $py);python=($proc.Name -match '^pythonw?\.exe$')}|ConvertTo-Json -Compress))
+          $deps=Join-Path $root 'local_state/three-tier-web-deps'
+          if(-not (Test-Path -LiteralPath (Join-Path $deps 'waitress/__init__.py'))){throw 'Missing isolated waitress'}
+          if((& git -C $root rev-parse HEAD).Trim() -ne '1e86f52f73c2521d7591ac3d8d79c5dd78041508'){throw 'Unexpected local source head'}
+          foreach($file in @('neral_preview_server.py','neral_three_tier_runtime.py','neral_v43_live_web.py','neral_web_search.py')){
+            $actual=(& git -C $root hash-object -- $file).Trim()
+            $expected=(& git -C $src rev-parse ('HEAD:'+$file)).Trim()
+            if($actual -ne $expected){throw 'Local source differs from tested version'}
           }
-          if(-not (Test-Path -LiteralPath $root -PathType Container)){throw 'V43 worktree missing'}
-          Push-Location -LiteralPath $root
+          $env:PYTHONPATH=$src+';'+$deps
+          $env:HF_HUB_OFFLINE='1'
+          $env:TRANSFORMERS_OFFLINE='1'
+          $env:HF_DATASETS_OFFLINE='1'
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          Push-Location -LiteralPath $src
           try{
-            $head=(& git rev-parse HEAD).Trim()
-            Write-Host ('HEAD '+$head)
-            foreach($file in @('neral_preview_server.py','neral_three_tier_runtime.py','neral_v43_live_web.py','neral_web_search.py')){
-              $hash=(& git hash-object -- $file).Trim()
-              $expected=(& git rev-parse ('HEAD:'+$file)).Trim()
-              Write-Host ('FILE '+$file+' '+$hash+' expected='+$expected+' same='+($hash -eq $expected))
-            }
-            $env:PYTHONPATH=(Join-Path $root 'local_state/three-tier-web-deps')+';'+$root
-            $env:HF_HUB_OFFLINE='1'
-            $env:TRANSFORMERS_OFFLINE='1'
-            $env:HF_DATASETS_OFFLINE='1'
-            $env:NERAL_V3_AGENT_ENABLED='0'
-            $code=@'
-          import inspect, json, pathlib, sys
-          import neral_preview_server as s, neral_three_tier_runtime as t
-          import neral_v43_live_web as w
-          print("IMPORT "+json.dumps({"server":str(pathlib.Path(s.__file__).resolve()),"runtime":str(pathlib.Path(t.__file__).resolve()),"router":str(pathlib.Path(w.__file__).resolve()),"ctor":str(inspect.signature(t.ThreeTierRuntime.__init__)),"sets_profile":"self.v43_profile = bool(v43_profile)" in inspect.getsource(t.ThreeTierRuntime.__init__),"route":bool(w.route_live_query("Welche aktuellen Nachrichten gibt es zum Flughafen BER?"))}))
-          '@
-            $code | & $py -B -
-            if($LASTEXITCODE -ne 0){throw 'CPU module import failed'}
+            & $py -B -m unittest discover -s tests -p test_neral_v43_verified_start.py -v
+            if($LASTEXITCODE -ne 0){throw 'Launcher CPU regression failed; no files copied'}
           }finally{Pop-Location}
-          $s=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-          Invoke-WebRequest ($base+'/') -UseBasicParsing -WebSession $s -TimeoutSec 10 | Out-Null
-          $status=Invoke-RestMethod ($base+'/api/neral/chat/three-tier/status') -WebSession $s -TimeoutSec 10
-          Write-Host ('PROFILE '+(@{v43=$status.v43_profile;web=$status.web_search;model=$status.quartz;adapter=$status.adapter_loaded}|ConvertTo-Json -Depth 6 -Compress))
+          foreach($file in @('neral_v43_verified_start.py','Start NERAL V4.3 Web.cmd')){
+            $from=Join-Path $src $file
+            $to=Join-Path $root $file
+            if(Test-Path -LiteralPath $to){
+              if((Get-FileHash -LiteralPath $from).Hash -ne (Get-FileHash -LiteralPath $to).Hash){throw 'Existing destination differs; not overwritten'}
+            }else{
+              Copy-Item -LiteralPath $from -Destination $to -ErrorAction Stop
+            }
+            if((Get-FileHash -LiteralPath $from).Hash -ne (Get-FileHash -LiteralPath $to).Hash){throw 'Staged file integrity failure'}
+            Write-Host ('STAGED '+$file)
+          }
+          Write-Host 'NERAL_V43_LAUNCHER_READY_NO_PROCESS_CHANGES'
