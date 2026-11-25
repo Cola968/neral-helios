@@ -10,6 +10,15 @@ from neral_v43_verified_start import build_verified_app, require_web_profile
 
 
 class VerifiedStartTests(unittest.TestCase):
+    def test_isolated_port_validates_models_and_keeps_separate_cookie(self):
+        legacy,luna,helios=self.backends()
+        runtime,app=build_verified_app(legacy,luna,helios,port=9692)
+        self.assertIsNone(runtime.legacy_backend)
+        self.assertEqual(app.config["SESSION_COOKIE_NAME"],"neral-v43-9692")
+        self.assertEqual(require_web_profile(app,9692)["quartz"],RAW_9B)
+        with self.assertRaises(RuntimeError):
+            require_web_profile(app)
+
     def backends(self, model=RAW_9B, adapter=None):
         return (
             OllamaLocalBackend("qwen3:8b"),

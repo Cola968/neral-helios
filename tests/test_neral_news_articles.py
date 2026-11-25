@@ -11,6 +11,26 @@ BODY="Der Flughafen Berlin Brandenburg plant neue Flugverbindungen. Die Fluggese
 HIT={"publisher_url":HOME,"title":HEAD+" - Publisher","published_at":datetime.now(timezone.utc).isoformat(),"url":"https://news.google.com/rss/articles/opaque"}
 
 class PublicPublisherTests(unittest.TestCase):
+    def test_accessible_link_label_and_short_article_paragraphs(self):
+        self.assertEqual(publisher_links(f'<a href="{URL}" aria-label="{HEAD}"></a>',HOME,HEAD),[URL])
+        markup=f"<article><h1>{HEAD}</h1><p>{BODY*2}</p><p>Es gelten 12 Wochen.</p></article>"
+        self.assertIn("Es gelten 12 Wochen.",article_text(markup)["text"])
+
+    def test_replacement_has_own_headline_body_and_date(self):
+        title="Photovoltaik verändert die Stromversorgung der Stadt"
+        q="Aktuelle Nachrichten zu Photovoltaik"
+        index={"url":HOME,"markup":f'<a href="{URL}">{title}</a>'}
+        body=f"<article><h1>{title}</h1><p>{('Photovoltaik liefert Strom. '*8)}</p><p>{BODY}</p></article>"
+        for stamp,allowed in [(None,False),("2011-03-01",False),(HIT["published_at"],True)]:
+            markup=(f'<meta property="article:published_time" content="{stamp}">' if stamp else "")+body
+            def fetch(address):
+                return index if address==HOME else {"url":URL,"markup":markup} if address==URL else None
+            found=find_publisher_article(HIT,q,fetch=fetch)
+            self.assertEqual(bool(found),allowed)
+            if found:
+                self.assertEqual(found["title"],title)
+                self.assertEqual(found["date_origin"],"publisher_metadata")
+
     def test_index_match_same_publisher(self):
         html=f'<a href="/news/airport-growth"><h2>{HEAD}</h2></a><a href="https://external.example.com/other">{HEAD}</a>'
         self.assertEqual(publisher_links(html,HOME,HIT["title"]),[URL])

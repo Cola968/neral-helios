@@ -12,6 +12,45 @@ def hit(title,slug,body=""):
 def page(h,body):
     return {**h,"page_read":True,"page_text":body}
 class TopicGate(unittest.TestCase):
+    def test_9b_allocator_leaves_room_for_existing_gpu_users(self):
+        from neral_three_tier_runtime import configure_cuda_allocator_limit
+        torch=Mock()
+        mib=1024**2
+        torch.cuda.mem_get_info.return_value=(9000*mib,12000*mib)
+        torch.cuda.memory_reserved.return_value=1000*mib
+        self.assertEqual(configure_cuda_allocator_limit(torch,reserve_external=True),10752-2000-384)
+
+    def test_product_home_may_supply_release_evidence_late_in_body(self):
+        q="Welche Version von BeispielDB ist aktuell?"
+        good={"url":"https://beispieldb.org/","title":"BeispielDB Gemeinschaft"}
+        wrong={**good,"url":"https://anderes.org/"}
+        self.assertEqual(live_topic_hits([wrong,good],q),[good])
+        engine=Mock()
+        engine.search.return_value={"results":[good]}
+        long_body="Archiv und Dokumentation. "*126+"BeispielDB 18.2 released."
+        out=search_live_sources(engine,q,reader=Mock(return_value=[page(good,long_body)]))
+        self.assertEqual(out["status"],"ok")
+        self.assertIn("BeispielDB 18.2 released.",out["context"])
+
+    def test_fit_web_context_preserves_history_urls_and_every_source(self):
+        from neral_three_tier_runtime import _encode_model_turns,_WEB_SOURCE_CONTEXT
+        turns=[{"role":"user","content":"Start"},{"role":"assistant","content":"Vorgeschichte"},
+               {"role":"user","content":"Mehr dazu"}]
+        captured=[]
+        def encode(messages,**kwargs):
+            captured.append(messages)
+            return [0]*sum(len(m["content"]) for m in messages)
+        evidence={"query":"Thema","intro":"Webdaten","pages":[(f"https://quelle{i}.org/",f"Fakt {i}. "*250) for i in range(3)]}
+        token=_WEB_SOURCE_CONTEXT.set(evidence)
+        try:
+            self.assertLessEqual(len(_encode_model_turns(Mock(apply_chat_template=encode),turns,1500)),1500)
+        finally:
+            _WEB_SOURCE_CONTEXT.reset(token)
+        self.assertEqual(captured[-1][:-1],turns[:-1])
+        for i in range(3):
+            self.assertIn(f"https://quelle{i}.org/",captured[-1][-1]["content"])
+            self.assertIn(f"Fakt {i}.",captured[-1][-1]["content"])
+
     def test_software_version_requires_named_product(self):
         q="Welche Version von Python ist aktuell?"
         self.assertFalse(live_topic_matches(q,"Version Rechtschreibung Bedeutung"))

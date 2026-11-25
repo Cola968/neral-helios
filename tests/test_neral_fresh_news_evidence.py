@@ -18,6 +18,22 @@ HIT={"url":URL,"title":"Flughafen München meldet neue Verbindungen","snippet":B
 
 
 class FreshNewsEvidence(unittest.TestCase):
+    def test_http_feed_wrapper_only_extracts_safe_https_publisher(self):
+        prefix="http://www.bing.com/news/apiclick.aspx?url="
+        for link,expected in ((prefix+quote(URL,safe=""),[URL]),
+                              (prefix+quote("https://127.0.0.1/x",safe=""),[]),
+                              (prefix+quote("http://example.org/story",safe=""),[]),
+                              (prefix.replace("bing.com","bing.com.example.org")+quote(URL,safe=""),[])):
+            xml=f"<rss><channel><item><title>Artikel</title><link>{link}</link><pubDate>{format_datetime(NOW)}</pubDate></item></channel></rss>"
+            self.assertEqual([h["url"] for h in parse_bing_rss(xml,max_age_days=7)],expected)
+
+    def test_filter_topic_before_result_limit(self):
+        def item(title,i):
+            return f"<item><title>{title}</title><link>https://example.org/{i}</link><pubDate>{format_datetime(NOW)}</pubDate></item>"
+        xml="<rss><channel>"+item("Sport",0)+item("Walforschung",1)+"</channel></rss>"
+        result=parse_bing_rss(xml,max_age_days=7,limit=1,topic="Aktuelle Nachrichten zur Walforschung")
+        self.assertEqual([h["title"] for h in result],["Walforschung"])
+
     def test_colloquial_news_intent(self):
         self.assertTrue(is_fresh_news_query(Q))
 

@@ -421,7 +421,7 @@ class _ResultsParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
-        classes = set(attrs.get("class", "").split())
+        classes = set((attrs.get("class") or "").split())
         if tag == "a" and "result__a" in classes:
             self._flush()
             self.current = {"url": attrs.get("href", ""), "title": "", "snippet": ""}
@@ -524,7 +524,7 @@ def news_subject(query: str) -> str:
 
 
 def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | None = None,
-                   now_utc: datetime | None = None) -> list[dict[str, str]]:
+                   now_utc: datetime | None = None, topic=None) -> list[dict[str, str]]:
     """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
     if not isinstance(xml, str) or not 1 <= limit <= MAX_RESULTS or len(xml) > MAX_RESPONSE_BYTES:
         raise WebSearchError("Ungültige RSS-Antwort.")
@@ -557,6 +557,11 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | No
             if not clock-timedelta(days=max_age_days) <= published <= clock+timedelta(minutes=10):
                 continue
         raw_link = item.findtext("link", default="")
+        # The fixed HTTPS news feed also emits HTTP *wrapper identifiers*.
+        # They are data, never a request destination. Validate the embedded
+        # public HTTPS publisher target with the same gate as HTTPS wrappers.
+        if max_age_days is not None and raw_link.startswith("http://www.bing.com/news/apiclick.aspx?"):
+            raw_link="https://"+raw_link[len("http://"):]
         url = safe_result_url(raw_link)
         if max_age_days is not None and url and urlsplit(url).hostname in ("bing.com", "www.bing.com") and urlsplit(url).path.casefold() == "/news/apiclick.aspx":
             url = direct_news_url(url)
@@ -571,6 +576,8 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | No
                     source_url = safe_result_url(source.get("url", ""))
                     if source_url:
                         row["publisher_url"] = source_url
+            if topic and not live_topic_hits([row],topic):
+                continue
             output.append(row)
             seen.add(url)
         if len(output) >= limit:
@@ -772,7 +779,7 @@ _LIVE_TOPIC_STOP = _QUERY_STOP | frozenset("""
     program aktuelle aktualisiert
 """.split())
 _LIVE_TOPIC_ALIASES = {
-    "version": ("version", "versionen", "release", "releases", "download", "downloads"),
+    "version": ("version", "versionen", "release", "releases", "released", "download", "downloads"),
     "wetter": ("wetter", "weather", "wettervorhersage", "forecast", "wetterbericht"),
     "weather": ("wetter", "weather", "forecast", "wettervorhersage"),
     "bundestag": ("bundestag", "german parliament", "federal parliament"),
@@ -885,7 +892,12 @@ def live_topic_hits(hits,query):
                            unquote(parsed.path)[:300]))
         version_subjects=_version_subjects(query)
         primary=" ".join((str(hit.get("title") or ""),unquote(parsed.path)[:300]))
-        if live_topic_matches(query,metadata) and all(_topic_group_matches(group,primary) for group in version_subjects):
+        # The product's own homepage often lists releases only in the body.
+        # Allow a read candidate only for an exact product host label.
+        host_labels=(parsed.hostname or "").split(".")
+        product_home=(bool(version_subjects) and parsed.path in ("","/")
+                      and all(any(term in host_labels[:-1] for term in group) for group in version_subjects))
+        if product_home or (live_topic_matches(query,metadata) and all(_topic_group_matches(group,primary) for group in version_subjects)):
             rows.append(hit)
     return rows
 
@@ -1086,7 +1098,7 @@ class WebSearch:
                 raw = response.read(MAX_RESPONSE_BYTES+1)
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("Nachrichten-Suchantwort überschreitet das Limit.")
-            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7,topic="News "+query)
         except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
@@ -1106,20 +1118,20 @@ class WebSearch:
                 raw = response.read(MAX_RESPONSE_BYTES+1)
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("News response too large")
-            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7,topic="News "+query)
         except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
             raise WebSearchError("Bing News RSS nicht verfügbar.") from None
 
     def _recent_news(self, query, cleaned, on_provider):
-        rows, contacted, seen = [], [], set()
+        by_url, contacted = {}, []
         def add(hit):
             if not isinstance(hit, dict) or not recent_publication(hit.get("published_at")):
                 return
             url = direct_news_url(hit.get("url"))
-            if not url or url in seen or not live_topic_hits([{**hit,"url":url}],query):
+            if not url or not live_topic_hits([{**hit,"url":url}],query):
                 return
-            seen.add(url)
-            rows.append({**hit,"url":url})
+            if url not in by_url or (hit.get("page_read") is True and not by_url[url].get("page_read")):
+                by_url[url]={**hit,"url":url}
         opaque = []
         headline_rows = []
         headline_seen = set()
@@ -1161,7 +1173,7 @@ class WebSearch:
                     continue
         # Discover the actual publisher article through the existing public
         # search endpoint. Never decode opaque aggregator IDs or assume a URL.
-        if len(rows)<3:
+        if len(by_url)<3:
             for hit in opaque[:2]:
                 publisher = urlsplit(hit["publisher_url"]).hostname or ""
                 publisher = publisher.removeprefix("www.")
@@ -1184,12 +1196,18 @@ class WebSearch:
                     if host == publisher and len(wanted & words)/len(wanted)>=0.8:
                         add({**candidate,"published_at":hit["published_at"]})
                         break
-        if len(rows)<3 and self._use_default_official_discovery and opaque:
+        if self._use_default_official_discovery and by_url:
+            from neral_news_articles import discover_publisher_articles,read_feed_article
+            direct=list(by_url.values())
+            by_url.clear()
+            for hit in discover_publisher_articles(direct,query,resolver=read_feed_article):
+                add(hit)
+        if self._use_default_official_discovery and opaque and not by_url:
             from neral_news_articles import discover_publisher_articles
             contacted.append("Public publisher pages")
             for hit in discover_publisher_articles(opaque,query):
                 add(hit)
-        if len(rows)<3 and airport_entity_codes(query):
+        if len(by_url)<3 and airport_entity_codes(query):
             discovery = self._official_discovery
             if self._use_default_official_discovery:
                 from neral_official_news import discover_official_news
@@ -1202,12 +1220,12 @@ class WebSearch:
                 except (OSError,ValueError,TypeError,RuntimeError):
                     pass
         if self._use_default_official_discovery and not any(
-                h.get("page_read") is True and h.get("article_chars",0)>=240 for h in rows):
+                h.get("page_read") is True and h.get("article_chars",0)>=240 for h in by_url.values()):
             from neral_public_news import discover_public_news
             contacted.append("GDELT DOC")
             for hit in discover_public_news(query,opener=self.opener,on_provider=on_provider):
                 add(hit)
-        rows.sort(key=lambda x:x["published_at"],reverse=True)
+        rows=sorted(by_url.values(),key=lambda x:(bool(x.get("page_read")),x["published_at"]),reverse=True)
         provider = " / ".join(contacted)
         self._record("ok" if rows else "empty",None if rows else "no_results",provider)
         return {"query":cleaned,"provider":provider,"providers_contacted":contacted,

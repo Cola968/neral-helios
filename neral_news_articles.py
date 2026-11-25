@@ -1,10 +1,11 @@
 """Read visible public publisher articles; never decode opaque news IDs or bypass access controls."""
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 import re
 from urllib.parse import urljoin, urlsplit, unquote
 import xml.etree.ElementTree as ET
-from neral_web_search import safe_result_url, airport_text_matches, recent_publication
+from neral_web_search import (airport_entity_codes, live_topic_matches, live_topic_requirements,
+                              recent_publication, safe_result_url)
 
 _STOP = frozenset("der die das den dem des ein eine und oder im in am zu zum zur auf mit für von als ist sind es an bei nach vor über aus -".split())
 _HIDDEN = {"script","style","nav","footer","aside","form","button","noscript","iframe","svg","template","head"}
@@ -60,7 +61,7 @@ class _VisibleHTML(HTMLParser):
         if tag not in _VOID:
             self.stack.append((tag,hidden,article))
         if tag=="a":
-            self.anchor=[a.get("href",""),[]]
+            self.anchor=[a.get("href",""),[],a.get("aria-label") or a.get("title","")]
         if tag=="p":
             self.paragraph=[[],any(x[2] for x in self.stack)]
 
@@ -85,14 +86,14 @@ class _VisibleHTML(HTMLParser):
 
     def handle_endtag(self,tag):
         if tag=="a" and self.anchor is not None:
-            url,parts=self.anchor
+            url,parts,label=self.anchor
             if len(self.links)<2000:
-                self.links.append((url," ".join(" ".join(parts).split())[:600]))
+                self.links.append((url,(" ".join(" ".join(parts).split()) or label)[:600]))
             self.anchor=None
         if tag=="p" and self.paragraph is not None:
             parts,main=self.paragraph
             p=" ".join(" ".join(parts).split())
-            if len(p)>=45:
+            if p and (main or len(p)>=45):
                 self.paragraphs.append(p)
                 if main:
                     self.main_paragraphs.append(p)
@@ -224,11 +225,34 @@ def _read_candidate(page,hit,query,home):
     if not url or _host(url)!=_host(home) or urlsplit(url).path in ("","/"):
         return None
     body=article_text(page.get("markup",""))
-    if not body or not _similar(body["title"],hit["title"]) or not airport_text_matches(query,body["text"]):
+    if not body or not _similar(body["title"],hit["title"]) or not live_topic_matches(query,body["text"]):
         return None
     return {**hit,"url":url,"title":body["title"][:180],"page_text":body["text"],
             "article_chars":body["article_chars"],"article_truncated":body["article_truncated"],
             "page_read":True}
+
+
+def read_feed_article(hit,query,*,fetch=None):
+    """Check a direct, dated feed link against the actual public article."""
+    from neral_public_news import article_publication_date
+    from neral_web_search import direct_news_url
+    url=direct_news_url(hit.get("url"))
+    if not url or not recent_publication(hit.get("published_at")):
+        return None
+    if fetch is None:
+        from neral_page_reader import fetch_and_extract
+        page=fetch_and_extract(url,query,include_markup=True)
+    else:
+        page=fetch(url)
+    found=_read_candidate(page,hit,query,url)
+    if not found:
+        return None
+    stamp=article_publication_date(page.get("markup",""))
+    if stamp:
+        if not recent_publication(stamp):
+            return None
+        found.update(published_at=stamp,date_origin="publisher_metadata")
+    return found
 
 def find_publisher_article(hit,query,*,fetch=None):
     if not isinstance(hit,dict) or not recent_publication(hit.get("published_at")):
@@ -242,10 +266,35 @@ def find_publisher_article(hit,query,*,fetch=None):
             return fetch_and_extract(url,query,include_markup=True)
     index=fetch(home)
     if isinstance(index,dict) and safe_result_url(index.get("url","")) and _host(index["url"])==_host(home):
-        for url in publisher_links(index.get("markup",""),index["url"],hit["title"])[:2]:
+        markup=index.get("markup","")
+        matched=publisher_links(markup,index["url"],hit["title"])[:2]
+        for url in matched:
             found=_read_candidate(fetch(url),hit,query,home)
             if found:
                 return found
+        # A different headline may cover the same topic. It must supply its
+        # own publication date; never transplant the original feed timestamp.
+        if airport_entity_codes(query) or live_topic_requirements(query):
+            from neral_public_news import article_publication_date
+            parsed=_parse(markup)
+            tried=set(matched)
+            alternatives=0
+            for href,label in parsed.links if parsed else ():
+                url=_same_public_link(index["url"],href)
+                if not url or url in tried or len(_words(label))<4 or not live_topic_matches(query,label):
+                    continue
+                alternatives+=1
+                tried.add(url)
+                page=fetch(url)
+                if isinstance(page,dict):
+                    stamp=article_publication_date(page.get("markup",""))
+                    if recent_publication(stamp):
+                        candidate={"title":label,"published_at":stamp,"date_origin":"publisher_metadata"}
+                        found=_read_candidate(page,candidate,query,home)
+                        if found:
+                            return found
+                if alternatives>=2:
+                    break
     # Use public RSS/sitemap discoveries, not guessed article URLs. A matching
     # link remains metadata until the visible article and title are checked.
     if isinstance(index,dict) and _host(index.get("url",""))==_host(home):
@@ -275,31 +324,23 @@ def find_publisher_article(hit,query,*,fetch=None):
 
 def discover_publisher_articles(hits,query,*,resolver=find_publisher_article):
     """Try up to ten candidates, four at a time, until three articles survive."""
-    import time
-    deadline=time.monotonic()+10.0
     pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix="news-publisher")
     rows=[]
     seen=set()
     try:
-        for offset in range(0,min(len(hits),10),4):
-            left=deadline-time.monotonic()
-            if left<=0 or len(rows)>=3:
-                break
-            futures=[pool.submit(resolver,hit,query) for hit in hits[offset:offset+4]]
-            done,_=wait(futures,timeout=min(5.0,left))
-            for future in futures:
-                if future not in done:
-                    future.cancel()
-                    continue
-                try:
-                    row=future.result()
-                except Exception:
-                    # Fault isolation for untrusted remote pages: one broken
-                    # publisher must not abort the other independent reads.
-                    continue
-                if isinstance(row,dict) and row.get("url") not in seen:
-                    seen.add(row["url"])
-                    rows.append(row)
+        futures={pool.submit(resolver,hit,query):rank for rank,hit in enumerate(hits[:10])}
+        for future in as_completed(futures,timeout=10):
+            try:
+                row=future.result()
+            except Exception:
+                continue  # One malformed publisher must not hide a healthy one.
+            if isinstance(row,dict) and row.get("url") and row["url"] not in seen:
+                seen.add(row["url"])
+                rows.append((futures[future],row))
+                if len(rows)==3:
+                    break
+    except TimeoutError:
+        pass
     finally:
         pool.shutdown(wait=False,cancel_futures=True)
-    return rows[:3]
+    return [row for _,row in sorted(rows)]

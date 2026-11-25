@@ -50,13 +50,36 @@ _BENCHMARK_ISOLATED = ContextVar("neral_v41_benchmark_isolated", default=False)
 _WEB_SOURCE_CONTEXT = ContextVar("neral_v43_live_web_source_context", default=None)
 
 
-def _contextual_model_turns(turns):
+def _contextual_model_turns(turns, limit=None):
     """Keep untrusted remote pages in the lower-priority user role, not system."""
     context = _WEB_SOURCE_CONTEXT.get()
+    if isinstance(context,dict):
+        from neral_v43_live_web import render_web_context
+        context=render_web_context(context,limit)
+        if not context:
+            raise ValueError("Bounded local HF context cannot fit relevant web evidence")
     if context and turns and turns[-1].get("role") == "user":
         return [*turns[:-1],
                 {**turns[-1], "content": turns[-1]["content"] + "\n\n" + context}]
     return turns
+
+
+def _encode_model_turns(tokenizer, turns, budget):
+    """Shrink only web excerpts; keep the chat, source headers and generation marker intact."""
+    if isinstance(_WEB_SOURCE_CONTEXT.get(),dict):
+        # The Windows reference prefill kernel needs substantially more VRAM
+        # than short-text decoding. Keep web prompts within the measured tier.
+        budget=min(budget,896)
+    for limit in (None,1600,800,400,200):
+        encoded=tokenizer.apply_chat_template(_contextual_model_turns(turns,limit),
+            tokenize=True,add_generation_prompt=True,enable_thinking=False)
+        if isinstance(encoded,Mapping):
+            encoded=encoded["input_ids"]
+        if type(encoded) is list and 1<=len(encoded)<=budget:
+            return encoded
+        if not isinstance(_WEB_SOURCE_CONTEXT.get(),dict):
+            break
+    raise ValueError("Bounded local HF context exceeded")
 
 
 def _public_result(result: dict) -> dict:
@@ -85,13 +108,18 @@ def _offline():
 MAX_TOTAL_GPU_USED_MIB = 10_752
 
 
-def configure_cuda_allocator_limit(torch):
+def configure_cuda_allocator_limit(torch, *, reserve_external=False):
     """Limit only the private PyTorch allocator before loading model tensors."""
-    _, total_bytes = torch.cuda.mem_get_info(0)
+    free_bytes, total_bytes = torch.cuda.mem_get_info(0)
     if total_bytes <= 0:
         raise RuntimeError("GPU memory cap needs a CUDA device")
     mib = 1024 ** 2
     limit = min(MAX_TOTAL_GPU_USED_MIB, int(total_bytes // mib))
+    if reserve_external:
+        external=max(0,total_bytes-free_bytes-torch.cuda.memory_reserved(0))
+        limit-= (external+mib-1)//mib + 384
+        if limit<=0:
+            raise RuntimeError("GPU memory cap already occupied")
     torch.cuda.set_per_process_memory_fraction(
         min(1.0, limit * mib / total_bytes), device=0)
     return limit
@@ -205,7 +233,7 @@ class FrozenQwen35HF:
              torch, self.minimum_free_mib)
         if self.effective_mib_before_load < self.minimum_free_mib:
             raise RuntimeError("Insufficient free GPU memory; no other model was stopped")
-        configure_cuda_allocator_limit(torch)
+        configure_cuda_allocator_limit(torch,reserve_external=self.model==RAW_9B)
         assert_cuda_total_used_below_cap(torch)
         if self.root is not None and not frozen_v2_full(self.root):
             raise RuntimeError("Frozen Helios adapter bytes changed")
@@ -291,13 +319,7 @@ class FrozenQwen35HF:
                 self._json_tokenizer_data = cached
             generation["prefix_allowed_tokens_fn"] = json_token_filter(cached[1], response_schema)
         import torch
-        encoded = self._tokenizer.apply_chat_template(
-            _contextual_model_turns(turns), tokenize=True, add_generation_prompt=True,
-            enable_thinking=False)
-        if isinstance(encoded, Mapping):
-            encoded = encoded["input_ids"]
-        if type(encoded) is not list or not 1 <= len(encoded) <= 4096-max_new_tokens:
-            raise ValueError("Bounded local HF context exceeded")
+        encoded = _encode_model_turns(self._tokenizer,turns,4096-max_new_tokens)
         check_deadline()
         ids = torch.tensor([encoded], dtype=torch.long, device="cuda")
         try:
@@ -2353,7 +2375,7 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy, search_serv
                         error_code="web_search_" + preloaded_web["status"],
                         web_search_status=preloaded_web["status"],
                         web_search_error=preloaded_web["error"]), 503
-                _WEB_SOURCE_CONTEXT.set(preloaded_web["context"])
+                _WEB_SOURCE_CONTEXT.set(preloaded_web.get("evidence",preloaded_web["context"]))
             from neral_local_wiki import (enabled as wiki_enabled,
                                           eligible_question, source_required,
                                           lookup_with_fallback, local_wiki_search)
