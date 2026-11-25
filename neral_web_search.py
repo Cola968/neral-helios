@@ -617,16 +617,86 @@ def topical_search_hit(hit, query):
     return False
 
 
+# Explicit airport identifiers are hard relevance anchors. The aliases
+# are query vocabulary, not evidence or assumed search results.
+_AIRPORT_ALIASES = {
+    "BER": ("Berlin Brandenburg", "Flughafen Berlin", "Berlin Airport"),
+    "FRA": ("Frankfurt am Main", "Flughafen Frankfurt", "Frankfurt Airport"),
+    "MUC": ("München", "Munich Airport", "Flughafen Muenchen"),
+    "HAM": ("Flughafen Hamburg", "Hamburg Airport"),
+    "DUS": ("Flughafen Düsseldorf", "Dusseldorf Airport", "Flughafen Duesseldorf"),
+    "LHR": ("London Heathrow", "Heathrow Airport"),
+    "JFK": ("John F Kennedy", "Kennedy Airport", "New York JFK"),
+    "CDG": ("Charles de Gaulle", "Paris CDG"),
+    "AMS": ("Amsterdam Schiphol", "Schiphol Airport"),
+    "VIE": ("Flughafen Wien", "Vienna Airport", "Wien Schwechat"),
+}
+_AIRPORT_WORD = re.compile(r"\b(?:flughafen|airport|aéroport|aeroport)\b", re.I)
+_NON_AIRPORT_CODES = frozenset(("USA", "CEO", "FAQ", "RSS", "API", "ICA"))
+
+
+def airport_entity_codes(query):
+    """Recognize known IATA codes or explicit three-letter airport labels."""
+    if not isinstance(query, str) or not _AIRPORT_WORD.search(query):
+        return ()
+    codes = []
+    for match in re.finditer(r"(?<!\w)[A-Z]{3}(?!\w)", query):
+        code = match.group()
+        if code in _NON_AIRPORT_CODES:
+            continue
+        before = query[max(0, match.start()-24):match.start()]
+        after = query[match.end():match.end()+24]
+        adjacent = re.search(r"(?:flughafen|airport|aéroport|aeroport)\s*[-:(]?\s*$", before, re.I) or re.match(r"\s*[-):]?\s*(?:flughafen|airport|aéroport|aeroport)\b", after, re.I)
+        if code in _AIRPORT_ALIASES or adjacent:
+            if code not in codes:
+                codes.append(code)
+    return tuple(codes[:3])
+
+
+def airport_text_matches(query, value, *, case_insensitive_code=False):
+    codes = airport_entity_codes(query)
+    if not codes:
+        return True
+    if not isinstance(value, str):
+        return False
+    normalized = re.sub(r"[^\w]+", " ", value.casefold())
+    for code in codes:
+        if re.search(r"(?<!\w)" + re.escape(code) + r"(?!\w)", value,
+                     re.I if case_insensitive_code else 0):
+            return True
+        for alias in _AIRPORT_ALIASES.get(code, ()):
+            if re.search(r"(?<!\w)" + re.escape(alias.casefold()) + r"(?!\w)", normalized):
+                return True
+    return False
+
+
+def airport_hit_matches(hit, query):
+    if not isinstance(hit, dict):
+        return False
+    if not airport_entity_codes(query):
+        return True
+    url = safe_result_url(hit.get("url", ""))
+    if not url:
+        return False
+    from urllib.parse import unquote
+    parsed = urlsplit(url)
+    metadata = " ".join((str(hit.get("title") or "")[:200],
+                         str(hit.get("snippet") or "")[:420]))
+    return (airport_text_matches(query, metadata)
+            or airport_text_matches(query, (parsed.hostname or "") + " " + unquote(parsed.path)[:350],
+                                    case_insensitive_code=True))
+
+
 def ranked_topic_hits(hits, query):
-    """Filter only ambiguous numbered subjects; never invent a source hit."""
+    """Filter explicit airport identifiers and ambiguous numbered subjects."""
     if not isinstance(hits, list):
         return []
+    candidates = [hit for hit in hits[:MAX_RESULTS] if airport_hit_matches(hit, query)]
     subject = numbered_query_subject(query)
     terms = search_topic_terms(query)
     if not subject or not terms:
-        return [hit for hit in hits[:MAX_RESULTS] if isinstance(hit, dict)]
-    return [hit for hit in hits[:MAX_RESULTS]
-            if topical_search_hit(hit, query)]
+        return candidates
+    return [hit for hit in candidates if topical_search_hit(hit, query)]
 
 
 def rewrite_search_query(query: str) -> str:
@@ -671,6 +741,14 @@ def rewrite_search_query(query: str) -> str:
         ]
         if keywords:
             q = " ".join(keywords[:8])
+    # Preserve the literal code and add the first known name only for an
+    # explicitly identified airport. This avoids provider guessing.
+    for code in airport_entity_codes(original):
+        aliases = _AIRPORT_ALIASES.get(code, ())
+        if code not in q.split():
+            q += " " + code
+        if aliases and aliases[0].casefold() not in q.casefold():
+            q += " " + aliases[0]
     if fresh and not re.search(r"\b(?:aktuell|2026|news)\b", q, re.I):
         q += " aktuell"
     q = " ".join(q.split())
@@ -866,6 +944,10 @@ class WebSearch:
                 raise WebSearchRateLimitError("Zu viele Websuchen. Bitte in einer Minute erneut versuchen.")
             self._hits.append(now)
         contacted = []
+        airport_focus = bool(airport_entity_codes(query))
+
+        def relevant(rows):
+            return ranked_topic_hits(rows, query) if airport_focus else rows
 
         def request_page(url: str, accept: str, expected_type: str) -> str:
             # Only fixed providers below. Never follow redirect or use proxies.
@@ -898,7 +980,7 @@ class WebSearch:
             try:
                 markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned),
                                       "text/html", "text/html")
-                results = parse_search_results(markup)
+                results = relevant(parse_search_results(markup))
                 if not results:
                     provider_error = "empty_or_parser_changed"
                 break
@@ -926,7 +1008,7 @@ class WebSearch:
             rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss&setlang=de&cc=de"
             try:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
-                results = parse_bing_rss(xml)
+                results = relevant(parse_bing_rss(xml))
                 provider = "Bing RSS"
             except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
                 bing_problem = True
@@ -936,15 +1018,15 @@ class WebSearch:
         if not results and is_fresh_news_query(cleaned):
             contacted.append("Google News RSS")
             try:
-                results=self.search_news(cleaned,on_provider=on_provider)
+                results=relevant(self.search_news(cleaned,on_provider=on_provider))
                 if results:
                     provider="Google News RSS"
             except WebSearchError:
                 results=[]
-        if not results:
+        if not results and not (airport_focus and is_fresh_news_query(cleaned)):
             contacted.append("Wikipedia DE")
             try:
-                results=self.search_wikipedia(cleaned,on_provider=on_provider)
+                results=relevant(self.search_wikipedia(cleaned,on_provider=on_provider))
                 if results:
                     provider="Wikipedia DE"
             except WebSearchError:

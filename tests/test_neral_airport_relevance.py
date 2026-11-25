@@ -1,6 +1,6 @@
 """Airport entity relevance regression: no network or GPU."""
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 
 from neral_web_search import WebSearch, ranked_topic_hits, rewrite_search_query
 from neral_v43_live_web import search_live_sources
@@ -39,7 +39,7 @@ class AirportRelevance(unittest.TestCase):
         self.assertEqual(search_live_sources(engine,QUERY,reader=reader)["status"],"ok")
 
     def test_off_topic_first_provider_triggers_bing(self):
-        engine=WebSearch(opener=Mock())
+        engine=WebSearch(opener=MagicMock())
         response=engine.opener.open.return_value.__enter__.return_value
         response.status=200
         response.headers={"Content-Type":"text/html, application/rss+xml, xml"}

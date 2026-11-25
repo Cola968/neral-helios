@@ -8,7 +8,8 @@ from __future__ import annotations
 import re
 
 from neral_local_wiki import fresh_question, source_required
-from neral_web_search import WebSearchError, WebSearchRateLimitError, safe_result_url
+from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
+                              airport_entity_codes, airport_text_matches, ranked_topic_hits)
 
 _PRIVATE = re.compile(
     r"(?i)\b(?:mein(?:e|er|en|em|es)?|unser(?:e|er|en|em|es)?|my|our|"
@@ -75,6 +76,8 @@ def search_live_sources(search, query, *, reader=None):
         hits = found.get("results", [])
         if not isinstance(hits, list):
             raise WebSearchError("invalid_results")
+        if airport_entity_codes(query):
+            hits = ranked_topic_hits(hits, query)
         pages = reader(hits[:10], query) if hits else []
         rows = []
         for page in pages[:3] if isinstance(pages, list) else []:
@@ -82,7 +85,8 @@ def search_live_sources(search, query, *, reader=None):
                 continue
             url = safe_result_url(page.get("url", ""))
             body = page.get("page_text")
-            if not url or not isinstance(body, str) or not body.strip():
+            if (not url or not isinstance(body, str) or not body.strip()
+                    or not airport_text_matches(query, body.strip()[:1100])):
                 continue
             rows.append({"url": url, "title": str(page.get("title", ""))[:120],
                          "page_read": True, "page_text": body.strip()[:1100]})
