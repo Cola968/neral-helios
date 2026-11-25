@@ -1124,15 +1124,27 @@ class WebSearch:
             raise WebSearchError("Bing News RSS nicht verfügbar.") from None
 
     def _recent_news(self, query, cleaned, on_provider):
-        rows, contacted, seen = [], [], set()
+        by_url, contacted = {}, []
+
+        def read_article(hit):
+            body = hit.get("page_text")
+            return (hit.get("page_read") is True and isinstance(body, str)
+                    and len(body.strip()) >= 240
+                    and type(hit.get("article_chars")) is int and hit["article_chars"] >= 240)
+
+        def evidence_rank(hit):
+            return (read_article(hit), hit.get("date_origin") == "publisher_metadata")
+
         def add(hit):
             if not isinstance(hit, dict) or not recent_publication(hit.get("published_at")):
                 return
             url = direct_news_url(hit.get("url"))
-            if not url or url in seen or not live_topic_hits([{**hit,"url":url}],query):
+            if not url or not live_topic_hits([{**hit,"url":url}],query):
                 return
-            seen.add(url)
-            rows.append({**hit,"url":url})
+            prior = by_url.get(url)
+            if prior is None or evidence_rank(hit) > evidence_rank(prior):
+                by_url[url] = {**hit,"url":url}
+
         opaque = []
         opaque_seen = set()
         headline_rows = []
@@ -1168,9 +1180,9 @@ class WebSearch:
         # A distinct bounded query can rescue discovery; the original
         # question still controls every relevance check. Feed headlines alone
         # do not make these direct publisher candidate slots redundant.
-        if len(rows)<3:
+        if len(by_url)<3:
             for variant in variants[1:]:
-                if len(rows)>=3:
+                if len(by_url)>=3:
                     break
                 language = ("en" if any(word in variant.casefold() for word in
                             ("artificial intelligence","german parliament","football","soccer"))
@@ -1181,7 +1193,7 @@ class WebSearch:
                     continue
         # Discover the actual publisher article through the existing public
         # search endpoint. Never decode opaque aggregator IDs or assume a URL.
-        if len(rows)<3:
+        if len(by_url)<3:
             for hit in opaque[:2]:
                 publisher = urlsplit(hit["publisher_url"]).hostname or ""
                 publisher = publisher.removeprefix("www.")
@@ -1204,12 +1216,12 @@ class WebSearch:
                     if host == publisher and len(wanted & words)/len(wanted)>=0.8:
                         add({**candidate,"published_at":hit["published_at"]})
                         break
-        if len(rows)<3 and self._use_default_official_discovery and opaque:
+        if len(by_url)<3 and self._use_default_official_discovery and opaque:
             from neral_news_articles import discover_publisher_articles
             contacted.append("Public publisher pages")
             for hit in discover_publisher_articles(opaque,query):
                 add(hit)
-        if len(rows)<3 and airport_entity_codes(query):
+        if len(by_url)<3 and airport_entity_codes(query):
             discovery = self._official_discovery
             if self._use_default_official_discovery:
                 from neral_official_news import discover_official_news
@@ -1221,13 +1233,15 @@ class WebSearch:
                         add(hit)
                 except (OSError,ValueError,TypeError,RuntimeError):
                     pass
-        if self._use_default_official_discovery and not any(
-                h.get("page_read") is True and h.get("article_chars",0)>=240 for h in rows):
+        if self._use_default_official_discovery and not any(read_article(h) for h in by_url.values()):
             from neral_public_news import discover_public_news
             contacted.append("GDELT DOC")
             for hit in discover_public_news(query,opener=self.opener,on_provider=on_provider):
                 add(hit)
-        rows.sort(key=lambda x:x["published_at"],reverse=True)
+        # Do not let a long list of newer feed candidates crowd out a source
+        # whose full visible body was already obtained during discovery.
+        rows = sorted(by_url.values(), key=lambda x: (read_article(x), x["published_at"]),
+                      reverse=True)
         provider = " / ".join(contacted)
         self._record("ok" if rows else "empty",None if rows else "no_results",provider)
         return {"query":cleaned,"provider":provider,"providers_contacted":contacted,

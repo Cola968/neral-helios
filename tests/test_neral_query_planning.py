@@ -1,6 +1,6 @@
 """Query variants preserve entities and improve multilingual discovery."""
 import unittest
-from datetime import datetime,timezone
+from datetime import datetime,timezone,timedelta
 from unittest.mock import MagicMock,patch
 from neral_web_search import news_query_variants,WebSearch
 from neral_v43_live_web import search_live_sources
@@ -49,6 +49,27 @@ class QueryPlanning(unittest.TestCase):
         with patch.object(engine, "search_bing_news", return_value=[]), patch.object(engine, "search_news", side_effect=google):
             result = engine.search(q, news_only=True)
         self.assertIn(direct["url"], [hit["url"] for hit in result["results"]])
+
+    def test_read_publisher_version_replaces_feed_duplicate_and_survives_cap(self):
+        engine = WebSearch()
+        q = "Aktuelle Nachrichten über künstliche Intelligenz"
+        now = datetime.now(timezone.utc)
+        known = {"url": "https://example.org/news/artificial-intelligence",
+                 "title": "Artificial intelligence in research", "published_at": now.isoformat()}
+        unrelated_reads = [{"url": f"https://example.org/news/artificial-intelligence-{i}",
+                            "title": f"Artificial intelligence briefing {i}", "published_at": now.isoformat()}
+                           for i in range(10)]
+        body = "Artificial intelligence is used in scientific research and requires human validation. " * 5
+        verified = {**known, "published_at": (now - timedelta(days=1)).isoformat(),
+                    "page_read": True, "page_text": body, "article_chars": len(body),
+                    "date_origin": "publisher_metadata", "article_truncated": False}
+        with patch.object(engine, "search_bing_news", return_value=[known, *unrelated_reads]), \
+                patch.object(engine, "search_news", return_value=[]), \
+                patch("neral_public_news.discover_public_news", return_value=[verified]):
+            result = search_live_sources(engine, q, reader=MagicMock(return_value=[]))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([source["url"] for source in result["sources"]], [known["url"]])
+        self.assertEqual(result["sources"][0]["date_origin"], "publisher_metadata")
 
     def test_generic_weather_intent_retains_place_and_day(self):
         from neral_web_search import live_query_variants
