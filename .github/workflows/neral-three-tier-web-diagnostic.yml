@@ -1,4 +1,4 @@
-name: NERAL article live root cause and multi-source regression
+name: NERAL public article regression and service identity preflight
 on:
   workflow_dispatch:
 permissions:
@@ -7,50 +7,57 @@ concurrency:
   group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  probe:
+  verify:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
-    timeout-minutes: 5
+    timeout-minutes: 8
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
         with:
-          path: v43-article-probe-${{ github.run_id }}
+          path: v43-article-${{ github.run_id }}
           persist-credentials: false
-      - name: Trace public HTTP response classifications only
+      - name: Read existing service identity and run new article contract
         run: |
           $ErrorActionPreference='Stop'
-          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-article-probe-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-article-'+$env:GITHUB_RUN_ID)
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          if($task){
+            Write-Host ('TASK '+(@{state=[string]$task.State;actions=@($task.Actions).Count;trigger_types=@($task.Triggers|ForEach-Object{$_.CimClass.CimClassName});known_service=([string]$task.Actions[0].Arguments -match 'Start-Neral-Three-Tier-Service.ps1')}|ConvertTo-Json -Compress))
+          }else{Write-Host 'TASK_NOT_FOUND'}
           $env:PYTHONPATH=$src
           $env:PYTHONDONTWRITEBYTECODE='1'
           Push-Location -LiteralPath $src
           try{
-            $code=@'
-          import json
-          from urllib.parse import urlsplit
-          import neral_page_reader as p
-          from neral_web_search import WebSearch,rewrite_search_query
-          from neral_news_articles import article_text,publisher_links
-          old=p._PinnedConnection.getresponse
-          def traced(self,*args,**kwargs):
-              response=old(self,*args,**kwargs)
-              print("HTTP_TRACE "+json.dumps({"host":self.host,"http":response.status,"encoding":response.getheader("Content-Encoding"),"mime":response.getheader("Content-Type"),"redirect_host":urlsplit(response.getheader("Location") or "").hostname}),flush=True)
-              return response
-          p._PinnedConnection.getresponse=traced
-          for query in ("Flughafen BER aktuelle Nachrichten","Flughafen MUC aktuelle Nachrichten"):
-              engine=WebSearch()
-              for hit in engine.search_news(rewrite_search_query(query))[:6]:
-                  home=hit.get("publisher_url")
-                  for kind,url in (("aggregator",hit["url"]),("publisher",home)):
-                      if not url:continue
-                      page=p.fetch_and_extract(url,query,include_markup=True)
-                      html=(page or {}).get("markup","")
-                      article=article_text(html)
-                      print("PROBE "+json.dumps({"query":query,"kind":kind,"host":urlsplit(url).hostname,"final_host":urlsplit((page or {}).get("url","")).hostname,"markup_chars":len(html),"text_chars":len((page or {}).get("text","")),"article_chars":(article or {}).get("article_chars",0),"matching_links":len(publisher_links(html,(page or {}).get("url",url),hit["title"])) if html else 0}),flush=True)
-          '@
-            $code | & 'D:\neral-qlora\venv\Scripts\python.exe' -B -
-            if($LASTEXITCODE -ne 0){throw 'HTTP probe failed'}
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_news_articles.py -v
-            if($LASTEXITCODE -ne 0){throw 'Multi-source regression failed'}
+            if($LASTEXITCODE -ne 0){throw 'Public article regression failed'}
+            $py='D:\neral-qlora\venv\Scripts\python.exe'
+            foreach($test in @('test_neral_feed_fallback.py','test_neral_official_news.py','test_neral_fresh_news_evidence.py','test_neral_airport_relevance.py','test_neral_web_search.py','test_neral_v43_verified_start.py')){
+              & $py -B -m unittest discover -s tests -p $test -v
+              if($LASTEXITCODE -ne 0){throw ('Regression failed '+$test)}
+            }
+            $testDeps=Join-Path $env:RUNNER_TEMP ('neral-article-tests-'+$env:GITHUB_RUN_ID)
+            & $py -B -m pip install --disable-pip-version-check --no-input --target $testDeps 'pytest==8.3.5'
+            if($LASTEXITCODE -ne 0){throw 'Isolated test deps failed'}
+            $env:PYTHONPATH=$src+';'+$testDeps
+            & $py -B -m pytest -q tests/test_neral_v43_live_web_cpu.py tests/test_neral_web_v4_cpu.py tests/test_neral_v43_reference50_live_cpu.py
+            if($LASTEXITCODE -ne 0){throw 'Web or benchmark isolation failed'}
+            & node --check static/neral-preview.js
+            if($LASTEXITCODE -ne 0){throw 'Frontend syntax failed'}
+            $code=@'
+          import json,time
+          from neral_web_search import WebSearch
+          from neral_v43_live_web import search_live_sources
+          full=0
+          for q in ("Welche aktuellen Nachrichten gibt es zum Flughafen BER?","Was gibt es Neues am Flughafen MUC?"):
+              start=time.monotonic()
+              result=search_live_sources(WebSearch(),q)
+              print("ARTICLE_LIVE "+json.dumps({"query":q,"status":result["status"],"provider":result["provider"],"sources":[{k:v for k,v in x.items() if k!="page_text"} for x in result["sources"]],"seconds":round(time.monotonic()-start,3)},ensure_ascii=True),flush=True)
+              full += int(result["status"]=="ok" and any(x.get("page_read") and x.get("article_chars",0)>=240 and not x.get("article_truncated") for x in result["sources"]))
+          print("FULL_ARTICLE_COUNT",full,flush=True)
+          assert full>=1,"No full publisher article retrieved"
+          '@
+            $code | & $py -B -
+            if($LASTEXITCODE -ne 0){throw 'Live full article acceptance failed'}
           }finally{Pop-Location}

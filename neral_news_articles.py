@@ -163,23 +163,38 @@ def find_publisher_article(hit,query,*,fetch=None):
             found=_read_candidate(fetch(url),hit,query,home)
             if found:
                 return found
+    # Follow only ordinary public HTTPS redirects. Do not submit consent
+    # forms, set consent cookies, decode opaque IDs or bypass access walls.
+    link=safe_result_url(hit.get("url",""))
+    if link and urlsplit(link).hostname=="news.google.com":
+        return _read_candidate(fetch(link),hit,query,home)
     return None
 
 def discover_publisher_articles(hits,query,*,resolver=find_publisher_article):
-    """Try at most four publishers concurrently and bound the caller's wait."""
+    """Try up to ten candidates, four at a time, until three articles survive."""
+    import time
+    deadline=time.monotonic()+10.0
     pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix="news-publisher")
-    futures=[pool.submit(resolver,hit,query) for hit in hits[:4]]
-    done,_=wait(futures,timeout=6.0)
     rows=[]
-    for future in futures:
-        if future not in done:
-            future.cancel()
-            continue
-        try:
-            row=future.result()
-        except (OSError,ValueError,TypeError,RuntimeError):
-            continue
-        if isinstance(row,dict):
-            rows.append(row)
-    pool.shutdown(wait=False,cancel_futures=True)
+    seen=set()
+    try:
+        for offset in range(0,min(len(hits),10),4):
+            left=deadline-time.monotonic()
+            if left<=0 or len(rows)>=3:
+                break
+            futures=[pool.submit(resolver,hit,query) for hit in hits[offset:offset+4]]
+            done,_=wait(futures,timeout=min(5.0,left))
+            for future in futures:
+                if future not in done:
+                    future.cancel()
+                    continue
+                try:
+                    row=future.result()
+                except (OSError,ValueError,TypeError,RuntimeError):
+                    continue
+                if isinstance(row,dict) and row.get("url") not in seen:
+                    seen.add(row["url"])
+                    rows.append(row)
+    finally:
+        pool.shutdown(wait=False,cancel_futures=True)
     return rows[:3]

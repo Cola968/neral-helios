@@ -18,6 +18,7 @@ from neral_web_search import (safe_result_url, numbered_query_subject,
 
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
+MAX_MARKUP_BYTES = 1600000
 
 
 _YEAR_CLIP_CODES = frozenset((
@@ -426,12 +427,17 @@ def _public_address(host):
 
 def fetch_and_extract(url, query="", *, include_markup=False):
     """Read one public HTTPS page, rechecking and pinning every redirect."""
-    deadline = time.monotonic() + TIMEOUT
-    for _ in range(3):
+    deadline = time.monotonic() + (6.0 if include_markup else TIMEOUT)
+    cap = MAX_MARKUP_BYTES if include_markup else MAX_BYTES
+    visited=set()
+    for _ in range(6 if include_markup else 3):
         url = safe_result_url(url)
-        if url is None:
+        if url is None or url in visited:
             return None
+        visited.add(url)
         target = urlsplit(url)
+        if target.hostname=="consent.google.com":
+            return None  # no automated consent or retry loop
         connection = None
         try:
             address = _public_address(target.hostname)
@@ -460,20 +466,22 @@ def fetch_and_extract(url, query="", *, include_markup=False):
                         encoding not in ("identity","gzip")):
                     return None
                 data = bytearray()
-                while len(data) < MAX_BYTES:
+                while len(data) <= cap:
                     left = deadline - time.monotonic()
                     if left <= 0:
                         return None
                     if sock is not None:
                         sock.settimeout(left)
-                    block = response.read1(min(32768, MAX_BYTES-len(data)))
+                    block = response.read1(min(32768, cap+1-len(data)))
                     if not block:
                         break
                     data.extend(block)
+                if len(data)>cap:
+                    return None
                 if encoding=="gzip":
                     inflater=zlib.decompressobj(16+zlib.MAX_WBITS)
-                    raw=inflater.decompress(bytes(data),MAX_BYTES+1)
-                    if len(raw)>MAX_BYTES or not inflater.eof or inflater.unconsumed_tail:
+                    raw=inflater.decompress(bytes(data),cap+1)
+                    if len(raw)>cap or not inflater.eof or inflater.unconsumed_tail:
                         return None
                     data=bytearray(raw)
                 markup = data.decode(response.headers.get_content_charset() or "utf-8", "replace")

@@ -117,9 +117,18 @@ def search_live_sources(search, query, *, reader=None):
         remaining = [h for h in hits if h not in resolved]
         pages = resolved[:3]
         if len(pages)<3 and remaining:
-            read = reader(remaining[:10],query)
-            if isinstance(read,list):
-                pages.extend(read[:3-len(pages)])
+            if news:
+                # A blocked first batch must not hide readable later hits.
+                for start in range(0,min(len(remaining),9),3):
+                    read=reader(remaining[start:start+3],query)
+                    if isinstance(read,list):
+                        pages.extend(p for p in read if isinstance(p,dict) and p.get("page_read") is True)
+                    if len(pages)>=3:
+                        break
+            else:
+                read=reader(remaining[:10],query)
+                if isinstance(read,list):
+                    pages.extend(read[:3-len(pages)])
         rows = []
         for page in pages[:3] if isinstance(pages, list) else []:
             if not isinstance(page, dict) or page.get("page_read") is not True:
