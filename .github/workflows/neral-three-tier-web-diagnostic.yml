@@ -65,3 +65,40 @@ jobs:
             $code | & $py -B -
             if($LASTEXITCODE -ne 0){throw 'Actual public search acceptance failed'}
           }finally{Pop-Location}
+      - name: Stage accepted candidate into new independent local directory
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='C:\NERAL-V43-Websearch'
+          $dest='C:\NERAL-V43-Final'
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-final-'+$env:GITHUB_RUN_ID)
+          $expected=(& git -C $src rev-parse HEAD).Trim()
+          if($expected -ne $env:GITHUB_SHA){throw 'Unexpected candidate commit'}
+          if((& git -C $old rev-parse HEAD).Trim() -ne '1e86f52f73c2521d7591ac3d8d79c5dd78041508'){throw 'Original source changed'}
+          $deps=Join-Path $old 'local_state/three-tier-web-deps'
+          if(-not(Test-Path -LiteralPath (Join-Path $deps 'waitress/__init__.py'))){throw 'Isolated waitress missing'}
+          if(Test-Path -LiteralPath $dest){throw 'Final destination already exists; preserve it'}
+          & git -C $old fetch --no-tags $src $expected
+          if($LASTEXITCODE -ne 0){throw 'Source transfer failed'}
+          & git -C $old worktree add --detach $dest $expected
+          if($LASTEXITCODE -ne 0){throw 'Final worktree creation failed'}
+          if((& git -C $dest rev-parse HEAD).Trim() -ne $expected){throw 'Final source identity mismatch'}
+          $local=Join-Path $dest 'local_state'
+          New-Item -ItemType Directory -Path $local -Force | Out-Null
+          $newDeps=Join-Path $local 'three-tier-web-deps'
+          Copy-Item -LiteralPath $deps -Destination $newDeps -Recurse
+          if(-not(Test-Path -LiteralPath (Join-Path $newDeps 'waitress/__init__.py'))){throw 'Final dependency missing'}
+          $env:PYTHONPATH=$dest+';'+$newDeps
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          Push-Location -LiteralPath $dest
+          try{
+            & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_v43_verified_start.py -v
+            if($LASTEXITCODE -ne 0){throw 'Local staged boot contract failed'}
+            Write-Host ('FINAL_STAGED_HEAD '+$expected)
+            Write-Host 'FINAL_STARTER C:\NERAL-V43-Final\Start NERAL V4.3 Web.cmd'
+          }finally{Pop-Location}
+          try{
+            $h=Invoke-RestMethod 'http://127.0.0.1:9690/health' -TimeoutSec 5
+            Write-Host ('EXISTING_SERVICE '+($h|ConvertTo-Json -Compress -Depth 5))
+          }catch{Write-Host 'EXISTING_SERVICE_UNREACHABLE'}
+          Write-Host 'NO_ACTIVE_PROCESS_OR_MODEL_CHANGES'
+

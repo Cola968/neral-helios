@@ -678,7 +678,7 @@ def topical_search_hit(hit, query):
 _AIRPORT_ALIASES = {
     "BER": ("Berlin Brandenburg", "Flughafen Berlin", "Berlin Airport"),
     "FRA": ("Frankfurt am Main", "Flughafen Frankfurt", "Frankfurt Airport"),
-    "MUC": ("München", "Munich Airport", "Flughafen Muenchen"),
+    "MUC": ("Flughafen München", "Munich Airport", "Flughafen Muenchen"),
     "HAM": ("Flughafen Hamburg", "Hamburg Airport"),
     "DUS": ("Flughafen Düsseldorf", "Dusseldorf Airport", "Flughafen Duesseldorf"),
     "LHR": ("London Heathrow", "Heathrow Airport"),

@@ -82,7 +82,7 @@ def _public_feed_headlines(found, query):
         parsed = urlsplit(url)
         if not direct_news_url(url) and not (parsed.hostname=="news.google.com" and parsed.path.startswith("/rss/articles/")):
             continue
-        if not airport_text_matches(query,title):
+        if not airport_text_matches(query,title.rsplit(" - ",1)[0]):
             continue
         seen.add(url)
         rows.append({"url":url,"title":" ".join(title.split())[:180],"published_at":stamp,

@@ -31,6 +31,18 @@ class FeedFallbackTests(unittest.TestCase):
         ]}
         self.assertEqual(search_live_sources(engine,Q,reader=Mock())["status"],"empty")
 
+    def test_city_or_publisher_name_alone_is_not_airport_evidence(self):
+        engine=Mock()
+        engine.search.return_value={"provider":"Google News RSS","results":[],"headlines":[
+            {**H,"title":"Totensonntag in München - muenchen.de"},
+            {**H,"url":H["url"]+"2","title":"München-Riem: Erinnerungen - Abendzeitung München"},
+            {**H,"url":H["url"]+"3","title":"Flughafen München erweitert Angebot - Testzeitung"},
+        ]}
+        out=search_live_sources(engine,"Was gibt es Neues am Flughafen MUC?",reader=Mock())
+        self.assertEqual(out["status"],"headlines_only")
+        self.assertEqual(len(out["sources"]),1)
+        self.assertTrue(out["sources"][0]["title"].startswith("Flughafen München"))
+
     def test_actual_flask_route_returns_feed_listing_without_model(self):
         legacy=OllamaLocalBackend("qwen3:8b")
         luna=Mock(model=LUNA,adapter_sha256=None,loaded=True)
