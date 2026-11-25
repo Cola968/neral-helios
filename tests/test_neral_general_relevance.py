@@ -12,6 +12,30 @@ def hit(title,slug,body=""):
 def page(h,body):
     return {**h,"page_read":True,"page_text":body}
 class TopicGate(unittest.TestCase):
+    def test_named_major_release_is_valid_without_a_minor_number(self):
+        from neral_web_search import live_version_evidence
+        query="Welche Version von BeispielDB ist aktuell?"
+        self.assertTrue(live_version_evidence(query,"BeispielDB 19 Released!"))
+        self.assertFalse(live_version_evidence(query,"BeispielDB hat 19 Downloads."))
+
+    def test_long_publisher_urls_keep_all_citations_within_native_budget(self):
+        from neral_three_tier_runtime import _encode_model_turns,_WEB_SOURCE_CONTEXT
+        captured=[]
+        def encode(messages,**kwargs):
+            captured.append(messages)
+            return [0]*sum(len(m["content"]) for m in messages)
+        labels=[f"[{i}] Datum und Titel" for i in (1,2,3)]
+        evidence={"intro":"Webdaten","query":"Thema","labels":labels,
+                  "pages":[("https://example.org/"+("x"*300),"Artikelinhalt. "*90) for _ in labels]}
+        token=_WEB_SOURCE_CONTEXT.set(evidence)
+        try:
+            tokens=_encode_model_turns(Mock(apply_chat_template=encode),[{"role":"user","content":"Thema?"}],896)
+        finally:
+            _WEB_SOURCE_CONTEXT.reset(token)
+        self.assertLessEqual(len(tokens),896)
+        for label in labels:
+            self.assertIn(label,captured[-1][-1]["content"])
+
     def test_9b_allocator_leaves_room_for_existing_gpu_users(self):
         from neral_three_tier_runtime import configure_cuda_allocator_limit
         torch=Mock()

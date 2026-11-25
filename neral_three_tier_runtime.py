@@ -50,14 +50,14 @@ _BENCHMARK_ISOLATED = ContextVar("neral_v41_benchmark_isolated", default=False)
 _WEB_SOURCE_CONTEXT = ContextVar("neral_v43_live_web_source_context", default=None)
 
 
-def _contextual_model_turns(turns, limit=None):
+def _contextual_model_turns(turns, limit=None, compact=False):
     """Keep untrusted remote pages in the lower-priority user role, not system."""
     context = _WEB_SOURCE_CONTEXT.get()
     if isinstance(context,dict):
         from neral_v43_live_web import render_web_context
-        context=render_web_context(context,limit)
+        context=render_web_context(context,limit,compact)
         if not context:
-            raise ValueError("Bounded local HF context cannot fit relevant web evidence")
+            return None
     if context and turns and turns[-1].get("role") == "user":
         return [*turns[:-1],
                 {**turns[-1], "content": turns[-1]["content"] + "\n\n" + context}]
@@ -70,8 +70,15 @@ def _encode_model_turns(tokenizer, turns, budget):
         # The Windows reference prefill kernel needs substantially more VRAM
         # than short-text decoding. Keep web prompts within the measured tier.
         budget=min(budget,896)
-    for limit in (None,1600,800,400,200):
-        encoded=tokenizer.apply_chat_template(_contextual_model_turns(turns,limit),
+    evidence=_WEB_SOURCE_CONTEXT.get()
+    sizes=[(None,False),(1600,False),(800,False),(400,False),(200,False)]
+    if isinstance(evidence,dict) and evidence.get("labels"):
+        sizes.extend((n,True) for n in (600,400,250,160,100))
+    for limit,compact in sizes:
+        messages=_contextual_model_turns(turns,limit,compact)
+        if messages is None:
+            continue
+        encoded=tokenizer.apply_chat_template(messages,
             tokenize=True,add_generation_prompt=True,enable_thinking=False)
         if isinstance(encoded,Mapping):
             encoded=encoded["input_ids"]

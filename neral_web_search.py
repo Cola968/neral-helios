@@ -858,6 +858,12 @@ def live_version_evidence(query,text):
         return True
     if not isinstance(text,str):
         return False
+    # Some projects publish a major version without a dotted minor number.
+    # Require release wording adjacent to it and the subject in the same line.
+    for line in text.splitlines():
+        if (all(_topic_group_matches(group,line) for group in subjects)
+                and re.search(r"(?i)\b(?:version\s+\d{1,3}\b|\d{1,3}\s+(?:released|veröffentlicht|erschienen)\b)",line)):
+            return True
     for number in re.finditer(r"(?<![\w.])\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?!\w|\.\d)",text):
         window=text[max(0,number.start()-180):number.end()+180]
         if all(_topic_group_matches(group,window) for group in subjects) and re.search(
