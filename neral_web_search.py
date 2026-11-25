@@ -1158,7 +1158,7 @@ class WebSearch:
         except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
             raise WebSearchError("Bing News RSS nicht verfügbar.") from None
 
-    def _recent_news(self, query, cleaned, on_provider):
+    def _recent_news(self, query, cleaned, on_provider, stage_counter=None):
         by_url, contacted = {}, []
 
         def read_article(hit):
@@ -1286,7 +1286,9 @@ class WebSearch:
             if callable(discovery):
                 contacted.append("Official press index")
                 try:
-                    for hit in discovery(query):
+                    official_kwargs = ({"stage_counter": stage_counter}
+                                       if self._use_default_official_discovery and stage_counter is not None else {})
+                    for hit in discovery(query, **official_kwargs):
                         add(hit)
                 except (OSError,ValueError,TypeError,RuntimeError):
                     pass
@@ -1402,7 +1404,8 @@ class WebSearch:
         except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
             raise WebSearchError("Bing RSS ist derzeit nicht erreichbar.") from None
 
-    def search(self, query: str, on_provider=None, *, news_only=False, strict_topic=False) -> dict:
+    def search(self, query: str, on_provider=None, *, news_only=False, strict_topic=False,
+               stage_counter=None) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
         if len(query.strip()) > MAX_QUERY_CHARS:
@@ -1423,7 +1426,7 @@ class WebSearch:
                 raise WebSearchRateLimitError("Zu viele Websuchen. Bitte in einer Minute erneut versuchen.")
             self._hits.append(now)
         if news_only:
-            return self._recent_news(query, cleaned, on_provider)
+            return self._recent_news(query, cleaned, on_provider, stage_counter=stage_counter)
         contacted = []
         airport_focus = bool(airport_entity_codes(query))
 

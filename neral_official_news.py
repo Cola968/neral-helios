@@ -164,7 +164,7 @@ def parse_official_atom(markup, feed_url, query, *, now=None):
     return rows
 
 
-def discover_official_news(query, *, fetch=None, now=None):
+def discover_official_news(query, *, fetch=None, now=None, stage_counter=None):
     codes=airport_entity_codes(query)
     indices = [(OFFICIAL_NEWS_INDEXES[code], False) for code in codes if code in OFFICIAL_NEWS_INDEXES]
     indices.extend((OFFICIAL_NEWS_FEEDS[code], True) for code in codes if code in OFFICIAL_NEWS_FEEDS)
@@ -176,6 +176,9 @@ def discover_official_news(query, *, fetch=None, now=None):
             return fetch_and_extract(url, "", include_markup=True)
     rows=[]
     for index, atom in indices[:2]:
+        kind = "official_atom" if atom else "official_html"
+        if stage_counter is not None:
+            stage_counter(kind + "_attempts")
         try:
             page=fetch(index)
         except (OSError,ValueError,TypeError,RuntimeError):
@@ -184,8 +187,13 @@ def discover_official_news(query, *, fetch=None, now=None):
             continue
         if urlsplit(page["url"]).hostname!=urlsplit(index).hostname:
             continue
+        markup = page.get("markup", "")
+        if stage_counter is not None and isinstance(markup, str) and markup.strip():
+            stage_counter(kind + "_bodies")
         if atom:
-            rows.extend(parse_official_atom(page.get("markup", ""), page["url"], query, now=now))
+            rows.extend(parse_official_atom(markup, page["url"], query, now=now))
         else:
-            rows.extend(parse_official_news_index(page.get("markup", ""), page["url"], now=now))
+            rows.extend(parse_official_news_index(markup, page["url"], now=now))
+    if stage_counter is not None:
+        stage_counter("official_candidates", len(live_topic_hits(rows[:10], query)))
     return rows[:10]

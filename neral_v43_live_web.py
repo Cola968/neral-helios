@@ -97,6 +97,8 @@ LIVE_STAGE_COUNT_KEYS = (
     "search_results", "topic_candidates", "eligible_candidates",
     "discovery_read_bodies", "reader_candidates", "reader_read_bodies",
     "rejected_relevance", "rejected_news_provenance", "display_only_headlines",
+    "official_html_attempts", "official_html_bodies", "official_atom_attempts",
+    "official_atom_bodies", "official_candidates",
 )
 
 
@@ -126,7 +128,8 @@ def search_live_sources(search, query, *, reader=None, include_diagnostics=False
                 from neral_page_reader import read_top_pages
                 reader = read_top_pages
         if news:
-            found=search.search(query,news_only=True)
+            kwargs = {"stage_counter": count} if include_diagnostics and isinstance(search, WebSearch) else {}
+            found=search.search(query, news_only=True, **kwargs)
         elif isinstance(search,WebSearch):
             found=search.search(query,strict_topic=True)
         else:

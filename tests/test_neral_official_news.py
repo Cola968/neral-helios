@@ -2,7 +2,8 @@
 import unittest
 from datetime import datetime,timezone
 from unittest.mock import Mock, patch
-from neral_v43_live_web import route_live_query
+from neral_v43_live_web import route_live_query, search_live_sources
+from neral_web_search import WebSearch
 from neral_official_news import parse_official_news_index, discover_official_news
 
 BASE="https://corporate.berlin-airport.de/de/unternehmen-presse/presseportal/pressemitteilungen.html"
@@ -44,6 +45,24 @@ class OfficialNewsTests(unittest.TestCase):
         self.assertEqual(rows[0]["published_at"], stamp)
         self.assertNotIn("page_text", rows[0])
         fetch.assert_called_once_with(feed)
+
+    def test_probe_separates_official_fetch_failures_from_received_feed(self):
+        engine = WebSearch()
+        feed = "https://press.example.org/feeds/civic.xml"
+        fetch = Mock(side_effect=[None, {"url": feed, "markup": '<feed xmlns="http://www.w3.org/2005/Atom"/>'}])
+        with patch("neral_official_news.OFFICIAL_NEWS_INDEXES", {"MUC": "https://press.example.org/"}), \
+                patch("neral_official_news.OFFICIAL_NEWS_FEEDS", {"MUC": feed}), \
+                patch("neral_page_reader.fetch_and_extract", fetch), \
+                patch("neral_public_news.discover_public_news", return_value=[]), \
+                patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=[]):
+            result = search_live_sources(engine, "Was gibt es Neues am Flughafen MUC?", include_diagnostics=True)
+        self.assertEqual(result["status"], "empty")
+        stages = result["stage_counts"]
+        self.assertEqual([stages[k] for k in (
+            "official_html_attempts", "official_html_bodies", "official_atom_attempts",
+            "official_atom_bodies", "official_candidates")], [1, 0, 1, 1, 0])
+        self.assertEqual(fetch.call_count, 2)
 
     def test_unknown_entity_does_not_contact_any_official_index(self):
         fetch=Mock()
