@@ -154,6 +154,32 @@ class QueryPlanning(unittest.TestCase):
         self.assertEqual([c.args[0].split(" site:")[1] for c in provider.call_args_list],
                          ["independent.example.com", "daily.example.com"])
 
+    def test_opaque_fallback_reserves_budget_for_the_entire_publisher_host(self):
+        from neral_web_search import MAX_QUERY_CHARS
+
+        engine = WebSearch(opener=MagicMock())
+        publisher = ("independent-coastal-environment-publication."
+                     "regional-research.example.com")
+        title = ("Coral reefs recovery dataset links long term observations to new results "
+                 "across protected coastal habitats")
+        stamp = datetime.now(timezone.utc).isoformat()
+        hit = {"url": "https://news.google.com/rss/articles/budget-fixture",
+               "publisher_url": f"https://{publisher}/", "title": title + " - Publisher",
+               "published_at": stamp}
+        direct = {"url": f"https://{publisher}/science/coral-reefs-report", "title": title}
+        def fallback(query, on_provider=None):
+            if query.endswith(" site:" + publisher):
+                return [{**direct, "url": "https://example.org/science/coral-reefs-report"}, direct]
+            return []
+        with patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=[hit]), \
+                patch.object(engine, "search_bing", side_effect=fallback) as provider:
+            result = engine.search("Latest news about coral reefs", news_only=True)
+        sent = provider.call_args.args[0]
+        self.assertLessEqual(len(sent), MAX_QUERY_CHARS)
+        self.assertTrue(sent.endswith(" site:" + publisher))
+        self.assertEqual([row["url"] for row in result["results"]], [direct["url"]])
+
     def test_generic_weather_intent_retains_place_and_day(self):
         from neral_web_search import live_query_variants
         variants=live_query_variants("Wie ist das Wetter morgen in Berlin?")

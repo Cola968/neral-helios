@@ -1245,15 +1245,23 @@ class WebSearch:
             for publisher, hit in opaque:
                 if attempts >= 2:
                     break
-                title = str(hit.get("title","")).rsplit(" - ",1)[0][:110]
-                if not title or not publisher:
+                title = str(hit.get("title", "")).rsplit(" - ", 1)[0]
+                host_filter = " site:" + publisher
+                budget = min(110, MAX_QUERY_CHARS - len(host_filter))
+                if not title or not publisher or budget <= 0:
                     continue
-                wanted = set(re.findall(r"[^\W_]+",title.casefold())) - _QUERY_STOP
-                if len(wanted)<3:
+                # Keep the full verified host filter, and shorten the title
+                # only at word boundaries. Do not issue a partial site query.
+                shortened = " ".join(title.split())
+                if len(shortened) > budget:
+                    shortened = shortened[:budget+1].rpartition(" ")[0]
+                wanted = set(re.findall(r"[^\W_]+", title.casefold())) - _QUERY_STOP
+                sent_terms = set(re.findall(r"[^\W_]+", shortened.casefold())) - _QUERY_STOP
+                if len(sent_terms) < 3 or len(wanted) < 3:
                     continue
                 attempts += 1
                 try:
-                    candidates = self.search_bing((title+" site:"+publisher)[:MAX_QUERY_CHARS],on_provider=on_provider)
+                    candidates = self.search_bing(shortened + host_filter, on_provider=on_provider)
                     if "Bing RSS" not in contacted:
                         contacted.append("Bing RSS")
                 except WebSearchError:
