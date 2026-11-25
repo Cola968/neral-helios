@@ -1,5 +1,6 @@
 """CPU-only boot contract: reproduce the live missing-profile state."""
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from neral_agent_autonomy import OllamaLocalBackend
@@ -39,7 +40,7 @@ class VerifiedStartTests(unittest.TestCase):
         runtime._verified_source = Mock(return_value=None)
         helios.respond_chat.return_value = "BER: Testmeldung."
         url = "https://ber.berlin-airport.de/de.html"
-        hit = {"url": url, "title": "BER Test"}
+        hit = {"url": url, "title": "BER Test", "published_at":datetime.now(timezone.utc).isoformat()}
         page = {**hit, "page_read": True, "page_text": "BER Testmeldung zur aktuellen Entwicklung."}
         with patch("neral_web_search.WebSearch.search", return_value={"provider":"fixture","results":[hit]}) as search:
             with patch("neral_page_reader.read_top_pages", return_value=[page]):

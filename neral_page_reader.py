@@ -541,6 +541,7 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
                 continue
             rows.append({
                 "url": page["url"] if page else url,
+                **({"discovered_url":url} if hit.get("published_at") else {}),
                 "title": str(hit.get("title", ""))[:160],
                 "snippet": str(hit.get("snippet", ""))[:350],
                 "page_text": (

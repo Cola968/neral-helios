@@ -1,5 +1,6 @@
 """Airport entity relevance regression: no network or GPU."""
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import Mock, MagicMock, patch
 
 from neral_web_search import WebSearch, ranked_topic_hits, rewrite_search_query
@@ -7,7 +8,7 @@ from neral_v43_live_web import search_live_sources
 
 QUERY = "Welche aktuellen Nachrichten gibt es zum Flughafen BER?"
 WRONG = {"url":"https://www.frankfurt-airport.com/de.html","title":"Flughafen Frankfurt","snippet":"Aktuelle Flugziele"}
-RIGHT = {"url":"https://ber.berlin-airport.de/de.html","title":"Flughafen Berlin Brandenburg","snippet":"Neue Entwicklung am Flughafen BER"}
+RIGHT = {"published_at":datetime.now(timezone.utc).isoformat(),"url":"https://ber.berlin-airport.de/de.html","title":"Flughafen Berlin Brandenburg","snippet":"Neue Entwicklung am Flughafen BER"}
 MUNICH = {"url":"https://www.munich-airport.de/","title":"Flughafen München","snippet":"Airport MUC"}
 
 
