@@ -1,55 +1,45 @@
-name: NERAL PR558 read-only live web result pipeline diagnostic
+name: NERAL isolated V4.3 live diagnostic
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/neral-three-tier-local-live-20261117]
-    paths: ['.github/workflows/neral-three-tier-web-diagnostic.yml']
 permissions:
   contents: read
 concurrency:
-  group: neral-pr558-web-diagnostic
+  group: neral-v43-owner-live-diagnostic
   cancel-in-progress: false
 jobs:
-  web-pipeline:
-    runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 8
+  diagnose:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 5
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Inspect live search response without modifying NERAL or model processes
+      - name: Inspect active local service without checkout or process changes
         run: |
           $ErrorActionPreference='Stop'
           $base='http://127.0.0.1:9690'
-          $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-          $homepage=Invoke-WebRequest -UseBasicParsing -Uri ($base+'/') -WebSession $session -TimeoutSec 10
-          if($homepage.StatusCode -ne 200){throw 'Local browser-compatible session could not start'}
-          $receipt=Invoke-RestMethod -Uri ($base+'/api/neral/preview/session') -WebSession $session -TimeoutSec 10
-          if($receipt.three_tier_enabled -ne $true -or -not $receipt.csrf){throw 'No authenticated browser-compatible preview session'}
-          $query='BER Berlin Brandenburg Flughafen Flugziele'
-          $headers=@{'X-Neral-CSRF'=[string]$receipt.csrf}
-          function Probe([bool]$verify) {
-            $payload=@{query=$query}
-            if($verify){$payload['verify_links']=$true}
-            $body=$payload|ConvertTo-Json -Compress
-            return Invoke-RestMethod -Method Post -Uri ($base+'/api/web/search') -WebSession $session -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 70
+          $owners=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+          foreach($ownerId in $owners){
+            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId="+$ownerId)
+            Write-Host ('OWNER '+(@{preview=($proc.CommandLine -match 'neral_preview_server');v43=($proc.CommandLine -match '--v43-profile')}|ConvertTo-Json -Compress))
           }
-          $raw=Probe $false
-          $verified=Probe $true
-          $out=@{
-            query_kind='expanded_public_ber_flight_connections'
-            raw_hits=@($raw.results).Count
-            raw_titles=@($raw.results|Select-Object -First 5|ForEach-Object {[string]$_.title})
-            verified_hits=@($verified.results).Count
-            verified_titles=@($verified.results|ForEach-Object {[string]$_.title})
-            preview_titles=@($verified.previews|ForEach-Object {[string]$_.title})
-            discovered_previews=@($verified.previews).Count
-            provider=[string]$verified.provider
-            providers_contacted=@($verified.providers_contacted)
-            previews_topical=@($verified.previews|Where-Object{$_.topically_relevant -eq $true}).Count
+          $health=Invoke-RestMethod ($base+'/health') -TimeoutSec 10
+          Write-Host ('HEALTH '+($health|ConvertTo-Json -Depth 5 -Compress))
+          $s=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          Invoke-WebRequest ($base+'/') -UseBasicParsing -WebSession $s -TimeoutSec 10 | Out-Null
+          $info=Invoke-RestMethod ($base+'/api/neral/preview/session') -WebSession $s -TimeoutSec 10
+          $status=Invoke-RestMethod ($base+'/api/neral/chat/three-tier/status') -WebSession $s -TimeoutSec 10
+          Write-Host ('PROFILE '+(@{v43=$status.v43_profile;web=$status.web_search;deep=$status.obsidian_deep}|ConvertTo-Json -Depth 6 -Compress))
+          $headers=@{'X-Neral-CSRF'=[string]$info.csrf}
+          $q='Welche aktuellen Nachrichten gibt es zum Flughafen BER?'
+          $body=@{tier='Quartz';prompt=$q;history=@();force_sandbox=$false}|ConvertTo-Json -Compress
+          try{
+            $r=Invoke-RestMethod ($base+'/api/neral/chat/three-tier') -Method Post -WebSession $s -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 100
+            Write-Host ('CHAT '+(@{status=$r.web_search_status;error=$r.error_code;provider=$r.web_search_provider;sources=@($r.web_sources|Where-Object{$_}).Count;seconds=$r.seconds;model=$r.model;verification=$r.verification_scope}|ConvertTo-Json -Compress))
+          }catch{
+            $code=if($_.Exception.Response){[int]$_.Exception.Response.StatusCode}else{0}
+            $err=$null
+            try{$err=$_.ErrorDetails.Message|ConvertFrom-Json}catch{}
+            Write-Host ('CHAT_FAILURE '+(@{http=$code;error=$err.error;error_code=$err.error_code;web_error=$err.web_search_error;web_status=$err.web_search_status}|ConvertTo-Json -Compress))
+            throw 'Live chat probe did not complete'
           }
-          Write-Host ('NERAL_PR558_WEB_DIAG_SCALAR '+($out|ConvertTo-Json -Compress -Depth 5))
-          Write-Host 'NERAL_PR558_NO_SERVICES_OR_MODELS_MODIFIED'
