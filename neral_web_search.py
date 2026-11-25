@@ -1125,21 +1125,21 @@ class WebSearch:
         headline_seen = set()
         def collect(hits,name):
             for hit in hits:
-            if not isinstance(hit, dict):
-                continue
-            link = safe_result_url(hit.get("url"))
-            if (link and link not in headline_seen and recent_publication(hit.get("published_at"))
-                    and live_topic_hits([hit],query) and str(hit.get("title","")).strip()
-                    and (direct_news_url(link) or (urlsplit(link).hostname=="news.google.com"
-                         and urlsplit(link).path.startswith("/rss/articles/")))):
-                headline_seen.add(link)
-                headline_rows.append({"url":link,"title":str(hit["title"])[:180],
-                                      "published_at":hit["published_at"],"provider":name})
-            if direct_news_url(hit.get("url")):
-                add(hit)
-            elif (live_topic_hits([hit],query) and recent_publication(hit.get("published_at"))
-                  and safe_result_url(hit.get("publisher_url",""))):
-                opaque.append(hit)
+                if not isinstance(hit, dict):
+                    continue
+                link = safe_result_url(hit.get("url"))
+                if (link and link not in headline_seen and recent_publication(hit.get("published_at"))
+                        and live_topic_hits([hit],query) and str(hit.get("title","")).strip()
+                        and (direct_news_url(link) or (urlsplit(link).hostname=="news.google.com"
+                             and urlsplit(link).path.startswith("/rss/articles/")))):
+                    headline_seen.add(link)
+                    headline_rows.append({"url":link,"title":str(hit["title"])[:180],
+                                          "published_at":hit["published_at"],"provider":name})
+                if direct_news_url(hit.get("url")):
+                    add(hit)
+                elif (live_topic_hits([hit],query) and recent_publication(hit.get("published_at"))
+                      and safe_result_url(hit.get("publisher_url",""))):
+                    opaque.append(hit)
         variants=news_query_variants(query) or [cleaned]
         primary=variants[0]
         for name, method in (("Bing News RSS",self.search_bing_news),("Google News RSS",self.search_news)):
