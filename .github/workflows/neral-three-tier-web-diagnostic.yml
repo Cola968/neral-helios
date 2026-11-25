@@ -3,7 +3,16 @@ on:
   workflow_dispatch:
   push:
     branches: [fix/v43-read-source-gate]
-    paths: [.github/workflows/neral-three-tier-web-diagnostic.yml]
+    paths:
+      - .github/workflows/neral-three-tier-web-diagnostic.yml
+      - neral_web_search.py
+      - neral_v43_live_web.py
+      - neral_public_news.py
+      - neral_news_articles.py
+      - neral_official_news.py
+      - neral_page_reader.py
+      - scripts/neral_v43_live_probe.py
+      - tests/test_neral_query_planning.py
 permissions:
   contents: read
 concurrency:

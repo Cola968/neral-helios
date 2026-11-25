@@ -937,6 +937,17 @@ def news_query_variants(query):
     return _distinct_queries([normal," ".join(english),base])
 
 
+_ENGLISH_NEWS_REQUEST = re.compile(
+    r"(?i)^\s*(?:(?:what|which|tell me|show me|give me|find|search|look up)\b|"
+    r"(?:(?:latest|recent|current|breaking)\s+)?(?:news|headlines)\b)"
+)
+
+
+def _news_request_language(query):
+    # Use the user's request framing, not incidental English subject names.
+    return "en" if _ENGLISH_NEWS_REQUEST.search(query) else "de"
+
+
 def live_query_variants(query):
     cleaned=_live_refined_query(query,rewrite_search_query(query))
     groups=list(live_topic_requirements(query))
@@ -1089,12 +1100,15 @@ class WebSearch:
         except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
-    def search_bing_news(self, query, on_provider=None):
+    def search_bing_news(self, query, on_provider=None, *, language="de"):
         if not isinstance(query, str) or not 2 <= len(query) <= MAX_QUERY_CHARS or not query.isprintable():
             raise WebSearchInputError("Ungültige Nachrichtenanfrage.")
         if on_provider is not None:
             on_provider("Bing News RSS")
-        url = BING_NEWS_ENDPOINT + "?q=" + quote_plus(news_subject(query)) + "&format=rss&setlang=de&cc=de"
+        locale = {"de": "&setlang=de&cc=de", "en": "&setlang=en&cc=us"}.get(language)
+        if locale is None:
+            raise WebSearchInputError("Ungültige Suchsprache.")
+        url = BING_NEWS_ENDPOINT + "?q=" + quote_plus(news_subject(query)) + "&format=rss" + locale
         req = Request(url, headers={"User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
                                    "Accept":"application/rss+xml, application/xml, text/xml",
                                    "Accept-Language":"de,en;q=0.8"}, method="GET")
@@ -1120,6 +1134,7 @@ class WebSearch:
             seen.add(url)
             rows.append({**hit,"url":url})
         opaque = []
+        opaque_seen = set()
         headline_rows = []
         headline_seen = set()
         def collect(hits,name):
@@ -1136,24 +1151,30 @@ class WebSearch:
                                           "published_at":hit["published_at"],"provider":name})
                 if direct_news_url(hit.get("url")):
                     add(hit)
-                elif (live_topic_hits([hit],query) and recent_publication(hit.get("published_at"))
+                elif (link and link not in opaque_seen and live_topic_hits([hit],query)
+                      and recent_publication(hit.get("published_at"))
                       and safe_result_url(hit.get("publisher_url",""))):
+                    opaque_seen.add(link)
                     opaque.append(hit)
         variants=news_query_variants(query) or [cleaned]
         primary=variants[0]
+        primary_language = _news_request_language(query)
         for name, method in (("Bing News RSS",self.search_bing_news),("Google News RSS",self.search_news)):
             contacted.append(name)
             try:
-                collect(method(primary,on_provider=on_provider),name)
+                collect(method(primary,on_provider=on_provider,language=primary_language),name)
             except WebSearchError:
                 continue
         # A distinct bounded query can rescue discovery; the original
-        # question still controls every relevance check.
-        if len(headline_rows)<3:
+        # question still controls every relevance check. Feed headlines alone
+        # do not make these direct publisher candidate slots redundant.
+        if len(rows)<3:
             for variant in variants[1:]:
-                if len(headline_rows)>=3:
+                if len(rows)>=3:
                     break
-                language="en" if any(word in variant.casefold() for word in ("artificial intelligence","german parliament","football","soccer")) else "de"
+                language = ("en" if any(word in variant.casefold() for word in
+                            ("artificial intelligence","german parliament","football","soccer"))
+                            else primary_language)
                 try:
                     collect(self.search_news(variant,on_provider=on_provider,language=language),"Google News RSS")
                 except WebSearchError:
