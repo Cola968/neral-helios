@@ -121,15 +121,16 @@ class _PublicationMeta(HTMLParser):
         if tag == "script":
             self.ld_active = False
 
-def article_publication_date(markup):
+def article_publication_provenance(markup):
+    """Return (publisher date, conflict), distinguishing absent from contradictory data."""
     if not isinstance(markup,str) or not 1<=len(markup)<=1600000:
-        return None
+        return None, False
     p=_PublicationMeta()
     try:
         p.feed(markup)
         p.close()
     except (ValueError,TypeError,AttributeError,AssertionError,RecursionError):
-        return None
+        return None, False
     dates=[]
     fields = p.values[:12]
     for script in p.scripts:
@@ -145,9 +146,15 @@ def article_publication_date(markup):
             dates.append(date.astimezone(timezone.utc))
         except (ValueError,TypeError,AttributeError):
             continue
-    if not dates or (max(dates)-min(dates)).total_seconds()>86400:
-        return None
-    return min(dates).isoformat()
+    if not dates:
+        return None, False
+    if (max(dates)-min(dates)).total_seconds()>86400:
+        return None, True
+    return min(dates).isoformat(), False
+
+def article_publication_date(markup):
+    return article_publication_provenance(markup)[0]
+
 
 def _host(url):
     return (urlsplit(url).hostname or "").removeprefix("www.")

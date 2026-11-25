@@ -1,6 +1,6 @@
 """Topic-independent publisher discovery without aggregator access."""
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from neral_news_articles import publisher_links, publisher_document_links, find_publisher_article
 from neral_v43_live_web import route_live_query
 
@@ -38,6 +38,27 @@ class GenericDiscoveryTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertTrue(result["page_read"])
         self.assertIn(P2,result["page_text"])
+
+    def test_current_feed_does_not_make_a_reposted_old_article_fresh(self):
+        def discover(date, second_date=None):
+            meta = f'<meta property="article:published_time" content="{date}">'
+            if second_date:
+                meta += f'<meta name="pubdate" content="{second_date}">'
+            def fetch(url):
+                if url == HOME:
+                    return {"url": HOME, "markup": f'<a href="{URL}">{TITLE}</a>'}
+                if url == URL:
+                    return {"url": URL, "markup": meta + ARTICLE}
+                return None
+            return find_publisher_article(HIT, "Aktuelle Nachrichten zur NASA", fetch=fetch)
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=30)).isoformat()
+        fresh = (now - timedelta(days=1)).isoformat()
+        self.assertIsNone(discover(old))
+        self.assertIsNone(discover(fresh, old))
+        result = discover(fresh)
+        self.assertEqual(result["published_at"], fresh)
+        self.assertEqual(result["date_origin"], "publisher_metadata")
 
     def test_no_fabricated_article_when_sitemap_link_wrong(self):
         def fetch(url):

@@ -223,12 +223,21 @@ def _read_candidate(page,hit,query,home):
     url=safe_result_url(page.get("url",""))
     if not url or _host(url)!=_host(home) or urlsplit(url).path in ("","/"):
         return None
-    body=article_text(page.get("markup",""))
+    markup = page.get("markup","")
+    body=article_text(markup)
     if not body or not _similar(body["title"],hit["title"]) or not airport_text_matches(query,body["text"]):
         return None
-    return {**hit,"url":url,"title":body["title"][:180],"page_text":body["text"],
-            "article_chars":body["article_chars"],"article_truncated":body["article_truncated"],
-            "page_read":True}
+    # The visible article can disprove freshness claimed by a recent feed.
+    from neral_public_news import article_publication_provenance
+    published, conflict = article_publication_provenance(markup)
+    if conflict or (published is not None and not recent_publication(published)):
+        return None
+    row = {**hit,"url":url,"title":body["title"][:180],"page_text":body["text"],
+           "article_chars":body["article_chars"],"article_truncated":body["article_truncated"],
+           "page_read":True}
+    if published is not None:
+        row.update(published_at=published, date_origin="publisher_metadata")
+    return row
 
 def find_publisher_article(hit,query,*,fetch=None):
     if not isinstance(hit,dict) or not recent_publication(hit.get("published_at")):
