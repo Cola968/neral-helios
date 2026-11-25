@@ -26,6 +26,8 @@ jobs:
           $env:PYTHONDONTWRITEBYTECODE='1'
           Push-Location -LiteralPath $src
           try{
+            & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_query_planning.py -v
+            if($LASTEXITCODE -ne 0){throw 'Query planning regression failed'}
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_public_news.py -v
             if($LASTEXITCODE -ne 0){throw 'Public news provider regression failed'}
             & node --test tests/test_neral_v43_history.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_preview_cancel_v2.cjs tests/test_neral_three_tier_ui.cjs
