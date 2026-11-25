@@ -767,9 +767,24 @@
     }
   });
 
+  function completeHistoryPairs(turns) {
+    const pairs=[];
+    let pending=null;
+    for(const turn of turns){
+      if(!turn || typeof turn.content!=="string" || !turn.content.trim()){
+        pending=null;continue;
+      }
+      if(turn.role==="user")pending={role:"user",content:turn.content};
+      else if(turn.role==="assistant"){
+        if(pending)pairs.push(pending,{role:"assistant",content:turn.content});
+        pending=null;
+      }else pending=null;
+    }
+    return pairs;
+  }
   function safeHistory() {
     // Complete user/assistant pairs only, never >2048 UTF-8 bytes per turn.
-    let history=memory.slice(-12).map(m=>{
+    let history=completeHistoryPairs(memory).slice(-12).map(m=>{
       let content=m.content;
       while(encoder.encode(content).length>1900) {
         content=content.slice(Math.max(1,Math.floor(content.length/8)));
@@ -790,7 +805,14 @@
       !/^(?:ok|okay|ja|klar|alles klar)[\s!.?,]*$/iu.test(q);
   }
   $("useWebSearch").addEventListener("change",()=>{
+    if($("useWebSearch").checked && sandboxToggle?.checked)sandboxToggle.checked=false;
     if(!$("useWebSearch").checked){lastWebQuery="";pendingWebTopic=false;}
+  });
+  sandboxToggle?.addEventListener("change",()=>{
+    if(sandboxToggle.checked){
+      $("useWebSearch").checked=false;
+      lastWebQuery="";pendingWebTopic=false;
+    }
   });
   // Conversation boundaries must not reuse search intent from another chat.
   browser.addEventListener?.("neral:chat-cleared",()=>{
@@ -1342,7 +1364,8 @@
       append(turn.role,turn.content);
       memory.push({role:turn.role,content:turn.content});
     }
-    if(memory.length>12)memory.splice(0,memory.length-12);
+    const complete=completeHistoryPairs(memory).slice(-12);
+    memory.splice(0,memory.length,...complete);
     errors.textContent="";
   });
   form.addEventListener("submit",sendMessage);

@@ -780,6 +780,8 @@ _LIVE_TOPIC_ALIASES = {
     "fussball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
     "künstliche intelligenz": ("künstliche intelligenz", "künstlicher intelligenz",
                               "künstlichen intelligenz", "artificial intelligence", "ki", "ai"),
+    "ki": ("ki", "ai", "artificial intelligence", "künstliche intelligenz"),
+    "ai": ("ai", "ki", "artificial intelligence", "künstliche intelligenz"),
 }
 _LIVE_TOPIC_COMPOUND = re.compile(r"\b(?:künstlich\w* intelligenz|artificial intelligence)\b", re.I)
 _LIVE_TOPIC_FRESH = re.compile(
@@ -821,28 +823,49 @@ def live_topic_requirements(query):
     return tuple(groups[:6])
 
 
+def _topic_group_matches(group,value):
+    if not isinstance(value,str):
+        return False
+    plain=" ".join(re.findall(r"(?u)[^\W_]+",value.casefold()))
+    for term in group:
+        term=" ".join(re.findall(r"(?u)[^\W_]+",term.casefold()))
+        if not term:
+            continue
+        suffix=r"(?:s|es|en|e|er|n)?" if len(term)>=5 and " " not in term else ""
+        if re.search(r"(?<!\w)"+re.escape(term)+suffix+r"(?!\w)",plain):
+            return True
+    return False
+
+
+def _version_subjects(query):
+    groups=live_topic_requirements(query)
+    if not any("release" in group for group in groups):
+        return ()
+    return tuple(group for group in groups if "release" not in group)
+
+
+def live_version_evidence(query,text):
+    """Do not equate a mention of a version with an actual release number."""
+    subjects=_version_subjects(query)
+    if not subjects:
+        return True
+    if not isinstance(text,str):
+        return False
+    for number in re.finditer(r"(?<![\w.])\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?![\w.])",text):
+        window=text[max(0,number.start()-180):number.end()+180]
+        if all(_topic_group_matches(group,window) for group in subjects) and re.search(
+            r"(?i)\b(?:release\w*|version\w*|download\w*|stable|latest|current|aktuell\w*|stabil\w*|neueste\w*)\b",window):
+            return True
+    return False
+
+
 def live_topic_matches(query,value):
     """All retained topic groups must appear in actual text, with synonyms."""
     if not isinstance(value,str):
         return False
     if airport_entity_codes(query):
         return airport_text_matches(query,value)
-    plain=" ".join(re.findall(r"(?u)[^\W_]+",value.casefold()))
-    for group in live_topic_requirements(query):
-        matched=False
-        for term in group:
-            term=" ".join(re.findall(r"(?u)[^\W_]+",term.casefold()))
-            if not term:
-                continue
-            # Limited inflection for longer literal words, not arbitrary
-            # substring matches (e.g. KI must not match 'Kiel').
-            suffix=r"(?:s|es|en|e|er|n)?" if len(term)>=5 and " " not in term else ""
-            if re.search(r"(?<!\w)"+re.escape(term)+suffix+r"(?!\w)",plain):
-                matched=True
-                break
-        if not matched:
-            return False
-    return True
+    return all(_topic_group_matches(group,value) for group in live_topic_requirements(query))
 
 
 def live_topic_hits(hits,query):
@@ -860,7 +883,9 @@ def live_topic_hits(hits,query):
         metadata=" ".join((str(hit.get("title") or "")[:250],
                            str(hit.get("snippet") or "")[:500],
                            unquote(parsed.path)[:300]))
-        if live_topic_matches(query,metadata):
+        version_subjects=_version_subjects(query)
+        primary=" ".join((str(hit.get("title") or ""),unquote(parsed.path)[:300]))
+        if live_topic_matches(query,metadata) and all(_topic_group_matches(group,primary) for group in version_subjects):
             rows.append(hit)
     return rows
 
@@ -1112,6 +1137,12 @@ class WebSearch:
                         add(hit)
                 except (OSError,ValueError,TypeError,RuntimeError):
                     pass
+        if self._use_default_official_discovery and not any(
+                h.get("page_read") is True and h.get("article_chars",0)>=240 for h in rows):
+            from neral_public_news import discover_public_news
+            contacted.append("GDELT DOC")
+            for hit in discover_public_news(query,opener=self.opener,on_provider=on_provider):
+                add(hit)
         rows.sort(key=lambda x:x["published_at"],reverse=True)
         provider = " / ".join(contacted)
         self._record("ok" if rows else "empty",None if rows else "no_results",provider)

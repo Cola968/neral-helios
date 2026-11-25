@@ -12,7 +12,7 @@ from neral_local_wiki import fresh_question, source_required
 from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
                               airport_entity_codes, airport_text_matches, ranked_topic_hits,
                               is_explicit_news_query, recent_publication, direct_news_url,
-                              WebSearch, live_topic_matches, live_topic_hits)
+                              WebSearch, live_topic_matches, live_topic_hits, live_version_evidence)
 
 _PRIVATE = re.compile(
     r"(?i)\b(?:mein(?:e|er|en|em|es)?|unser(?:e|er|en|em|es)?|my|our|"
@@ -136,7 +136,7 @@ def search_live_sources(search, query, *, reader=None):
                     continue
                 full=bool(news and page.get("article_chars",0)>=240)
                 excerpt=body.strip()[:8000 if full else 1100]
-                if not live_topic_matches(query,excerpt):
+                if not live_topic_matches(query,excerpt) or not live_version_evidence(query,excerpt):
                     continue
                 date=dates.get(page.get("discovered_url",url)) if news else None
                 if news and (not recent_publication(date) or not direct_news_url(url)):
