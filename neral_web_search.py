@@ -755,6 +755,133 @@ def ranked_topic_hits(hits, query):
     return [hit for hit in candidates if topical_search_hit(hit, query)]
 
 
+# Lexical topic requirements are a conservative relevance gate, not an
+# answer verifier. Preserve the user's entities; translate only vocabulary.
+_LIVE_TOPIC_STOP = _QUERY_STOP | frozenset("""
+    aktuelle aktueller aktuelles aktuellste aktuellsten neuesten neueste
+    neuesten neuigkeiten neues schlagzeilen pressemitteilungen heute gestern
+    morgen derzeit momentan jetzt breaking latest current recent today tomorrow
+    yesterday headlines this week what which is are was were the of for from
+    about with to and or on how when where tell please search find look up
+    wurde wurden werden gibt gibt es geht neues neue neuer neuen letzte letzten
+    letzter letztes nachricht news quelle quellen suche recherchiere suche
+    rund thema themen bezüglich bezueglich bezüglich über ueber informationen
+    infos entwicklungen entwicklung meldungen meldung berichten berichtet
+    stand status erfahren wissen frage fragen aktuellen neuesten aktuelle
+    deutschen deutsche deutscher deutsches german mission programm project
+    program aktuelle aktualisiert
+""".split())
+_LIVE_TOPIC_ALIASES = {
+    "version": ("version", "versionen", "release", "releases", "download", "downloads"),
+    "wetter": ("wetter", "weather", "wettervorhersage", "forecast", "wetterbericht"),
+    "weather": ("wetter", "weather", "forecast", "wettervorhersage"),
+    "bundestag": ("bundestag", "german parliament", "federal parliament"),
+    "fußball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
+    "fussball": ("fußball", "fussball", "football", "soccer", "bundesliga"),
+    "künstliche intelligenz": ("künstliche intelligenz", "künstlicher intelligenz",
+                              "künstlichen intelligenz", "artificial intelligence", "ki", "ai"),
+}
+_LIVE_TOPIC_COMPOUND = re.compile(r"\b(?:künstlich\w* intelligenz|artificial intelligence)\b", re.I)
+_LIVE_TOPIC_FRESH = re.compile(
+    r"\b(?:aktuell\w*|neuest\w*|heute|gestern|morgen|news|nachrichten|neuigkeiten|"
+    r"neues|latest|current\w*|recent\w*|today|tomorrow|yesterday|breaking|"
+    r"wetter|weather|preis\w*|kurs\w*|version\w*|ceo|präsident\w*|derzeit|jetzt|"
+    r"flugplan\w*|öffnungszeiten|leitzins|inflation)\b", re.I)
+
+
+def live_topic_requirements(query):
+    """Extract bounded AND groups of literal user topics and language aliases.
+
+    The older numbered-subject and airport rules retain their own semantics.
+    No external answer, preferred source URL, or benchmark label is embedded.
+    """
+    if not isinstance(query,str) or airport_entity_codes(query):
+        return ()
+    if not (_LIVE_TOPIC_FRESH.search(query) or is_explicit_news_query(query)):
+        return ()
+    plain=query.casefold()
+    groups=[]
+    if _LIVE_TOPIC_COMPOUND.search(plain):
+        groups.append(_LIVE_TOPIC_ALIASES["künstliche intelligenz"])
+        plain=_LIVE_TOPIC_COMPOUND.sub(" ",plain)
+    tokens=[]
+    for term in re.findall(r"(?u)[^\W_]+",plain):
+        if (len(term)<2 or term.isdigit() or term in _LIVE_TOPIC_STOP
+                or re.fullmatch(r"(?:aktuell|neuest|neuigkeit|schlagzeile|nachricht)\w*",term)):
+            continue
+        # Common request qualifiers are not separate subject entities.
+        if term in ("welche","welcher","welches","welchen","viel","hoch","mehr","neue","neues"):
+            continue
+        if term not in tokens:
+            tokens.append(term)
+    for term in tokens[:6]:
+        group=_LIVE_TOPIC_ALIASES.get(term,(term,))
+        if not any(term in g for g in groups):
+            groups.append(group)
+    return tuple(groups[:6])
+
+
+def live_topic_matches(query,value):
+    """All retained topic groups must appear in actual text, with synonyms."""
+    if not isinstance(value,str):
+        return False
+    if airport_entity_codes(query):
+        return airport_text_matches(query,value)
+    plain=" ".join(re.findall(r"(?u)[^\W_]+",value.casefold()))
+    for group in live_topic_requirements(query):
+        matched=False
+        for term in group:
+            term=" ".join(re.findall(r"(?u)[^\W_]+",term.casefold()))
+            if not term:
+                continue
+            # Limited inflection for longer literal words, not arbitrary
+            # substring matches (e.g. KI must not match 'Kiel').
+            suffix=r"(?:s|es|en|e|er|n)?" if len(term)>=5 and " " not in term else ""
+            if re.search(r"(?<!\w)"+re.escape(term)+suffix+r"(?!\w)",plain):
+                matched=True
+                break
+        if not matched:
+            return False
+    return True
+
+
+def live_topic_hits(hits,query):
+    """Filter metadata before reads. Metadata never constitutes evidence."""
+    candidates=ranked_topic_hits(hits,query)
+    if airport_entity_codes(query) or not live_topic_requirements(query):
+        return candidates
+    from urllib.parse import unquote
+    rows=[]
+    for hit in candidates:
+        url=safe_result_url(hit.get("url"))
+        if not url:
+            continue
+        parsed=urlsplit(url)
+        metadata=" ".join((str(hit.get("title") or "")[:250],
+                           str(hit.get("snippet") or "")[:500],
+                           unquote(parsed.path)[:300]))
+        if live_topic_matches(query,metadata):
+            rows.append(hit)
+    return rows
+
+
+def _live_refined_query(query,cleaned):
+    """Retain all named terms; prefer the subject before generic intent."""
+    groups=live_topic_requirements(query)
+    if not groups:
+        return cleaned
+    words=cleaned.split()
+    generic={"version","versionen","wetter","weather","preis","kurs","aktuell","news"}
+    core=[w for w in words if w.casefold() not in generic]
+    tail=[w for w in words if w.casefold() in generic]
+    if any("release" in g for g in groups):
+        tail.append("release")
+    if any("forecast" in g for g in groups):
+        tail.append("Vorhersage")
+    output=" ".join(dict.fromkeys(core+tail))
+    return output[:MAX_QUERY_CHARS].rsplit(" ",1)[0] if len(output)>MAX_QUERY_CHARS else output
+
+
 def rewrite_search_query(query: str) -> str:
     """Compress explicit search questions before any external provider request.
 
@@ -914,7 +1041,7 @@ class WebSearch:
             if not isinstance(hit, dict) or not recent_publication(hit.get("published_at")):
                 return
             url = direct_news_url(hit.get("url"))
-            if not url or url in seen or not airport_hit_matches({**hit,"url":url},query):
+            if not url or url in seen or not live_topic_hits([{**hit,"url":url}],query):
                 return
             seen.add(url)
             rows.append({**hit,"url":url})
@@ -932,7 +1059,7 @@ class WebSearch:
                     continue
                 link = safe_result_url(hit.get("url"))
                 if (link and link not in headline_seen and recent_publication(hit.get("published_at"))
-                        and airport_hit_matches(hit,query) and str(hit.get("title","")).strip()
+                        and live_topic_hits([hit],query) and str(hit.get("title","")).strip()
                         and (direct_news_url(link) or (urlsplit(link).hostname=="news.google.com"
                              and urlsplit(link).path.startswith("/rss/articles/")))):
                     headline_seen.add(link)
@@ -940,7 +1067,7 @@ class WebSearch:
                                           "published_at":hit["published_at"],"provider":name})
                 if direct_news_url(hit.get("url")):
                     add(hit)
-                elif (airport_hit_matches(hit,query) and recent_publication(hit.get("published_at"))
+                elif (live_topic_hits([hit],query) and recent_publication(hit.get("published_at"))
                       and safe_result_url(hit.get("publisher_url",""))):
                     opaque.append(hit)
         # Discover the actual publisher article through the existing public
@@ -1089,12 +1216,14 @@ class WebSearch:
         except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
             raise WebSearchError("Bing RSS ist derzeit nicht erreichbar.") from None
 
-    def search(self, query: str, on_provider=None, *, news_only=False) -> dict:
+    def search(self, query: str, on_provider=None, *, news_only=False, strict_topic=False) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
         if len(query.strip()) > MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchanfrage überschreitet das Eingabelimit.")
         cleaned = rewrite_search_query(query)
+        if strict_topic and not news_only:
+            cleaned = _live_refined_query(query,cleaned)
         if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchbegriff muss 2 bis 160 Zeichen lang sein.")
         with self._lock:
@@ -1112,6 +1241,8 @@ class WebSearch:
         airport_focus = bool(airport_entity_codes(query))
 
         def relevant(rows):
+            if strict_topic:
+                return live_topic_hits(rows,query)
             return ranked_topic_hits(rows, query) if airport_focus else rows
 
         def request_page(url: str, accept: str, expected_type: str) -> str:

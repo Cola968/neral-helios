@@ -11,7 +11,8 @@ from urllib.parse import urlsplit
 from neral_local_wiki import fresh_question, source_required
 from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
                               airport_entity_codes, airport_text_matches, ranked_topic_hits,
-                              is_explicit_news_query, recent_publication, direct_news_url)
+                              is_explicit_news_query, recent_publication, direct_news_url,
+                              WebSearch, live_topic_matches, live_topic_hits)
 
 _PRIVATE = re.compile(
     r"(?i)\b(?:mein(?:e|er|en|em|es)?|unser(?:e|er|en|em|es)?|my|our|"
@@ -70,7 +71,7 @@ def _public_feed_headlines(found, query):
     if not isinstance(candidates, list):
         return []
     rows, seen = [], set()
-    for hit in ranked_topic_hits(candidates,query):
+    for hit in live_topic_hits(candidates,query):
         url = safe_result_url(hit.get("url"))
         title = hit.get("title")
         stamp = hit.get("published_at")
@@ -82,7 +83,7 @@ def _public_feed_headlines(found, query):
         parsed = urlsplit(url)
         if not direct_news_url(url) and not (parsed.hostname=="news.google.com" and parsed.path.startswith("/rss/articles/")):
             continue
-        if not airport_text_matches(query,title.rsplit(" - ",1)[0]):
+        if not live_topic_matches(query,title.rsplit(" - ",1)[0]):
             continue
         seen.add(url)
         rows.append({"url":url,"title":" ".join(title.split())[:180],"published_at":stamp,
@@ -100,57 +101,61 @@ def search_live_sources(search, query, *, reader=None):
             from neral_page_reader import read_top_pages
             reader = read_top_pages
         news = is_explicit_news_query(query)
-        found = search.search(query, news_only=True) if news else search.search(query)
+        if news:
+            found=search.search(query,news_only=True)
+        elif isinstance(search,WebSearch):
+            found=search.search(query,strict_topic=True)
+        else:
+            found=search.search(query)
         provider = found.get("provider")
         hits = found.get("results", [])
         if not isinstance(hits, list):
             raise WebSearchError("invalid_results")
-        if airport_entity_codes(query):
-            hits = ranked_topic_hits(hits, query)
+        hits=live_topic_hits(hits,query)
         if news:
             hits = [h for h in hits if isinstance(h, dict) and direct_news_url(h.get("url")) and recent_publication(h.get("published_at"))]
         dates = {h.get("url"): h.get("published_at") for h in hits if isinstance(h, dict)} if news else {}
-        # Only publisher articles already actually fetched by the resolver can
-        # carry page_read. Ordinary discovery hits still require a page read.
+        # A page is counted only AFTER actual-body relevance and provenance.
+        # Failed, duplicate or off-topic pages do not consume the three slots.
         resolved = [h for h in hits if news and h.get("page_read") is True
                     and isinstance(h.get("page_text"),str) and h.get("article_chars",0)>=240]
         remaining = [h for h in hits if h not in resolved]
-        pages = resolved[:3]
-        if len(pages)<3 and remaining:
-            if news:
-                # A blocked first batch must not hide readable later hits.
-                for start in range(0,min(len(remaining),9),3):
-                    read=reader(remaining[start:start+3],query)
-                    if isinstance(read,list):
-                        pages.extend(p for p in read if isinstance(p,dict) and p.get("page_read") is True)
-                    if len(pages)>=3:
-                        break
-            else:
-                read=reader(remaining[:10],query)
-                if isinstance(read,list):
-                    pages.extend(read[:3-len(pages)])
-        rows = []
-        for page in pages[:3] if isinstance(pages, list) else []:
-            if not isinstance(page, dict) or page.get("page_read") is not True:
-                continue
-            url = safe_result_url(page.get("url", ""))
-            body = page.get("page_text")
-            if (not url or not isinstance(body, str) or not body.strip()
-                    or not airport_text_matches(query, body.strip()[:1100])):
-                continue
-            date = dates.get(page.get("discovered_url", url)) if news else None
-            if news and (not recent_publication(date) or not direct_news_url(url)):
-                continue
-            row = {"url": url, "title": str(page.get("title", ""))[:120],
-                   "page_read": True, "page_text": body.strip()[:1100]}
-            if news:
-                row["published_at"] = date
-                if page.get("article_chars"):
-                    row["article_chars"] = page["article_chars"]
-                    row["article_truncated"] = bool(page.get("article_truncated"))
-                    row["page_text"] = body.strip()[:8000]
-                    row["context_truncated"] = len(body.strip())>8000
-            rows.append(row)
+        rows=[]
+        seen=set()
+        def accept(pages):
+            if not isinstance(pages,list):
+                return
+            for page in pages:
+                if len(rows)>=3:
+                    break
+                if not isinstance(page,dict) or page.get("page_read") is not True:
+                    continue
+                url=safe_result_url(page.get("url",""))
+                body=page.get("page_text")
+                if not url or url in seen or not isinstance(body,str) or not body.strip():
+                    continue
+                full=bool(news and page.get("article_chars",0)>=240)
+                excerpt=body.strip()[:8000 if full else 1100]
+                if not live_topic_matches(query,excerpt):
+                    continue
+                date=dates.get(page.get("discovered_url",url)) if news else None
+                if news and (not recent_publication(date) or not direct_news_url(url)):
+                    continue
+                row={"url":url,"title":str(page.get("title",""))[:120],
+                     "page_read":True,"page_text":excerpt}
+                if news:
+                    row["published_at"]=date
+                    if full:
+                        row["article_chars"]=page["article_chars"]
+                        row["article_truncated"]=bool(page.get("article_truncated"))
+                        row["context_truncated"]=len(body.strip())>8000
+                rows.append(row)
+                seen.add(url)
+        accept(resolved)
+        for start in range(0,min(len(remaining),10),3):
+            if len(rows)>=3:
+                break
+            accept(reader(remaining[start:start+3],query))
         if not rows:
             headlines = _public_feed_headlines(found,query) if news else []
             if headlines:
