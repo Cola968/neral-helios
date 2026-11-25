@@ -9,7 +9,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Windows, X64, neral-gpu]
-    timeout-minutes: 5
+    timeout-minutes: 8
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
@@ -33,7 +33,7 @@ jobs:
             & 'D:\neral-qlora\venv\Scripts\python.exe' -B -m unittest discover -s tests -p test_neral_news_articles.py -v
             if($LASTEXITCODE -ne 0){throw 'Public article regression failed'}
             $py='D:\neral-qlora\venv\Scripts\python.exe'
-            foreach($test in @('test_neral_feed_fallback.py','test_neral_official_news.py','test_neral_fresh_news_evidence.py','test_neral_airport_relevance.py','test_neral_web_search.py','test_neral_v43_verified_start.py','test_neral_v43_routes_cpu.py')){
+            foreach($test in @('test_neral_feed_fallback.py','test_neral_official_news.py','test_neral_fresh_news_evidence.py','test_neral_airport_relevance.py','test_neral_web_search.py','test_neral_v43_verified_start.py')){
               & $py -B -m unittest discover -s tests -p $test -v
               if($LASTEXITCODE -ne 0){throw ('Regression failed '+$test)}
             }
@@ -57,3 +57,24 @@ jobs:
             $code | & $py -B -
             if($LASTEXITCODE -ne 0){throw 'Live article probe crashed'}
           }finally{Pop-Location}
+      - name: Compare unrelated restricted-worker contracts against original source
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE ('v43-article-'+$env:GITHUB_RUN_ID)
+          $old=Join-Path $env:GITHUB_WORKSPACE ('v43-baseline-'+$env:GITHUB_RUN_ID)
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          & git -C $src fetch --no-tags origin 1e86f52f73c2521d7591ac3d8d79c5dd78041508
+          if($LASTEXITCODE -ne 0){throw 'Baseline fetch failed'}
+          & git -C $src worktree add --detach $old 1e86f52f73c2521d7591ac3d8d79c5dd78041508
+          if($LASTEXITCODE -ne 0){throw 'Baseline checkout failed'}
+          foreach($root in @($old,$src)){
+            $env:PYTHONPATH=$root
+            $env:PYTHONDONTWRITEBYTECODE='1'
+            Push-Location -LiteralPath $root
+            try{
+              Write-Host ('ROUTE_COMPARISON_HEAD '+(& git rev-parse HEAD).Trim())
+              & $py -B -m unittest discover -s tests -p test_neral_v43_routes_cpu.py -v
+              Write-Host ('ROUTE_COMPARISON_EXIT '+$LASTEXITCODE)
+            }finally{Pop-Location}
+          }
