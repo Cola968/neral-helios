@@ -55,7 +55,7 @@ def route_live_query(question, *, explicit_query=None, benchmark=False,
                 or _PRIVATE.search(explicit_query) or _TASK.search(explicit_query)):
             return None
         return explicit_query.strip()
-    if (fresh_question(question) or source_required(question)
+    if (is_explicit_news_query(question) or fresh_question(question) or source_required(question)
             or _EXPLICIT.search(question) or _FACT.search(question)):
         # The search provider rewrites the natural-language question itself.
         # Never transmit unbounded history or prompt augmentation.

@@ -815,10 +815,12 @@ def rewrite_search_query(query: str) -> str:
 
 class WebSearch:
     """A bounded, explicitly requested search. No external API key needed."""
-    def __init__(self, *, opener=None, max_per_minute: int = 6):
+    def __init__(self, *, opener=None, max_per_minute: int = 6, official_discovery=None):
         if not 1 <= max_per_minute <= 60:
             raise ValueError("Ungültiges Suchlimit.")
         self.opener = opener if opener is not None else fixed_search_opener()
+        self._official_discovery = official_discovery
+        self._use_default_official_discovery = opener is None and official_discovery is None
         self.max_per_minute = max_per_minute
         self._hits = deque()
         self._lock = threading.Lock()
@@ -954,6 +956,18 @@ class WebSearch:
                     if host == publisher and len(wanted & words)/len(wanted)>=0.8:
                         add({**candidate,"published_at":hit["published_at"]})
                         break
+        if len(rows)<3 and airport_entity_codes(query):
+            discovery = self._official_discovery
+            if self._use_default_official_discovery:
+                from neral_official_news import discover_official_news
+                discovery = discover_official_news
+            if callable(discovery):
+                contacted.append("Official press index")
+                try:
+                    for hit in discovery(query):
+                        add(hit)
+                except (OSError,ValueError,TypeError,RuntimeError):
+                    pass
         rows.sort(key=lambda x:x["published_at"],reverse=True)
         provider = " / ".join(contacted)
         self._record("ok" if rows else "empty",None if rows else "no_results",provider)
