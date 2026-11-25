@@ -448,7 +448,7 @@ def fetch_and_extract(url, query="", *, include_markup=False):
             path = (target.path or "/") + ("?" + target.query if target.query else "")
             connection.request("GET", path, headers={
                 "User-Agent": "Mozilla/5.0 (compatible; NERAL-PageReader/3.0)",
-                Accept": ("text/html, application/xhtml+xml, application/rss+xml, application/atom+xml, application/xml, text/xml, text/plain" if include_markup else "text/html, application/xhtml+xml, text/plain"),
+                "Accept": ("text/html, application/xhtml+xml, application/rss+xml, application/atom+xml, application/xml, text/xml, text/plain" if include_markup else "text/html, application/xhtml+xml, text/plain"),
                 "Accept-Encoding": "gzip, identity", "Accept-Language": "de-DE,de;q=0.9,en;q=0.6",
             })
             sock = connection.sock
