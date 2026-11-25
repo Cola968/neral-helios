@@ -34,6 +34,28 @@ class PublicNews(unittest.TestCase):
         self.assertTrue(result["page_read"])
         self.assertEqual(result["published_at"],STAMP)
         self.assertIn(P2,result["page_text"])
+    def test_article_jsonld_publication_can_verify_visible_publisher_body(self):
+        article = {"@graph": [{"@type": "Organization", "datePublished": "2000-01-01"},
+                              {"@type": ["NewsArticle", "Article"], "datePublished": STAMP}]}
+        markup = html('<script type="application/ld+json">' + json.dumps(article) + '</script>')
+        hit = {"url": URL, "title": TITLE, "indexed_at": STAMP}
+        out = read_gdelt_candidate(hit, "Aktuelle Nachrichten zur NASA Artemis Mission",
+                                   fetch=lambda url: {"url": url, "markup": markup})
+        self.assertIsNotNone(out)
+        self.assertEqual(out["published_at"], STAMP)
+        self.assertIn(P1, out["page_text"])
+
+    def test_jsonld_ignores_nonarticle_and_updated_dates_and_rejects_conflicts(self):
+        def ld(value):
+            return '<script type="application/ld+json">' + json.dumps(value) + '</script>'
+        self.assertIsNone(article_publication_date(html(ld(
+            {"@type": "WebSite", "datePublished": STAMP}))))
+        self.assertIsNone(article_publication_date(html(ld(
+            {"@type": "NewsArticle", "dateModified": STAMP}))))
+        self.assertIsNone(article_publication_date(html(
+            f'<meta property="article:published_time" content="{STAMP}">' +
+            ld({"@type": "https://schema.org/NewsArticle", "datePublished": "2000-01-01"}))))
+
     def test_paywall_or_wrong_topic_does_not_count(self):
         hit={"url":URL,"title":TITLE,"indexed_at":STAMP}
         meta=f'<meta property="article:published_time" content="{STAMP}">'

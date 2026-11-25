@@ -54,17 +54,72 @@ def parse_gdelt_candidates(raw,*,now=None):
                      "indexed_at":stamp,"provider":"GDELT DOC"})
     return rows[:10]
 
+_ARTICLE_TYPES = frozenset((
+    "Article", "NewsArticle", "ReportageNewsArticle", "AnalysisNewsArticle",
+    "OpinionNewsArticle", "ReviewNewsArticle", "BackgroundNewsArticle",
+    "Report", "BlogPosting", "TechArticle",
+))
+_JSONLD_LIMIT = 65536
+
+
+def _article_dates_from_jsonld(raw):
+    """Read only declared publication metadata; never dereference the graph."""
+    try:
+        data = json.loads(raw)
+    except (ValueError, RecursionError, TypeError):
+        return []
+    dates = []
+    queue = [data]
+    for _ in range(40):
+        if not queue:
+            break
+        node = queue.pop(0)
+        if isinstance(node, list):
+            queue.extend(node[:20])
+        elif isinstance(node, dict):
+            kind = node.get("@type")
+            if isinstance(kind, str):
+                kind = [kind]
+            if isinstance(kind, list) and any(
+                isinstance(value, str) and
+                value.removeprefix("https://schema.org/").removeprefix("http://schema.org/") in _ARTICLE_TYPES
+                for value in kind[:10]
+            ):
+                stamp = node.get("datePublished")
+                if isinstance(stamp, str) and len(stamp) <= 64:
+                    dates.append(stamp)
+            graph = node.get("@graph")
+            if isinstance(graph, list):
+                queue.extend(graph[:20])
+    return dates
+
+
 class _PublicationMeta(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.values=[]
+        self.scripts=[]
+        self.ld_active=False
     def handle_starttag(self,tag,attrs):
         a={key:value or "" for key,value in attrs}
         key=(a.get("property") or a.get("name") or a.get("itemprop") or "").casefold()
+        if tag == "script":
+            self.ld_active = (len(self.scripts) < 4 and
+                              a.get("type", "").strip().casefold() == "application/ld+json")
         if tag=="meta" and key in ("article:published_time","datepublished","pubdate","publication_date","dc.date.issued","parsely-pub-date"):
             self.values.append(a.get("content",""))
         if tag=="time" and key=="datepublished":
             self.values.append(a.get("datetime",""))
+
+    def handle_data(self, data):
+        if self.ld_active:
+            if len(data) <= _JSONLD_LIMIT:
+                self.scripts.append(data)
+            self.ld_active = False
+
+    def handle_endtag(self, tag):
+        if tag == "script":
+            self.ld_active = False
 
 def article_publication_date(markup):
     if not isinstance(markup,str) or not 1<=len(markup)<=1600000:
@@ -76,7 +131,10 @@ def article_publication_date(markup):
     except (ValueError,TypeError,AttributeError,AssertionError,RecursionError):
         return None
     dates=[]
-    for value in p.values[:12]:
+    fields = p.values[:12]
+    for script in p.scripts:
+        fields.extend(_article_dates_from_jsonld(script)[:12])
+    for value in fields:
         try:
             value=value.strip()
             date=datetime.fromisoformat(value.replace("Z","+00:00"))
