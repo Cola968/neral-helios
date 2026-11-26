@@ -209,6 +209,45 @@ class QualityTests(unittest.TestCase):
                 cp.write_text('tampered')
                 with self.assertRaises(ValueError):trainer.load_bundle(bundle,sha(manifest),protected,sha(protected),1024)
 
+    def test_pre_generation_split_detects_near_copy_with_changed_family(self):
+        from scripts.neral_v44_rft_quality import audit_split
+        t,c,s,h,v=self.fixture()
+        replay=[x for x in s if x['meta']['kind']=='replay']
+        report=audit_split(t,replay,h,protected=set())
+        self.assertEqual(report['catalog_rows'],600)
+        self.assertEqual(report['holdout_rows'],60)
+        self.assertFalse(report['semantic_independence_proven'])
+        self.assertFalse(report['repairs_verified'])
+        task=next(x for x in t if x['family']=='sympy.linear_system')
+        h[0]['prompt']=task['prompt'].replace('Löse das','Bestimme die Lösung für das').replace('ganzzahligen Wert','ganzzahligen Zahlenwert')
+        with self.assertRaisesRegex(ValueError,'near-copy'):
+            audit_split(t,replay,h,protected=set())
+
+    def test_pre_generation_split_rejects_protected_replay_and_family_overlap(self):
+        from scripts.neral_v44_rft_quality import audit_split
+        t,c,s,h,v=self.fixture()
+        replay=[x for x in s if x['meta']['kind']=='replay']
+        with self.assertRaises(ValueError):
+            audit_split(t,replay,h,protected={digest(replay[0]['instruction'])})
+        h[0]['family']=replay[0]['meta']['family']
+        with self.assertRaises(ValueError):
+            audit_split(t,replay,h,protected=set())
+
+    def test_final_audit_rejects_near_copy_even_when_family_label_differs(self):
+        t,c,s,h,v=self.fixture()
+        task=next(x for x in t if x['family']=='sympy.linear_system')
+        h[0]['prompt']=task['prompt'].replace('Löse das','Bestimme die Lösung für das').replace('ganzzahligen Wert','ganzzahligen Zahlenwert')
+        with self.assertRaisesRegex(ValueError,'near-copy'):
+            audit_quality(s,h,t,c,verify=v)
+
+    def test_near_copy_checker_preserves_different_math_operations(self):
+        from scripts.neral_v44_rft_quality import near_copy
+        self.assertTrue(near_copy('Löse das Gleichungssystem 3x + y = 4; x + 5y = 8. Gib ausschließlich den ganzzahligen Wert von x an.',
+            'Bestimme die Lösung für das Gleichungssystem 7x + y = 9; x + 2y = 3. Gib ausschließlich den ganzzahligen Zahlenwert von x an.'))
+        self.assertFalse(near_copy('Berechne 21 + 34.', 'Berechne 21 * 34.'))
+        self.assertFalse(near_copy('Erkläre die Auswirkungen der Erderwärmung auf die Küstenregionen Europas.',
+            'Erkläre die Entwicklung der Luftfahrtindustrie in den vergangenen Jahrzehnten.'))
+
 class PairedEvaluationTests(unittest.TestCase):
     def fixture(self):
         from scripts.neral_v44_paired_eval import prompt_hash
