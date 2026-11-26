@@ -28,6 +28,40 @@ class TestTrain(unittest.TestCase):
         with patch.object(t.os,'name','posix'):
             with self.assertRaises(RuntimeError):t.owner_stopped()
 
+
+class TestSmokeTelemetry(unittest.TestCase):
+    def test_start_loss_is_first_microbatch_token_mean_and_duration_is_one_step(self):
+        ticks=iter([100.0,112.5])
+        m=t.SmokeTelemetry(clock=lambda:next(ticks))
+        m.begin()
+        m.record_first_loss(.75,supervised_tokens=5,normalizer=20)
+        for _ in range(9):m.substep()
+        m.end()
+        result=m.report()
+        self.assertEqual(result['start_loss'],3.0)
+        self.assertEqual(result['start_loss_definition'],'first_pre_update_microbatch_mean_supervised_token_ce')
+        self.assertEqual(result['step_duration_s'],12.5)
+        self.assertEqual(result['gradient_accumulation_microbatches'],10)
+
+    def test_missing_or_nonfinite_measurement_fails_closed(self):
+        for invalid in (float('nan'),float('inf'),-1.0):
+            m=t.SmokeTelemetry(clock=lambda:1.0);m.begin()
+            with self.assertRaises(ValueError):m.record_first_loss(invalid,1,1)
+        m=t.SmokeTelemetry(clock=lambda:1.0);m.begin()
+        with self.assertRaises(ValueError):m.record_first_loss(1.0,0,1)
+        with self.assertRaises(RuntimeError):m.report()
+
+    def test_repeated_step_and_incomplete_accumulation_are_refused(self):
+        m=t.SmokeTelemetry(clock=lambda:1.0);m.begin()
+        with self.assertRaises(RuntimeError):m.begin()
+        m.record_first_loss(1.0,1,1)
+        with self.assertRaises(RuntimeError):m.record_first_loss(1.0,1,1)
+        with self.assertRaises(RuntimeError):m.end()
+        for _ in range(9):m.substep()
+        m.end()
+        with self.assertRaises(RuntimeError):m.end()
+        with self.assertRaises(RuntimeError):m.substep()
+
 class TestDiagnosis(unittest.TestCase):
     def test_ast_diagnostic_no_text_leak(self):
         tags=d.structural_code('def f(x: int):\n    return [y for y in x]')
