@@ -78,6 +78,39 @@ class FeedFallbackTests(unittest.TestCase):
                 self.assertEqual(counts["display_only_headlines"], 1)
                 self.assertTrue(all(type(value) is int for value in counts.values()))
 
+    def test_publication_metadata_does_not_turn_short_body_into_read_article(self):
+        title = "Coral reefs survey results"
+        publisher = {**H, "url": "https://publisher.example.com/daily/observations",
+                     "title": title, "provider": "fixture"}
+        headline = {**H, "title": title}
+        engine = Mock()
+        engine.search.return_value = {"provider": "fixture", "results": [publisher],
+                                      "headlines": [headline]}
+        query = "Latest news about coral reefs"
+        short_body = "Coral reefs report."
+        long_body = ("Researchers surveyed coral reefs and counted juvenile fish "
+                     "across several coastal sites. " * 4).strip()
+
+        for body, article_chars, accepted in (
+                (short_body, None, False),
+                (short_body, 600, False),
+                (long_body, 80, False),
+                (long_body, "600", False),
+                (long_body, len(long_body), True)):
+            with self.subTest(article_chars=article_chars, accepted=accepted):
+                page = {**publisher, "page_read": True, "page_text": body,
+                        "date_origin": "publisher_metadata"}
+                if article_chars is not None:
+                    page["article_chars"] = article_chars
+                result = search_live_sources(engine, query, reader=Mock(return_value=[page]),
+                                             include_diagnostics=True)
+                self.assertEqual(result["status"], "ok" if accepted else "headlines_only")
+                self.assertEqual(result["sources"][0]["page_read"], accepted)
+                self.assertEqual(bool(result["context"]), accepted)
+                self.assertEqual(result["stage_counts"]["rejected_article_body"], int(not accepted))
+                self.assertEqual(result["sources"][0]["url"],
+                                 publisher["url"] if accepted else headline["url"])
+
     def test_actual_flask_route_returns_feed_listing_without_model(self):
         legacy=OllamaLocalBackend("qwen3:8b")
         luna=Mock(model=LUNA,adapter_sha256=None,loaded=True)

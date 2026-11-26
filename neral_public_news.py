@@ -6,6 +6,7 @@ Publication dates are read from the publisher, not inferred from indexing.
 No credentials, proxy, paywall bypass, private URL, or benchmark integration.
 """
 from datetime import datetime,timezone
+from http.client import HTTPException
 from html.parser import HTMLParser
 import json
 import re
@@ -21,10 +22,12 @@ from neral_web_search import (
 from neral_news_articles import article_text,discover_publisher_articles
 
 ENDPOINT="https://api.gdeltproject.org/api/v2/doc/doc"
+_INDEX_ROWS = 15
+_ARTICLE_CANDIDATES = 10
 _LOCK=threading.Lock()
 _LAST=None
 
-def parse_gdelt_candidates(raw,*,now=None):
+def parse_gdelt_candidates(raw, *, now=None, query=None):
     if not isinstance(raw,str) or len(raw)>MAX_RESPONSE_BYTES:
         return []
     try:
@@ -36,7 +39,7 @@ def parse_gdelt_candidates(raw,*,now=None):
         return []
     rows=[]
     seen=set()
-    for item in items[:40]:
+    for item in items[:_INDEX_ROWS]:
         if not isinstance(item,dict):
             continue
         url=direct_news_url(item.get("url"))
@@ -49,10 +52,17 @@ def parse_gdelt_candidates(raw,*,now=None):
             continue
         if not recent_publication(stamp,now=now):
             continue
+        row = {"url": url, "title": " ".join(title.split())[:240],
+               "indexed_at": stamp, "provider": "GDELT DOC"}
+        # Newer but off-topic index hits must not use the candidate budget.
+        # The shared topic filter also caps list input, so check each row.
+        if query is not None and not live_topic_hits([row], query):
+            continue
         seen.add(url)
-        rows.append({"url":url,"title":" ".join(title.split())[:240],
-                     "indexed_at":stamp,"provider":"GDELT DOC"})
-    return rows[:10]
+        rows.append(row)
+        if len(rows) == _ARTICLE_CANDIDATES:
+            break
+    return rows
 
 _ARTICLE_TYPES = frozenset((
     "Article", "NewsArticle", "ReportageNewsArticle", "AnalysisNewsArticle",
@@ -235,7 +245,7 @@ def discover_public_news(query,*,opener,on_provider=None):
         _LAST=now
     if callable(on_provider):
         on_provider("GDELT DOC")
-    url=ENDPOINT+"?query="+quote_plus(term)+"&mode=ArtList&format=json&maxrecords=15&timespan=7d&sort=DateDesc"
+    url=ENDPOINT+"?query="+quote_plus(term)+f"&mode=ArtList&format=json&maxrecords={_INDEX_ROWS}&timespan=7d&sort=DateDesc"
     try:
         request=Request(url,headers={"Accept":"application/json","User-Agent":"NERAL-Public-News/4.3"},method="GET")
         with opener.open(request,timeout=4.0) as response:
@@ -246,7 +256,7 @@ def discover_public_news(query,*,opener,on_provider=None):
             raw=response.read(MAX_RESPONSE_BYTES+1)
         if len(raw)>MAX_RESPONSE_BYTES:
             return []
-        candidates=live_topic_hits(parse_gdelt_candidates(raw.decode("utf-8",errors="replace")),query)
-    except (OSError,ValueError,TypeError,RuntimeError):
+        candidates = parse_gdelt_candidates(raw.decode("utf-8", errors="replace"), query=query)
+    except (OSError,HTTPException,ValueError,TypeError,RuntimeError):
         return []
     return discover_publisher_articles(candidates,query,resolver=read_gdelt_candidate)

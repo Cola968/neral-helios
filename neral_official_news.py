@@ -1,6 +1,7 @@
 """Optional public official news indices; discovery only, never article evidence."""
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from itertools import zip_longest
 import re
 from urllib.parse import urljoin, urlsplit
 from xml.etree import ElementTree
@@ -25,18 +26,68 @@ MONTHS = {name: i for i, names in enumerate(
     for name in names.split()}
 
 
+_ARTICLE_ITEMTYPES = {scheme + "://schema.org/" + kind
+                      for scheme in ("https", "http") for kind in ("Article", "NewsArticle")}
+
+
+class _ArticleCard:
+    """Bounded fields of one explicitly typed, non-nested publication card."""
+    def __init__(self, tag, start_row, outer_item):
+        self.tag = tag
+        self.depth = 1
+        self.start_row = start_row
+        self.outer_item = outer_item
+        self.outer_item_lengths = tuple(map(len, outer_item)) if outer_item else ()
+        self.published = None
+        self.link = None
+        self.permalink = None
+        self.ambiguous = False
+
+    def date(self, value):
+        value = value or ""
+        if self.published is not None and self.published != value:
+            self.ambiguous = True
+        self.published = value
+
+    def anchor(self, href, text, marked):
+        if href:
+            if self.link is not None and self.link != href:
+                self.ambiguous = True
+            self.link = href
+        if marked and href and text:
+            self.permalink = (href, text)
+
+
 class _Anchors(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.active = None
         self.rows = []
         self.item = None
+        self.card = None
+
+    def _row(self, url, text, published=None):
+        if len(self.rows) < 1500:
+            self.rows.append((url, text, published))
 
     def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        properties = (attrs.get("itemprop") or "").split()
+        if self.card is None:
+            if (tag in {"article", "div", "li"} and "itemscope" in attrs and
+                    attrs.get("itemtype") in _ARTICLE_ITEMTYPES and "hidden" not in attrs):
+                self.card = _ArticleCard(tag, len(self.rows), self.item)
+        else:
+            self.card.depth += tag == self.card.tag
+            if "itemscope" in attrs:
+                self.card.ambiguous = True
+        if self.card is not None and "datePublished" in properties:
+            machine_attr = {"time": "datetime", "meta": "content"}.get(tag)
+            self.card.date(attrs.get(machine_attr) if machine_attr else None)
         if tag == "li" and self.item is None:
             self.item = [[], []]
         if tag == "a":
-            self.active = [dict(attrs).get("href",""), []]
+            self.active = [attrs.get("href", ""), [], "url" in properties]
 
     def handle_data(self, data):
         if self.active is not None:
@@ -45,20 +96,58 @@ class _Anchors(HTMLParser):
             self.item[0].append(data)
 
     def handle_endtag(self, tag):
+        card = self.card
         if tag == "a" and self.active is not None:
-            url, parts = self.active
+            url, parts, marked = self.active
             text = " ".join(" ".join(parts).split())[:1000]
-            if len(self.rows)<1500:
-                self.rows.append((url,text))
+            self._row(url, text)
             if self.item is not None:
                 self.item[1].append((url,text))
+            if card is not None:
+                card.anchor(url, text, marked)
             self.active = None
         if tag == "li" and self.item is not None:
             parts, links = self.item
             unique = set(url for url,_ in links if url)
-            if len(unique)==1 and len(self.rows)<1500:
-                self.rows.append((next(iter(unique))," ".join(" ".join(parts).split())[:1000]))
+            if len(unique)==1:
+                self._row(next(iter(unique)), " ".join(" ".join(parts).split())[:1000])
             self.item = None
+        if card is not None and tag == card.tag:
+            card.depth -= 1
+            if not card.depth:
+                self._finish_card()
+
+    def _finish_card(self, *, complete=True):
+        card = self.card
+        self.card = None
+        if card.published is None:
+            return
+        # An explicit date in the card controls its own candidates. Never
+        # backfill an invalid or conflicting publication with a rendered date.
+        del self.rows[card.start_row:]
+        self.item = card.outer_item
+        for parts, length in zip(self.item or (), card.outer_item_lengths):
+            del parts[length:]
+        if complete and not card.ambiguous and self.active is None and card.permalink:
+            self._row(*card.permalink, card.published)
+        self.active = None
+
+    def close(self):
+        super().close()
+        if self.card is not None:
+            self._finish_card(complete=False)
+
+
+def _machine_publication(value):
+    if re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}", value):
+        return _date_parts(*value.split("-"))
+    if not re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}"
+                        r"(?::[0-9]{2}(?:\.[0-9]{1,6})?)?(?:Z|[+-][0-9]{2}:[0-5][0-9])", value):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _date_parts(year,month,day):
@@ -80,7 +169,8 @@ def _first_date(text):
     return None
 
 
-def parse_official_news_index(markup, base_url, *, now=None):
+def parse_official_news_index(markup, base_url, *, now=None, query=None):
+    """Keep at most ten recent same-host candidates, with topic filtering first."""
     if not isinstance(markup,str) or len(markup)>800000 or not safe_result_url(base_url):
         return []
     parser = _Anchors()
@@ -88,10 +178,13 @@ def parse_official_news_index(markup, base_url, *, now=None):
     parser.close()
     host = urlsplit(base_url).hostname
     rows = {}
-    for href,text in parser.rows:
+    for href,text,declared in parser.rows:
         if not href or not text:
             continue
-        url = safe_result_url(urljoin(base_url,href))
+        try:
+            url = safe_result_url(urljoin(base_url,href))
+        except ValueError:
+            continue
         if not url or url==base_url:
             continue
         p=urlsplit(url)
@@ -106,10 +199,19 @@ def parse_official_news_index(markup, base_url, *, now=None):
             continue
         if path_date and visible and path_date!=visible:
             continue
-        stamp=path_date or visible
+        if declared is not None:
+            stamp = _machine_publication(declared)
+            if not stamp or (path_date and path_date.date() != stamp.date()):
+                continue
+        else:
+            stamp=path_date or visible
         if not stamp or not recent_publication(stamp.isoformat(),now=now):
             continue
         row={"url":url,"title":text[:180],"snippet":text[:350],"published_at":stamp.isoformat(),"date_origin":"official_index"}
+        # Out-of-topic releases must not consume the publisher's ten slots.
+        # Check individually because the shared relevance filter also caps its input.
+        if query is not None and not live_topic_hits([row], query):
+            continue
         if url not in rows or len(row["title"])>len(rows[url]["title"]):
             rows[url]=row
     return sorted(rows.values(),key=lambda row:(row["published_at"],row["url"]),reverse=True)[:10]
@@ -173,8 +275,11 @@ def discover_official_news(query, *, fetch=None, now=None, stage_counter=None):
     if fetch is None:
         from neral_page_reader import fetch_and_extract
         def fetch(url):
-            return fetch_and_extract(url, "", include_markup=True)
-    rows=[]
+            options = ({"on_failure": lambda category: stage_counter("official_fetch_" + category)}
+                       if stage_counter is not None else {})
+            return fetch_and_extract(url, "", include_markup=True, **options)
+    by_index = []
+    seen_urls = set()
     for index, atom in indices[:2]:
         kind = "official_atom" if atom else "official_html"
         if stage_counter is not None:
@@ -191,9 +296,19 @@ def discover_official_news(query, *, fetch=None, now=None, stage_counter=None):
         if stage_counter is not None and isinstance(markup, str) and markup.strip():
             stage_counter(kind + "_bodies")
         if atom:
-            rows.extend(parse_official_atom(markup, page["url"], query, now=now))
+            candidates = parse_official_atom(markup, page["url"], query, now=now)
         else:
-            rows.extend(parse_official_news_index(markup, page["url"], now=now))
+            candidates = parse_official_news_index(markup, page["url"], now=now, query=query)
+        unique = []
+        for row in candidates:
+            # Keep the first configured index's provenance for shared URLs.
+            if row["url"] not in seen_urls:
+                seen_urls.add(row["url"])
+                unique.append(row)
+        by_index.append(unique)
+    # Keep each index's ranking while preventing the first index from taking
+    # all ten slots before the second can contribute a distinct candidate.
+    rows = [row for group in zip_longest(*by_index) for row in group if row is not None][:10]
     if stage_counter is not None:
-        stage_counter("official_candidates", len(live_topic_hits(rows[:10], query)))
-    return rows[:10]
+        stage_counter("official_candidates", len(live_topic_hits(rows, query)))
+    return rows

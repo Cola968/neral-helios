@@ -18,6 +18,31 @@ CASES = (
 )
 
 
+def _failure_stage(status, counts):
+    """Name the last observed boundary without inferring a transport cause."""
+    status_stages = {
+        "isolation_failed": "benchmark_isolation_failed",
+        "not_routed": "not_routed",
+        "unavailable": "lookup_unavailable",
+        "timeout": "lookup_timeout",
+        "rate_limited": "lookup_rate_limited",
+    }
+    if status in status_stages:
+        return status_stages[status]
+    if counts.get("reader_read_bodies", 0) or counts.get("discovery_read_bodies", 0):
+        return "body_not_accepted"
+    if (counts.get("reader_candidates", 0) and counts.get("reader_read_bodies") == 0
+            and counts.get("discovery_read_bodies") == 0):
+        return "reader_no_usable_body"
+    if counts.get("search_results") == 0:
+        return "no_article_candidates"
+    if counts.get("topic_candidates") == 0:
+        return "no_topic_candidates"
+    if counts.get("eligible_candidates") == 0:
+        return "no_eligible_candidates"
+    return "stage_not_measured"
+
+
 def evaluate_case(category, question, route, lookup):
     start = time.monotonic()
     benchmark_blocked = route(question, benchmark=True) is None
@@ -51,6 +76,8 @@ def evaluate_case(category, question, route, lookup):
             key: counts[key] for key in LIVE_STAGE_COUNT_KEYS
             if type(counts.get(key)) is int and counts[key] >= 0
         }
+    if not row["passed"]:
+        row["failure_stage"] = _failure_stage(row["status"], row.get("stage_counts", {}))
     return row
 
 

@@ -427,25 +427,32 @@ def _public_address(host):
     return next((a for a in addresses if ':' not in a), addresses[0])
 
 
-def fetch_and_extract(url, query="", *, include_markup=False):
+def fetch_and_extract(url, query="", *, include_markup=False, on_failure=None):
     """Read one public HTTPS page, rechecking and pinning every redirect."""
+    def fail(category):
+        if on_failure is not None:
+            on_failure(category)
+        return None
+
     deadline = time.monotonic() + (6.0 if include_markup else TIMEOUT)
     cap = MAX_MARKUP_BYTES if include_markup else MAX_BYTES
     visited=set()
     for _ in range(6 if include_markup else 3):
         url = safe_result_url(url)
         if url is None or url in visited:
-            return None
+            return fail("policy_body")
         visited.add(url)
         target = urlsplit(url)
         if target.hostname=="consent.google.com":
-            return None  # no automated consent or retry loop
+            return fail("policy_body")  # no automated consent or retry loop
         connection = None
+        phase = "address"
         try:
             address = _public_address(target.hostname)
+            phase = "network"
             left = deadline - time.monotonic()
             if left <= 0:
-                return None
+                return fail("timeout")
             connection = _PinnedConnection(target.hostname, address, min(CONNECT_TIMEOUT, left))
             path = (target.path or "/") + ("?" + target.query if target.query else "")
             connection.request("GET", path, headers={
@@ -458,35 +465,39 @@ def fetch_and_extract(url, query="", *, include_markup=False):
                 if response.status in {301, 302, 303, 307, 308}:
                     location = response.getheader("Location")
                     if not location:
-                        return None
+                        return fail("policy_body")
                     url = urljoin(url, location)
                     continue
+                if response.status != 200:
+                    return fail("http")
+                phase = "policy_body"
                 media = response.headers.get_content_type()
                 encoding=response.getheader("Content-Encoding","identity").lower().strip()
                 allowed_media={"text/html","application/xhtml+xml","text/plain"}
                 if include_markup:
                     allowed_media.update({"application/rss+xml","application/atom+xml","application/xml","text/xml"})
-                if (response.status != 200 or media not in allowed_media or
-                        encoding not in ("identity","gzip")):
-                    return None
+                if media not in allowed_media or encoding not in ("identity","gzip"):
+                    return fail("policy_body")
                 data = bytearray()
+                phase = "network"
                 while len(data) <= cap:
                     left = deadline - time.monotonic()
                     if left <= 0:
-                        return None
+                        return fail("timeout")
                     if sock is not None:
                         sock.settimeout(left)
                     block = response.read1(min(32768, cap+1-len(data)))
                     if not block:
                         break
                     data.extend(block)
+                phase = "policy_body"
                 if len(data)>cap:
-                    return None
+                    return fail("policy_body")
                 if encoding=="gzip":
                     inflater=zlib.decompressobj(16+zlib.MAX_WBITS)
                     raw=inflater.decompress(bytes(data),cap+1)
                     if len(raw)>cap or not inflater.eof or inflater.unconsumed_tail:
-                        return None
+                        return fail("policy_body")
                     data=bytearray(raw)
                 markup = data.decode(response.headers.get_content_charset() or "utf-8", "replace")
             parser = MainText()
@@ -499,14 +510,16 @@ def fetch_and_extract(url, query="", *, include_markup=False):
             result = {"url": url, "text": text, "year_clip_code": parser.year_clip_code}
             if include_markup:
                 result["markup"] = markup
-            return result if text.strip() or include_markup else None
+            return result if text.strip() or include_markup else fail("policy_body")
+        except TimeoutError:
+            return fail("timeout")
         except (OSError, ValueError, LookupError, http.client.HTTPException, zlib.error,
                 AttributeError, AssertionError, RecursionError, TypeError):
-            return None
+            return fail(phase)
         finally:
             if connection is not None:
                 connection.close()
-    return None
+    return fail("policy_body")
 
 
 def read_top_pages(hits, query, *, fetch=fetch_and_extract,

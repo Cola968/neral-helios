@@ -9,7 +9,9 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from http.client import HTTPException
 from html.parser import HTMLParser
+from itertools import islice
 from html import unescape
 from xml.etree import ElementTree
 from ipaddress import ip_address
@@ -870,10 +872,28 @@ def live_topic_matches(query,value):
     return all(_topic_group_matches(group,value) for group in live_topic_requirements(query))
 
 
+_WEBB_FULL_NAME = re.compile(r"\bjames[\s-]+webb[\s-]+space[\s-]+telescope\b", re.I)
+_WEBB_NAME_GROUPS = frozenset(("james", "webb", "space", "telescope"))
+
+
+def _official_webb_headline(query, parsed, title, metadata, groups):
+    """Only mission-dedicated publisher pages may resolve the bare short name."""
+    if (not _WEBB_FULL_NAME.search(query) or not re.search(r"\bwebb\b", title, re.I)
+            or not is_explicit_news_query(query)):
+        return False
+    is_mission_page = (
+        (parsed.hostname in {"esawebb.org", "www.esawebb.org"} and parsed.path.startswith("/news/"))
+        or (parsed.hostname == "science.nasa.gov" and parsed.path.startswith("/missions/webb/"))
+    )
+    return (is_mission_page and all(_topic_group_matches(group, metadata) for group in groups
+                                    if len(group) != 1 or group[0] not in _WEBB_NAME_GROUPS))
+
+
 def live_topic_hits(hits,query):
     """Filter metadata before reads. Metadata never constitutes evidence."""
     candidates=ranked_topic_hits(hits,query)
-    if airport_entity_codes(query) or not live_topic_requirements(query):
+    groups = live_topic_requirements(query)
+    if airport_entity_codes(query) or not groups:
         return candidates
     from urllib.parse import unquote
     rows=[]
@@ -882,12 +902,15 @@ def live_topic_hits(hits,query):
         if not url:
             continue
         parsed=urlsplit(url)
-        metadata=" ".join((str(hit.get("title") or "")[:250],
+        title = str(hit.get("title") or "")[:250]
+        metadata=" ".join((title,
                            str(hit.get("snippet") or "")[:500],
                            unquote(parsed.path)[:300]))
         version_subjects=_version_subjects(query)
         primary=" ".join((str(hit.get("title") or ""),unquote(parsed.path)[:300]))
-        if live_topic_matches(query,metadata) and all(_topic_group_matches(group,primary) for group in version_subjects):
+        subject_matches = (all(_topic_group_matches(group, metadata) for group in groups)
+                           or _official_webb_headline(query, parsed, title, metadata, groups))
+        if subject_matches and all(_topic_group_matches(group, primary) for group in version_subjects):
             rows.append(hit)
     return rows
 
@@ -1132,7 +1155,7 @@ class WebSearch:
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("Nachrichten-Suchantwort überschreitet das Limit.")
             return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
-        except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
+        except (HTTPError,URLError,TimeoutError,OSError,HTTPException,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
     def search_bing_news(self, query, on_provider=None, *, language="de"):
@@ -1155,8 +1178,43 @@ class WebSearch:
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("News response too large")
             return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
-        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+        except (HTTPError, URLError, TimeoutError, OSError, HTTPException, WebSearchError):
             raise WebSearchError("Bing News RSS nicht verfügbar.") from None
+
+    def _official_news_candidates(self, query, *, stage_counter=None):
+        """Return None when this query has no configured official discovery."""
+        if not airport_entity_codes(query):
+            return None
+        discovery = self._official_discovery
+        if self._use_default_official_discovery:
+            from neral_official_news import discover_official_news
+            discovery = discover_official_news
+        if not callable(discovery):
+            return None
+        try:
+            kwargs = ({"stage_counter": stage_counter}
+                      if self._use_default_official_discovery and stage_counter is not None else {})
+            candidates = discovery(query, **kwargs)
+            return list(islice(candidates, MAX_RESULTS)) if candidates is not None else []
+        except (OSError, ValueError, TypeError, RuntimeError):
+            return []
+
+    def _recover_official_news(self, query, found, *, stage_counter=None):
+        """Try the same official route once when candidate count hid it."""
+        contacted = found.get("providers_contacted")
+        if (not isinstance(contacted, list) or
+                not all(isinstance(name, str) for name in contacted) or
+                "Official press index" in contacted):
+            return []
+        candidates = self._official_news_candidates(query, stage_counter=stage_counter)
+        if candidates is None:
+            return []
+        found["providers_contacted"] = [*contacted, "Official press index"]
+        found["provider"] = " / ".join(found["providers_contacted"])
+        # Only the evidence stage may set the final read status.
+        with self._lock:
+            self._last_provider = found["provider"]
+        return candidates
 
     def _recent_news(self, query, cleaned, on_provider, stage_counter=None):
         by_url, contacted = {}, []
@@ -1197,7 +1255,7 @@ class WebSearch:
                     headline_rows.append({"url":link,"title":str(hit["title"])[:180],
                                           "published_at":hit["published_at"],"provider":name})
                 if direct_news_url(hit.get("url")):
-                    add(hit)
+                    add({**hit,"date_origin":"feed"})
                 elif (link and link not in opaque_seen and live_topic_hits([hit],query)
                       and recent_publication(hit.get("published_at"))):
                     publisher_url = safe_result_url(hit.get("publisher_url", ""))
@@ -1241,9 +1299,9 @@ class WebSearch:
         # Discover the actual publisher article through the existing public
         # search endpoint. Never decode opaque aggregator IDs or assume a URL.
         if len(by_url)<3:
-            attempts = 0
+            issued_queries = set()
             for publisher, hit in opaque:
-                if attempts >= 2:
+                if len(issued_queries) >= 2:
                     break
                 title = str(hit.get("title", "")).rsplit(" - ", 1)[0]
                 host_filter = " site:" + publisher
@@ -1259,9 +1317,14 @@ class WebSearch:
                 sent_terms = set(re.findall(r"[^\W_]+", shortened.casefold())) - _QUERY_STOP
                 if len(sent_terms) < 3 or len(wanted) < 3:
                     continue
-                attempts += 1
+                targeted_query = shortened + host_filter
+                # Distinct opaque RSS IDs or edition labels can lead to the
+                # exact same lookup. Keep the second slot for a new query.
+                if targeted_query in issued_queries:
+                    continue
+                issued_queries.add(targeted_query)
                 try:
-                    candidates = self.search_bing(shortened + host_filter, on_provider=on_provider)
+                    candidates = self.search_bing(targeted_query, on_provider=on_provider)
                     if "Bing RSS" not in contacted:
                         contacted.append("Bing RSS")
                 except WebSearchError:
@@ -1271,27 +1334,24 @@ class WebSearch:
                     host = (urlsplit(url).hostname or "").removeprefix("www.") if url else ""
                     words = set(re.findall(r"[^\W_]+",str(candidate.get("title","")).casefold()))
                     if host == publisher and len(wanted & words)/len(wanted)>=0.8:
-                        add({**candidate,"published_at":hit["published_at"]})
+                        # The lookup supplies only the permalink; the date
+                        # still comes from the original aggregator feed row.
+                        add({**candidate,"published_at":hit["published_at"],"date_origin":"feed"})
                         break
         if len(by_url)<3 and self._use_default_official_discovery and opaque:
             from neral_news_articles import discover_publisher_articles
             contacted.append("Public publisher pages")
             for hit in discover_publisher_articles([hit for _, hit in opaque],query):
+                if isinstance(hit, dict) and hit.get("date_origin") != "publisher_metadata":
+                    # The publisher's article was read, but only the RSS row supplied its date.
+                    hit = {**hit, "date_origin": "feed"}
                 add(hit)
-        if len(by_url)<3 and airport_entity_codes(query):
-            discovery = self._official_discovery
-            if self._use_default_official_discovery:
-                from neral_official_news import discover_official_news
-                discovery = discover_official_news
-            if callable(discovery):
+        if len(by_url)<3:
+            official = self._official_news_candidates(query, stage_counter=stage_counter)
+            if official is not None:
                 contacted.append("Official press index")
-                try:
-                    official_kwargs = ({"stage_counter": stage_counter}
-                                       if self._use_default_official_discovery and stage_counter is not None else {})
-                    for hit in discovery(query, **official_kwargs):
-                        add(hit)
-                except (OSError,ValueError,TypeError,RuntimeError):
-                    pass
+                for hit in official:
+                    add(hit)
         if self._use_default_official_discovery and not any(read_article(h) for h in by_url.values()):
             from neral_public_news import discover_public_news
             contacted.append("GDELT DOC")
@@ -1343,7 +1403,8 @@ class WebSearch:
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("Referenzsuche überschreitet das Limit.")
             payload=json.loads(raw)
-            found=payload.get("query",{}).get("search",[])
+            container = payload.get("query") if isinstance(payload, dict) else None
+            found = container.get("search") if isinstance(container, dict) else None
             if not isinstance(found,list):
                 raise WebSearchError("Ungültige Referenzsuchantwort.")
             output=[]
@@ -1366,8 +1427,8 @@ class WebSearch:
                 if len(output)>=MAX_RESULTS:
                     break
             return output
-        except (HTTPError,URLError,TimeoutError,OSError,WebSearchError,
-                ValueError,TypeError,KeyError,UnicodeError):
+        except (HTTPError, URLError, TimeoutError, OSError, HTTPException, WebSearchError,
+                ValueError, TypeError, KeyError, UnicodeError):
             raise WebSearchError("Wikipedia-Referenzsuche derzeit nicht verfügbar.") from None
 
     def search_bing(self, query: str, on_provider=None) -> list[dict[str, str]]:
@@ -1401,7 +1462,7 @@ class WebSearch:
             if len(raw) > MAX_RESPONSE_BYTES:
                 raise WebSearchError("Suchanbieter-Antwort überschreitet das Limit.")
             return parse_bing_rss(raw.decode("utf-8", errors="replace"))
-        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+        except (HTTPError, URLError, TimeoutError, OSError, HTTPException, WebSearchError):
             raise WebSearchError("Bing RSS ist derzeit nicht erreichbar.") from None
 
     def search(self, query: str, on_provider=None, *, news_only=False, strict_topic=False,
@@ -1470,7 +1531,7 @@ class WebSearch:
                 if not results:
                     provider_error = "empty_or_parser_changed"
                 break
-            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
+            except (HTTPError, URLError, TimeoutError, OSError, HTTPException, WebSearchError) as exc:
                 if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
                     self._record("unavailable", "response_too_large", "DuckDuckGo HTML")
                     raise  # Oversized responses are a hard failure.
@@ -1496,7 +1557,7 @@ class WebSearch:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
                 results = relevant(parse_bing_rss(xml))
                 provider = "Bing RSS"
-            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
+            except (HTTPError, URLError, TimeoutError, OSError, HTTPException, WebSearchError) as exc:
                 bing_problem = True
                 if isinstance(exc, HTTPError) and exc.code in (202, 429):
                     provider_error = "upstream_rate_limit" if exc.code == 429 else "upstream_accepted"

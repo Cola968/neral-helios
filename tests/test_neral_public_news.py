@@ -1,7 +1,11 @@
 """Public news index is discovery only; publication must come from the article."""
 import unittest,json
 from datetime import datetime,timezone,timedelta
+from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import parse_qs, urlsplit
 from neral_public_news import parse_gdelt_candidates, article_publication_date, read_gdelt_candidate
+from neral_v43_live_web import search_live_sources
+from neral_web_search import WebSearch
 
 NOW=datetime.now(timezone.utc)
 STAMP=NOW.isoformat()
@@ -23,6 +27,59 @@ class PublicNews(unittest.TestCase):
         self.assertEqual(rows[0]["url"],URL)
         self.assertIn("indexed_at",rows[0])
         self.assertNotIn("published_at",rows[0])
+    def test_gdelt_keeps_topic_candidates_beyond_first_ten_without_extra_requests(self):
+        query = "Latest news about coral reefs"
+        title = "Coral reefs survey results"
+        candidate = "https://publisher.example.org/environment/reef-survey"
+        beyond_limit = "https://publisher.example.org/environment/reef-beyond-limit"
+        rows = [
+            {"url": f"https://publisher.example.org/civic/roadworks-{i}",
+             "title": f"Council schedules road repairs {i}", "seendate": SEEN}
+            for i in range(15)
+        ]
+        rows[11] = {"url": candidate, "title": title, "seendate": SEEN}
+        rows.append({"url": beyond_limit, "title": title, "seendate": SEEN})
+        response = MagicMock(status=200, headers={"Content-Type": "application/json"})
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps({"articles": rows}).encode()
+        paragraphs = (
+            "<p>Researchers monitoring coral reefs published a new set of observations. "
+            "Their field teams surveyed reef habitats and recorded changes in local conditions.</p>"
+            "<p>The coral reefs survey describes which sites were monitored and how the results were verified. "
+            "The research team published a table of observations alongside the article.</p>"
+        )
+        markup = (f'<meta property="article:published_time" content="{STAMP}">'
+                  f"<article><h1>{title}</h1>{paragraphs}</article>")
+        engine = WebSearch()
+        engine.opener = Mock(open=Mock(return_value=response))
+        with patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=[]), \
+                patch("neral_public_news._LAST", None), \
+                patch("neral_page_reader.fetch_and_extract", return_value={"url": candidate, "markup": markup}) as fetch:
+            result = search_live_sources(engine, query, include_diagnostics=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([row["url"] for row in result["sources"]], [candidate])
+        self.assertEqual(result["sources"][0]["published_at"], STAMP)
+        self.assertEqual(result["sources"][0]["date_origin"], "publisher_metadata")
+        self.assertEqual(result["stage_counts"]["discovery_read_bodies"], 1)
+        fetch.assert_called_once_with(candidate, query, include_markup=True)
+        engine.opener.open.assert_called_once()
+        request = engine.opener.open.call_args.args[0]
+        self.assertEqual(parse_qs(urlsplit(request.full_url).query)["maxrecords"], ["15"])
+
+    def test_gdelt_topic_filter_keeps_original_order_and_ten_candidate_cap(self):
+        relevant = [
+            {"url": f"https://publisher.example.org/environment/reef-{i}",
+             "title": f"Coral reefs survey results {i}", "seendate": SEEN}
+            for i in range(13)
+        ]
+        # An earlier off-topic representation of a URL may not consume it.
+        unrelated = {**relevant[0], "title": "Council schedules road repairs"}
+        rows = parse_gdelt_candidates(json.dumps({"articles": [unrelated, *relevant]}),
+                                     now=NOW, query="Latest news about coral reefs")
+        self.assertEqual([row["url"] for row in rows], [row["url"] for row in relevant[:10]])
+        self.assertTrue(all("published_at" not in row for row in rows))
+
     def test_publication_metadata_not_modification(self):
         self.assertEqual(article_publication_date(html(f'<meta property="article:published_time" content="{STAMP}">')),STAMP)
         self.assertIsNone(article_publication_date(html(f'<meta property="article:modified_time" content="{STAMP}">')))

@@ -9,10 +9,12 @@ import re
 from urllib.parse import urlsplit
 
 from neral_local_wiki import fresh_question, source_required
+from neral_news_articles import MIN_VISIBLE_ARTICLE_CHARS
 from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
                               airport_entity_codes, airport_text_matches, ranked_topic_hits,
                               is_explicit_news_query, recent_publication, direct_news_url,
-                              WebSearch, live_topic_matches, live_topic_hits, live_version_evidence)
+                              WebSearch, live_topic_matches, live_topic_hits, live_version_evidence,
+                              MAX_RESULTS)
 
 _PRIVATE = re.compile(
     r"(?i)\b(?:mein(?:e|er|en|em|es)?|unser(?:e|er|en|em|es)?|my|our|"
@@ -96,15 +98,46 @@ def _public_feed_headlines(found, query):
 LIVE_STAGE_COUNT_KEYS = (
     "search_results", "topic_candidates", "eligible_candidates",
     "discovery_read_bodies", "reader_candidates", "reader_read_bodies",
-    "rejected_relevance", "rejected_news_provenance", "display_only_headlines",
+    "rejected_relevance", "rejected_news_provenance", "rejected_article_body",
+    "display_only_headlines",
     "official_html_attempts", "official_html_bodies", "official_atom_attempts",
     "official_atom_bodies", "official_candidates",
+    "official_fetch_address", "official_fetch_timeout", "official_fetch_http",
+    "official_fetch_network", "official_fetch_policy_body",
 )
 
 
+_NEWS_DATE_LABELS = {
+    "publisher_metadata": "Artikel-Veröffentlichung",
+    "official_index": "Veröffentlichung laut offizieller Übersicht",
+    "official_feed": "Veröffentlichung laut offiziellem Feed",
+    "feed": "Veröffentlichung laut Nachrichtenfeed",
+    "unknown": "Veröffentlichungsdatum (Herkunft nicht ausgewiesen)",
+}
+
+
+def _discovery_date_origin(hit):
+    # Original article metadata is credited only when the reader returned it.
+    origin = hit.get("date_origin")
+    return origin if origin in ("official_index", "official_feed", "feed") else "unknown"
+
+
+def _has_article_body(page):
+    text = page.get("page_text")
+    chars = page.get("article_chars")
+    return (type(chars) is int and chars >= MIN_VISIBLE_ARTICLE_CHARS
+            and isinstance(text, str) and len(text.strip()) >= MIN_VISIBLE_ARTICLE_CHARS)
+
+
 def search_live_sources(search, query, *, reader=None, include_diagnostics=False):
-    """Read actual HTTPS pages BEFORE model generation (no snippet-only answers)."""
+    """Read actual HTTPS pages BEFORE model generation (no snippet-only answers).
+
+    Opt-in diagnostics for news about multiple explicit airports report only
+    identifiers or known aliases in accepted body excerpts, not answer completeness.
+    """
     stage_counts = dict.fromkeys(LIVE_STAGE_COUNT_KEYS, 0) if include_diagnostics else None
+    coverage_queries = {}
+    observed_airports = set()
 
     def count(key, amount=1):
         if stage_counts is not None:
@@ -113,6 +146,13 @@ def search_live_sources(search, query, *, reader=None, include_diagnostics=False
     def finish(result):
         if stage_counts is not None:
             result["stage_counts"] = stage_counts
+            if coverage_queries:
+                observed = observed_airports if result.get("status") == "ok" else set()
+                result["airport_coverage"] = {
+                    "requested": list(coverage_queries),
+                    "observed_in_accepted_bodies": [code for code in coverage_queries if code in observed],
+                    "not_observed": [code for code in coverage_queries if code not in observed],
+                }
         return result
 
     if search is None:
@@ -120,6 +160,12 @@ def search_live_sources(search, query, *, reader=None, include_diagnostics=False
                 "sources": [], "context": "", "provider": None})
     try:
         news = is_explicit_news_query(query)
+        if news and include_diagnostics:
+            codes = airport_entity_codes(query)
+            if len(codes) > 1:
+                # The existing relevance matcher succeeds for any airport.
+                # Match one code at a time to observe partial coverage.
+                coverage_queries = {code: f"airport {code}" for code in codes}
         if reader is None:
             if news:
                 from neral_news_articles import read_direct_news_pages
@@ -138,21 +184,29 @@ def search_live_sources(search, query, *, reader=None, include_diagnostics=False
         hits = found.get("results", [])
         if not isinstance(hits, list):
             raise WebSearchError("invalid_results")
-        count("search_results", len(hits))
-        hits=live_topic_hits(hits,query)
-        count("topic_candidates", len(hits))
-        if news:
-            hits = [h for h in hits if isinstance(h, dict) and direct_news_url(h.get("url")) and recent_publication(h.get("published_at"))]
-        count("eligible_candidates", len(hits))
+        def eligible(candidate_hits):
+            count("search_results", len(candidate_hits))
+            selected = live_topic_hits(candidate_hits, query)
+            count("topic_candidates", len(selected))
+            if news:
+                selected = [hit for hit in selected if isinstance(hit, dict)
+                            and direct_news_url(hit.get("url"))
+                            and recent_publication(hit.get("published_at"))]
+            count("eligible_candidates", len(selected))
+            return selected
+
+        hits = eligible(hits)
         dates = {h.get("url"): h.get("published_at") for h in hits if isinstance(h, dict)} if news else {}
-        date_origins={h.get("url"):h.get("date_origin","feed") for h in hits} if news else {}
+        date_origins={h.get("url"):_discovery_date_origin(h) for h in hits} if news else {}
         # A page is counted only AFTER actual-body relevance and provenance.
         # Failed, duplicate or off-topic pages do not consume the three slots.
         resolved = [h for h in hits if news and h.get("page_read") is True
-                    and isinstance(h.get("page_text"),str) and h.get("article_chars",0)>=240]
+                    and _has_article_body(h)]
         remaining = [h for h in hits if h not in resolved]
         rows=[]
         seen=set()
+        tried_urls = {hit["url"] for hit in resolved}
+        reader_budget = MAX_RESULTS
         def accept(pages, body_stage):
             if not isinstance(pages,list):
                 return
@@ -162,43 +216,75 @@ def search_live_sources(search, query, *, reader=None, include_diagnostics=False
                 if not isinstance(page,dict) or page.get("page_read") is not True:
                     continue
                 url=safe_result_url(page.get("url",""))
+                if url:
+                    tried_urls.add(url)
                 body=page.get("page_text")
                 if not url or url in seen or not isinstance(body,str) or not body.strip():
                     continue
                 count(body_stage)
-                full=bool(news and page.get("article_chars",0)>=240)
+                full=news and _has_article_body(page)
                 excerpt=body.strip()[:8000 if full else 1100]
                 if not live_topic_matches(query,excerpt) or not live_version_evidence(query,excerpt):
                     count("rejected_relevance")
                     continue
                 discovered = page.get("discovered_url", url)
                 date = dates.get(discovered) if news else None
-                origin = date_origins.get(discovered)
+                origin = date_origins.get(discovered, "unknown")
                 if news and date and page.get("date_origin") == "publisher_metadata":
                     date = page.get("published_at")
                     origin = "publisher_metadata"
                 if news and (not recent_publication(date) or not direct_news_url(url)):
                     count("rejected_news_provenance")
                     continue
+                if news and not full:
+                    count("rejected_article_body")
+                    continue
                 row={"url":url,"title":str(page.get("title",""))[:120],
                      "page_read":True,"page_text":excerpt}
                 if news:
                     row["published_at"]=date
-                    if origin == "publisher_metadata":
-                        row["date_origin"]="publisher_metadata"
+                    row["date_origin"]=origin
                     if full:
                         row["article_chars"]=page["article_chars"]
                         row["article_truncated"]=bool(page.get("article_truncated"))
                         row["context_truncated"]=len(body.strip())>8000
                 rows.append(row)
                 seen.add(url)
+                if coverage_queries:
+                    observed_airports.update(
+                        code for code, one_airport in coverage_queries.items()
+                        if code not in observed_airports and airport_text_matches(one_airport, excerpt)
+                    )
+        def read_candidates(remaining):
+            nonlocal reader_budget
+            pending = remaining[:reader_budget]
+            for start in range(0, len(pending), 3):
+                if len(rows) >= 3:
+                    break
+                candidates = pending[start:start+3]
+                reader_budget -= len(candidates)
+                tried_urls.update(hit.get("url") for hit in candidates if isinstance(hit, dict))
+                count("reader_candidates", len(candidates))
+                accept(reader(candidates, query), "reader_read_bodies")
+
         accept(resolved, "discovery_read_bodies")
-        for start in range(0,min(len(remaining),10),3):
-            if len(rows)>=3:
-                break
-            candidates = remaining[start:start+3]
-            count("reader_candidates", len(candidates))
-            accept(reader(candidates, query), "reader_read_bodies")
+        read_candidates(remaining)
+        # Fresh RSS metadata can hide official discovery even when none of
+        # its articles are readable. Try the configured source only once and
+        # share the original reader budget; never queue the same URL again.
+        if news and not rows and reader_budget and isinstance(search, WebSearch):
+            recovered = search._recover_official_news(
+                query, found, stage_counter=count if include_diagnostics else None)
+            provider = found.get("provider")
+            if recovered:
+                pending = []
+                for hit in eligible(recovered):
+                    if hit["url"] not in tried_urls:
+                        tried_urls.add(hit["url"])
+                        pending.append(hit)
+                dates.update((hit["url"], hit["published_at"]) for hit in pending)
+                date_origins.update((hit["url"], _discovery_date_origin(hit)) for hit in pending)
+                read_candidates(pending)
         if not rows:
             headlines = _public_feed_headlines(found,query) if news else []
             if headlines:
@@ -220,10 +306,10 @@ def search_live_sources(search, query, *, reader=None, include_diagnostics=False
             "Diese Seiten wurden gelesen, aber nicht unabhängig als wahr verifiziert."
         ]
         for index, row in enumerate(rows, 1):
-            chunks.append(
-                f"[Webquelle {index}] {row['title']} | {row['url']}" +
-                ((" | Artikel-Veröffentlichung: " if row.get("date_origin")=="publisher_metadata" else " | Feed-Veröffentlichung: ") + row["published_at"] if news else "") + "\n" + row["page_text"]
-            )
+            header = f"[Webquelle {index}] {row['title']} | {row['url']}"
+            if news:
+                header += f" | {_NEWS_DATE_LABELS[row['date_origin']]}: {row['published_at']}"
+            chunks.append(header + "\n" + row["page_text"])
         chunks.append("ENDE DER WEBQUELLEN.")
         update = getattr(search, "record_read_status", None)
         if callable(update):

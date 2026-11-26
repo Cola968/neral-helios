@@ -35,6 +35,44 @@ class QueryPlanning(unittest.TestCase):
             self.assertEqual(first.kwargs.get("language"), "en")
             self.assertIn("space telescope", first.args[0].casefold())
 
+    def test_webb_shorthand_only_nominates_official_articles_with_identity_checked_in_body(self):
+        engine = WebSearch(opener=MagicMock())
+        query = "What is the latest news about the James Webb Space Telescope?"
+        stamp = datetime.now(timezone.utc).isoformat()
+        esa = "https://esawebb.org/news/fixture/"
+        nasa = "https://science.nasa.gov/missions/webb/fixture/"
+        unrelated = "https://example.org/news/webb-space-policy/"
+        title = "Webb records new observations"
+        outside_mission = "https://science.nasa.gov/people/webb-fixture/"
+        hits = [{"url": url, "title": title, "published_at": stamp}
+                for url in (esa, nasa, unrelated, outside_mission)]
+        body = (
+            "<p>The James Webb Space Telescope observed a region containing dust and gas. "
+            "Researchers compared the observations with several independent measurements from public records.</p>"
+            "<p>The team reported uncertainty in its analysis and published the methods used to interpret "
+            "the measurements. More observations are planned before the result can be confirmed.</p>"
+        )
+        wrong_body = (
+            "<p>A scientist named Webb helped to coordinate the public meeting and summarised its proceedings. "
+            "The event brought together several university departments from the surrounding region.</p>"
+            "<p>The panel published a statement outlining the plans and explaining how to respond. "
+            "Organisers will release further details after the next meeting later in the year.</p>"
+        )
+        def fetch(url, query, *, include_markup=False):
+            paragraphs = body if url == esa else wrong_body
+            return {"url": url, "markup": (
+                f'<meta name="pubdate" content="{stamp}"><article><h1>{title}</h1>{paragraphs}</article>'
+            )}
+
+        with patch.object(engine, "search_bing_news", return_value=hits), \
+                patch.object(engine, "search_news", return_value=[]), \
+                patch("neral_page_reader.fetch_and_extract", side_effect=fetch) as transport:
+            result = search_live_sources(engine, query, include_diagnostics=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([source["url"] for source in result["sources"]], [esa])
+        self.assertEqual(result["stage_counts"]["rejected_relevance"], 1)
+        self.assertEqual({call.args[0] for call in transport.call_args_list}, {esa, nasa})
+
     def test_headline_count_does_not_block_search_for_direct_sources(self):
         engine = WebSearch(opener=MagicMock())
         q = "Welche aktuellen Nachrichten gibt es zum Deutschen Bundestag?"
@@ -134,6 +172,102 @@ class QueryPlanning(unittest.TestCase):
         self.assertEqual(publishers.call_args_list[0].args[0], [headlines[i] for i in (0, 2, 1, 3)])
         self.assertEqual(result["status"], "ok")
         self.assertEqual([source["url"] for source in result["sources"]], [direct["url"]])
+        self.assertEqual(result["sources"][0]["date_origin"], "feed")
+        self.assertIn("Veröffentlichung laut Nachrichtenfeed:", result["context"])
+
+    def test_distinct_opaque_ids_keep_second_targeted_slot_for_munich(self):
+        self._check_targeted_query_dedup(
+            "Was gibt es Neues am Flughafen MUC?", "Flughafen München",
+            "meldet Ausbau regionaler Verbindungen", "veröffentlicht neue Details zur Terminalmodernisierung",
+        )
+
+    def test_distinct_opaque_ids_keep_second_targeted_slot_for_coral_reefs(self):
+        self._check_targeted_query_dedup(
+            "Latest news about coral reefs", "Coral reefs",
+            "survey reports mixed trends across monitored sites", "researchers publish new recovery measurements",
+        )
+
+    def _check_targeted_query_dedup(self, query, subject, duplicate, wanted):
+        now = datetime.now(timezone.utc)
+        seen = (now - timedelta(days=1)).replace(microsecond=0).isoformat()
+        origin = "https://publisher.example.org/"
+        story = origin + "news/public-report"
+        engine = WebSearch(opener=MagicMock())
+        first = subject + " " + duplicate
+        title = subject + " " + wanted
+        headlines = [
+            {"url": f"https://news.google.com/rss/articles/edition-{i}",
+             "publisher_url": host, "title": text + suffix, "published_at": seen}
+            for i, (host, text, suffix) in enumerate((
+                (origin, first, " - Original Edition"),
+                ("https://www.publisher.example.org/", first.replace(" ", "  "), " - Regional Edition"),
+                (origin, title, " - Original Edition"),
+            ))
+        ]
+        article = (
+            f"<article><h1>{title}</h1>"
+            f"<p>{subject}: {wanted}. The published report includes detailed observations from multiple "
+            "sites and compares the new findings with information collected over several seasons.</p>"
+            f"<p>The report on {subject} explains how the measurements were gathered and gives readers a "
+            "link to the public records. The authors separately describe changes since the previous report.</p></article>"
+        )
+
+        def targeted(outgoing, on_provider=None):
+            return [{"url": story, "title": title}] if outgoing.startswith(title) else []
+
+        def transport(url, *args, **kwargs):
+            if url == story:
+                return {"url": story, "markup": article}
+            return None  # publisher landing pages and opaque URLs cannot reveal links
+
+        with patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=headlines), \
+                patch.object(engine, "search_bing", side_effect=targeted) as lookup, \
+                patch("neral_official_news.OFFICIAL_NEWS_INDEXES", {}), \
+                patch("neral_official_news.OFFICIAL_NEWS_FEEDS", {}), \
+                patch("neral_public_news.discover_public_news", return_value=[]), \
+                patch("neral_page_reader.fetch_and_extract", side_effect=transport) as fetch:
+            result = search_live_sources(engine, query, include_diagnostics=True)
+
+        self.assertEqual([call.args[0] for call in lookup.call_args_list],
+                         [first + " site:publisher.example.org", title + " site:publisher.example.org"])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([row["url"] for row in result["sources"]], [story])
+        self.assertEqual(result["sources"][0]["published_at"], seen)
+        self.assertEqual(result["sources"][0]["date_origin"], "feed")
+        self.assertEqual(result["stage_counts"]["reader_candidates"], 1)
+        self.assertEqual([c.args[0] for c in fetch.call_args_list].count(story), 1)
+
+    def test_open_publisher_recovery_retains_news_feed_date_when_article_is_undated(self):
+        engine = WebSearch()
+        query = "Latest news about coral reefs"
+        stamp = datetime.now(timezone.utc).isoformat()
+        title = "Coral reefs survey records recovery"
+        home = "https://publisher.example.org/"
+        url = home + "environment/reef-survey"
+        opaque = {"url": "https://news.google.com/rss/articles/fixture",
+                  "publisher_url": home, "title": title + " - Publisher", "published_at": stamp}
+        article = (
+            f"<article><h1>{title}</h1>"
+            "<p>Scientists surveyed coral reefs to measure the abundance of several species. "
+            "They published their methodology and records of the locations visited by each team.</p>"
+            "<p>The study compares the recent measurements with results collected over several seasons. "
+            "Researchers are repeating the procedures to check whether the change is consistent.</p></article>"
+        )
+        pages = {home: f'<a href="{url}">{title}</a>', url: article}
+        def fetch(source, *_args, **_kwargs):
+            return {"url": source, "markup": pages[source]}
+
+        with patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=[opaque]), \
+                patch.object(engine, "search_bing", return_value=[]), \
+                patch("neral_public_news.discover_public_news", return_value=[]), \
+                patch("neral_page_reader.fetch_and_extract", side_effect=fetch) as reader:
+            result = search_live_sources(engine, query)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["sources"][0]["date_origin"], "feed")
+        self.assertEqual(result["sources"][0]["published_at"], stamp)
+        self.assertEqual([call.args[0] for call in reader.call_args_list], [home, url])
 
     def test_short_opaque_title_does_not_consume_a_publisher_lookup_slot(self):
         engine = WebSearch(opener=MagicMock())

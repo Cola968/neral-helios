@@ -36,6 +36,31 @@ class LiveProbeTests(unittest.TestCase):
         self.assertEqual(row["stage_counts"], {"reader_candidates": 2})
         self.assertFalse(row["passed"])
 
+    def test_failure_stage_reports_last_observed_boundary_not_a_cause(self):
+        route = lambda question, *, benchmark=False: None if benchmark else question
+        for status, counts, expected in (
+            ("headlines_only", {}, "stage_not_measured"),
+            ("headlines_only", {"search_results": 0}, "no_article_candidates"),
+            ("empty", {"search_results": 4, "topic_candidates": 0}, "no_topic_candidates"),
+            ("empty", {"search_results": 4, "topic_candidates": 1, "eligible_candidates": 0},
+             "no_eligible_candidates"),
+            ("headlines_only", {"eligible_candidates": 1, "reader_candidates": 1,
+                                "reader_read_bodies": 0, "discovery_read_bodies": 0},
+             "reader_no_usable_body"),
+            ("empty", {"reader_read_bodies": 1, "rejected_relevance": 1}, "body_not_accepted"),
+            ("empty", {"discovery_read_bodies": 1}, "body_not_accepted"),
+            ("unavailable", {"search_results": 0}, "lookup_unavailable"),
+            ("timeout", {"reader_candidates": 1}, "lookup_timeout"),
+        ):
+            with self.subTest(status=status, expected=expected):
+                result = {"status": status, "sources": [],
+                          "stage_counts": {**counts, "payload": "private-sentinel"}}
+                row = evaluate_case("test", "public question", route, lambda _: result)
+                self.assertEqual(row["failure_stage"], expected)
+                self.assertNotIn("private-sentinel", str(row))
+                self.assertFalse(row["passed"])
+        self.assertIsNone(self.evaluate("ok", [{"page_read": True}]).get("failure_stage"))
+
     def test_never_searches_if_offline_isolation_fails(self):
         lookup = Mock()
         result = evaluate_case("test", "public question", Mock(return_value="q"), lookup)

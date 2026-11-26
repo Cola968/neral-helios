@@ -50,15 +50,52 @@ class FreshNewsEvidence(unittest.TestCase):
 
     def test_recent_direct_article_accepted(self):
         search=Mock()
-        search.search.return_value={"provider":"fixture","results":[HIT]}
-        page={**HIT,"page_read":True,"page_text":BODY}
-        out=search_live_sources(search,Q,reader=Mock(return_value=[page]))
-        self.assertEqual(out["status"],"ok")
-        self.assertIn("published_at",out["sources"][0])
+        article_body = (
+            "Der Flughafen München meldet neue Verbindungen. Die Fluggesellschaften planen zusätzliche "
+            "Abflüge zu mehreren Zielen und veröffentlichen die Zeiten im neuen Sommerflugplan.\n"
+            "Reisende finden weitere Informationen zu den vorgesehenen Strecken im öffentlichen Terminalplan. "
+            "Das Angebot soll schrittweise verfügbar werden; einzelne Zeiten können sich noch ändern."
+        )
+        page={**HIT,"page_read":True,"page_text":article_body,"article_chars":len(article_body)}
+        for unknown_origin in ({}, {"date_origin":"provider-supplied-text"},
+                               {"date_origin":["unexpected"]}, {"date_origin":"publisher_metadata"}):
+            with self.subTest(unknown_origin=unknown_origin):
+                search.search.return_value = {"provider":"fixture", "results":[{**HIT, **unknown_origin}]}
+                reader = Mock(return_value=[page])
+                out = search_live_sources(search, Q, reader=reader)
+                self.assertEqual(out["status"], "ok")
+                self.assertEqual(out["sources"][0]["published_at"], DATE)
+                self.assertEqual(out["sources"][0]["date_origin"], "unknown")
+                self.assertIn(f"Veröffentlichungsdatum (Herkunft nicht ausgewiesen): {DATE}", out["context"])
+                self.assertNotIn("provider-supplied-text", out["context"])
+                self.assertNotIn("Artikel-Veröffentlichung", out["context"])
+                reader.assert_called_once()
+
+    def test_query_string_article_id_survives_discovery_and_the_reader(self):
+        url = "https://publisher.example.org/story?id=421"
+        title = "Flughafen München: neuer Plan für Regionalverbindungen"
+        media = {**HIT, "url": url, "title": title}
+        paragraphs = (
+            "<p>Der Flughafen München legt einen neuen Plan für Regionalverbindungen vor. "
+            "Die Fluggesellschaften haben frühzeitig ihre vorgesehenen Strecken und Zeiten gemeldet.</p>"
+            "<p>Der kommende Sommerflugplan wird schrittweise veröffentlicht. Das neue Dokument enthält "
+            "auch Hinweise für Umstiege und getrennte Angaben zu den beteiligten Terminals.</p>"
+        )
+        article = f'<meta name="pubdate" content="{DATE}"><article><h1>{title}</h1>{paragraphs}</article>'
+        engine = WebSearch(opener=MagicMock())
+        with patch.object(engine, "search_bing_news", return_value=[media]), \
+                patch.object(engine, "search_news", return_value=[]), \
+                patch("neral_page_reader.fetch_and_extract", return_value={"url": url, "markup": article}) as fetch:
+            result = search_live_sources(engine, Q, include_diagnostics=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["sources"][0]["url"], url)
+        self.assertTrue(result["sources"][0]["page_read"])
+        self.assertEqual(result["sources"][0]["date_origin"], "publisher_metadata")
+        fetch.assert_called_once_with(url, Q, include_markup=True)
 
     def test_default_direct_news_reader_requires_visible_article_and_checks_origin_date(self):
         search=Mock()
-        search.search.return_value={"provider":"fixture","results":[HIT]}
+        search.search.return_value={"provider":"fixture","results":[{**HIT,"date_origin":"official_index"}]}
         title = HIT["title"]
         paragraphs = (
             "<p>Der Flughafen München baut sein Flugangebot aus und meldet neue Verbindungen für Reisende in mehrere Städte. Der Ausbau ist Teil des neuen Flugplans.</p>"
@@ -80,6 +117,8 @@ class FreshNewsEvidence(unittest.TestCase):
                 if status == "ok":
                     self.assertEqual(out["sources"][0]["published_at"], fresh)
                     self.assertEqual(out["sources"][0]["date_origin"], "publisher_metadata")
+                    self.assertIn(f"Artikel-Veröffentlichung: {fresh}", out["context"])
+                    self.assertNotIn("offizieller Übersicht", out["context"])
                     self.assertGreaterEqual(out["sources"][0]["article_chars"], 240)
 
     def test_default_reader_accepts_html_with_omitted_paragraph_end_tags(self):
@@ -124,7 +163,10 @@ class FreshNewsEvidence(unittest.TestCase):
         search=Mock()
         search.search.return_value={"provider":"fixture","results":[HIT]}
         page={**HIT,"page_read":True,"page_text":BODY}
-        self.assertEqual(search_live_sources(search,"Flughafen MUC",reader=Mock(return_value=[page]))["status"],"ok")
+        out = search_live_sources(search, "Flughafen MUC", reader=Mock(return_value=[page]))
+        self.assertEqual(out["status"], "ok")
+        self.assertNotIn("published_at", out["sources"][0])
+        self.assertNotIn("date_origin", out["sources"][0])
 
 
 if __name__=="__main__":

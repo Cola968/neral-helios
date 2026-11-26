@@ -4,7 +4,12 @@ from html.parser import HTMLParser
 import re
 from urllib.parse import urljoin, urlsplit, unquote
 import xml.etree.ElementTree as ET
-from neral_web_search import safe_result_url, direct_news_url, airport_text_matches, recent_publication
+from neral_web_search import (
+    safe_result_url, direct_news_url, airport_text_matches, recent_publication,
+    live_topic_matches, live_version_evidence,
+)
+
+MIN_VISIBLE_ARTICLE_CHARS = 240
 
 _STOP = frozenset("der die das den dem des ein eine und oder im in am zu zum zur auf mit für von als ist sind es an bei nach vor über aus -".split())
 _HIDDEN = {"script","style","nav","footer","aside","form","button","noscript","iframe","svg","template","head"}
@@ -170,6 +175,25 @@ def _same_public_link(home,value):
         return None
     return url
 
+def _atom_publisher_link(entry, home, title):
+    # Only entry links, not links embedded in content or Atom source metadata.
+    label = next((node.text for node in entry
+                  if _local(node.tag) == "title" and node.text), "")
+    title_matches = _similar(label, title)
+    for node in entry:
+        if _local(node.tag) != "link" or node.get("rel", "alternate") != "alternate":
+            continue
+        media_type = node.get("type", "").split(";", 1)[0].strip().casefold()
+        if media_type not in ("", "text/html", "application/xhtml+xml"):
+            continue
+        url = _same_public_link(home, node.get("href") or node.text)
+        if url:
+            slug = unquote(urlsplit(url).path).replace("-", " ").replace("_", " ")
+            if title_matches or _similar(slug, title):
+                return url
+    return None
+
+
 def publisher_document_links(markup,home,title):
     root=_xml_document(markup)
     if root is None:
@@ -179,6 +203,15 @@ def publisher_document_links(markup,home,title):
         kind=_local(item.tag)
         if kind not in ("item","entry","url"):
             continue
+        if kind == "entry":
+            # A later translation or alternative format cannot replace an
+            # eligible same-publisher HTML original.
+            url = _atom_publisher_link(item, home, title)
+            if url and url not in rows:
+                rows.append(url)
+            if len(rows) >= 3:
+                break
+            continue
         label=""
         url=None
         for node in item.iter():
@@ -187,7 +220,7 @@ def publisher_document_links(markup,home,title):
                 label=node.text
             elif key=="loc" and kind=="url":
                 url=node.text
-            elif key=="link" and kind in ("item","entry") and node.get("rel","alternate")=="alternate":
+            elif key=="link" and kind=="item" and node.get("rel","alternate")=="alternate":
                 url=node.get("href") or node.text
         url=_same_public_link(home,url)
         if not url or url in rows:
@@ -233,7 +266,7 @@ def article_text(markup):
     paragraphs=list(dict.fromkeys(p.main_paragraphs or p.paragraphs))
     # Repeated boilerplate, a headline or a teaser alone is not an article.
     body="\n\n".join(paragraphs)
-    if len(paragraphs)<2 or len(body)<240 or not title.strip():
+    if len(paragraphs)<2 or len(body)<MIN_VISIBLE_ARTICLE_CHARS or not title.strip():
         return None
     return {"title":title[:500],"text":body[:24000],"article_chars":len(body),
             "article_truncated":len(body)>24000}
@@ -249,6 +282,13 @@ def _read_candidate(page,hit,query,home,*,match_headline=True):
     if (not body or (match_headline and not _similar(body["title"],hit["title"]))
             or not airport_text_matches(query,body["text"])):
         return None
+    # The opaque-publisher resolver stops after three results. A matching
+    # headline with off-topic content must not fill those slots before the
+    # live route gets a chance to evaluate the remaining publisher hits.
+    if match_headline:
+        excerpt = body["text"].strip()[:8000]
+        if not live_topic_matches(query, excerpt) or not live_version_evidence(query, excerpt):
+            return None
     # The visible article can disprove freshness claimed by a recent feed.
     from neral_public_news import article_publication_provenance
     published, conflict = article_publication_provenance(markup)
