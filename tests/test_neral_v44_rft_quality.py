@@ -209,4 +209,64 @@ class QualityTests(unittest.TestCase):
                 cp.write_text('tampered')
                 with self.assertRaises(ValueError):trainer.load_bundle(bundle,sha(manifest),protected,sha(protected),1024)
 
+class PairedEvaluationTests(unittest.TestCase):
+    def fixture(self):
+        from scripts.neral_v44_paired_eval import prompt_hash
+        cases=[{'id':f'{cat}-{i}','prompt':f'Independent {cat} question {i}',
+                'category':cat,'family':f'held.{cat}','source':'independent_holdout','reviewed':True}
+               for cat in ('everyday','knowledge','math','code') for i in range(15)]
+        common={'holdout_sha256':'1'*64,'checkpoint_sha256':'2'*64,'conditions_sha256':'3'*64,'grader_sha256':'4'*64}
+        def receipt(adapter):
+            return dict(common,adapter_sha256=adapter,rows=[
+                {'id':case['id'],'prompt_sha256':prompt_hash(case['prompt']),
+                 'status':'graded','correct':i%15<10,'latency_ms':100+i}
+                for i,case in enumerate(cases)])
+        return cases,receipt(None),receipt('5'*64)
+
+    def test_paired_gains_and_regressions_are_not_hidden_by_net_score(self):
+        from scripts.neral_v44_paired_eval import compare
+        cases,b,a=self.fixture()
+        a['rows'][10]['correct']=True
+        a['rows'][11]['correct']=True
+        a['rows'][15]['correct']=False
+        result=compare(cases,b,a,holdout_sha='1'*64)
+        self.assertEqual(result['baseline_correct'],40)
+        self.assertEqual(result['adapter_correct'],41)
+        self.assertEqual(result['gains'],2)
+        self.assertEqual(result['regressions'],1)
+        self.assertEqual(result['by_category']['knowledge']['regressions'],1)
+        self.assertAlmostEqual(result['delta_percentage_points'],100/60)
+        self.assertEqual(result['exact_mcnemar_p'],1.0)
+        self.assertFalse(result['promotion_authorized'])
+
+    def test_missing_duplicate_prompt_mismatch_or_changed_conditions_are_refused(self):
+        from scripts.neral_v44_paired_eval import compare
+        for defect in ('missing','duplicate','prompt','conditions','checkpoint','grader','holdout','adapter'):
+            cases,b,a=self.fixture()
+            if defect=='missing':a['rows'].pop()
+            elif defect=='duplicate':a['rows'][-1]=a['rows'][0]
+            elif defect=='prompt':a['rows'][0]['prompt_sha256']='0'*64
+            elif defect=='adapter':a['adapter_sha256']=None
+            else:a[{'conditions':'conditions_sha256','checkpoint':'checkpoint_sha256','grader':'grader_sha256','holdout':'holdout_sha256'}[defect]]='0'*64
+            with self.assertRaises(ValueError,msg=defect):compare(cases,b,a,holdout_sha='1'*64)
+
+    def test_timeout_is_failure_not_excluded_and_inconsistent_grade_is_refused(self):
+        from scripts.neral_v44_paired_eval import compare
+        cases,b,a=self.fixture()
+        a['rows'][0].update(status='timeout',correct=False)
+        result=compare(cases,b,a,holdout_sha='1'*64)
+        self.assertEqual(result['total'],60)
+        self.assertEqual(result['regressions'],1)
+        self.assertEqual(result['adapter_status_counts']['timeout'],1)
+        a['rows'][0]['correct']=True
+        with self.assertRaises(ValueError):compare(cases,b,a,holdout_sha='1'*64)
+
+    def test_comparison_refuses_protected_overlap_and_unreviewed_cases(self):
+        from scripts.neral_v44_paired_eval import compare,prompt_hash
+        cases,b,a=self.fixture()
+        with self.assertRaises(ValueError):
+            compare(cases,b,a,holdout_sha='1'*64,protected={prompt_hash(cases[0]['prompt'])})
+        cases[0]['reviewed']=False
+        with self.assertRaises(ValueError):compare(cases,b,a,holdout_sha='1'*64)
+
 if __name__=='__main__':unittest.main()
