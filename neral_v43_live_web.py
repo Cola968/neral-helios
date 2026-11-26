@@ -12,7 +12,8 @@ from neral_local_wiki import fresh_question, source_required
 from neral_web_search import (WebSearchError, WebSearchRateLimitError, safe_result_url,
                               airport_entity_codes, airport_text_matches, ranked_topic_hits,
                               is_explicit_news_query, recent_publication, direct_news_url,
-                              WebSearch, live_topic_matches, live_topic_hits, live_version_evidence)
+                              WebSearch, live_topic_matches, live_topic_hits, live_version_evidence,
+                              live_query_variants, live_topic_requirements)
 
 _PRIVATE = re.compile(
     r"(?i)\b(?:mein(?:e|er|en|em|es)?|unser(?:e|er|en|em|es)?|my|our|"
@@ -192,6 +193,33 @@ def search_live_sources(search, query, *, reader=None):
             if len(rows)>=3:
                 break
             accept(reader(remaining[start:start+3],query))
+        # Metadata success is not retrieval success. If all initial pages
+        # failed, try a bounded second provider and real Wikipedia discovery.
+        # Do not relax the original query's relevance or the news date gate.
+        if not rows and not news and isinstance(search, WebSearch) and live_topic_requirements(query):
+            attempted={safe_result_url(h.get("url")) for h in hits if isinstance(h,dict)}
+            variants=live_query_variants(query) or [query]
+            alternate=variants[-1]
+            def recover(candidates, label):
+                nonlocal provider
+                batch=[]
+                for h in live_topic_hits(candidates,query):
+                    url=safe_result_url(h.get("url"))
+                    if url and url not in attempted:
+                        attempted.add(url); batch.append(h)
+                if batch:
+                    accept(reader(batch[:3],query))
+                    if rows:
+                        provider=(provider + " + " if provider else "") + label
+            try:
+                recover(search.search_bing(alternate),"Bing RSS recovery")
+            except (WebSearchError,OSError,ValueError,TypeError,TimeoutError):
+                pass
+            if not rows:
+                try:
+                    recover(search.search_wikipedia(alternate,language="de"),"Wikipedia DE recovery")
+                except (WebSearchError,OSError,ValueError,TypeError,TimeoutError):
+                    pass
         if not rows:
             headlines = _public_feed_headlines(found,query) if news else []
             if headlines:

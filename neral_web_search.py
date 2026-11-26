@@ -779,6 +779,21 @@ _LIVE_TOPIC_STOP = _QUERY_STOP | frozenset("""
     program aktuelle aktualisiert
 """.split())
 _LIVE_TOPIC_ALIASES = {
+    "flughafen": ("flughafen", "airport", "airfield", "aeroport"),
+    "airport": ("flughafen", "airport", "airfield", "aeroport"),
+    "universität": ("universität", "university", "universitaet", "hochschule"),
+    "university": ("universität", "university", "universitaet", "hochschule"),
+    "computerspiel": ("computerspiel", "videospiel", "spiel", "game", "video game", "videogame"),
+    "game": ("computerspiel", "videospiel", "spiel", "game", "video game", "videogame"),
+    "fluggesellschaft": ("fluggesellschaft", "airline", "carrier"),
+    "airline": ("fluggesellschaft", "airline", "carrier"),
+    "firma": ("firma", "unternehmen", "company", "corporation", "konzern"),
+    "unternehmen": ("firma", "unternehmen", "company", "corporation", "konzern"),
+    "planet": ("planet", "planeten"),
+    "planeten": ("planet", "planeten"),
+    "gründung": ("gründung", "gruendung", "gegründet", "gegruendet", "founded", "established", "foundation", "history"),
+    "gruendung": ("gründung", "gruendung", "gegründet", "gegruendet", "founded", "established", "foundation", "history"),
+    "gegründet": ("gründung", "gruendung", "gegründet", "gegruendet", "founded", "established", "foundation", "history"),
     "version": ("version", "versionen", "release", "releases", "released", "download", "downloads"),
     "wetter": ("wetter", "weather", "wettervorhersage", "forecast", "wetterbericht"),
     "weather": ("wetter", "weather", "forecast", "wettervorhersage"),
@@ -798,6 +813,16 @@ _LIVE_TOPIC_FRESH = re.compile(
     r"flugplan\w*|öffnungszeiten|leitzins|inflation)\b", re.I)
 
 
+def plain_topic_query(query):
+    """Ordinary public queries use the same lexical anchors as fresh queries.
+
+    Keep legacy numbered-subject and explicit airport-code gates independent.
+    """
+    return (isinstance(query, str) and not airport_entity_codes(query)
+            and not numbered_query_subject(query)
+            and not (_LIVE_TOPIC_FRESH.search(query) or is_explicit_news_query(query)))
+
+
 def live_topic_requirements(query):
     """Extract bounded AND groups of literal user topics and language aliases.
 
@@ -806,10 +831,11 @@ def live_topic_requirements(query):
     """
     if not isinstance(query,str) or airport_entity_codes(query):
         return ()
-    if not (_LIVE_TOPIC_FRESH.search(query) or is_explicit_news_query(query)):
+    if numbered_query_subject(query) and not (_LIVE_TOPIC_FRESH.search(query) or is_explicit_news_query(query)):
         return ()
     plain=query.casefold()
     groups=[]
+    ordinary = plain_topic_query(query)
     if _LIVE_TOPIC_COMPOUND.search(plain):
         groups.append(_LIVE_TOPIC_ALIASES["künstliche intelligenz"])
         plain=_LIVE_TOPIC_COMPOUND.sub(" ",plain)
@@ -817,6 +843,8 @@ def live_topic_requirements(query):
     for term in re.findall(r"(?u)[^\W_]+",plain):
         if (len(term)<2 or term.isdigit() or term in _LIVE_TOPIC_STOP
                 or re.fullmatch(r"(?:aktuell|neuest|neuigkeit|schlagzeile|nachricht)\w*",term)):
+            continue
+        if ordinary and term in {"for", "the", "information", "details", "detail", "alles", "etwas", "dazu", "darüber", "darueber", "erkläre", "erklären", "explain", "kannst", "du", "sag", "sage", "herausfinden", "belege", "fakten", "aussage", "dass"}:
             continue
         # Common request qualifiers are not separate subject entities.
         if term in ("welche","welcher","welches","welchen","viel","hoch","mehr","neue","neues"):
@@ -1341,6 +1369,8 @@ class WebSearch:
         if len(query.strip()) > MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchanfrage überschreitet das Eingabelimit.")
         cleaned = rewrite_search_query(query)
+        general_gate = bool(live_topic_requirements(query))
+        strict_topic = strict_topic or general_gate
         variants=live_query_variants(query) if strict_topic and not news_only else []
         if variants:
             cleaned=variants[0]
