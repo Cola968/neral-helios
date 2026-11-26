@@ -9,8 +9,9 @@ from collections import Counter, defaultdict
 from itertools import product
 import random
 import re
+import time
 from scripts.neral_v43_rft_cpu import canonical, digest, var, con, op, select, verify_candidate
-from scripts.neral_v43_rft_pilot import audit_pilot, holdout_hashes
+from scripts.neral_v43_rft_pilot import RFT, audit_pilot, holdout_hashes
 
 FAMILIES = {
     'sympy': ('sympy.arithmetic','sympy.linear_system','sympy.quadratic_extremum'),
@@ -18,6 +19,8 @@ FAMILIES = {
     'code': ('code.tariff','code.triangular','code.multiples'),
 }
 KINDS = tuple(FAMILIES)
+FAMILY_QUOTAS = {family: quota//len(FAMILIES[kind])+int(i<quota%len(FAMILIES[kind]))
+                 for kind,quota in RFT.items() for i,family in enumerate(FAMILIES[kind])}
 FAMILY_RE = re.compile(r'[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+')
 
 def prompt_shape(prompt):
@@ -114,11 +117,53 @@ def catalog_v2(seed,count):
         out.append(item)
     return out
 
+def _example_evidence(code,tests,label):
+    """Reproduce one concrete failing example; never forward arbitrary stderr."""
+    from scripts.neral_v43_windows_worker import evaluate_function,Unsupported
+    try:
+        for case in tests:
+            value=evaluate_function(code,case['function'],case['args'])
+            if value!=case['expected']:
+                # Candidate strings/containers are untrusted. Use a bounded type
+                # label instead of copying them into a repair instruction.
+                actual=value if type(value) is int else type(value).__name__
+                return label+' '+canonical({'args':case['args'],'expected':case['expected'],'actual':actual})
+    except (Unsupported,TypeError,ValueError,ArithmeticError,IndexError,KeyError):
+        return ''
+    return ''
+
+
+def _verify_code_v2(task,text):
+    from neral_v43_routes import verify_answer
+    from scripts.neral_v43_obsidian_codex import run_test_repair_loop
+    from scripts.neral_v43_rft_cpu import stable_feedback
+    if not isinstance(text,str) or not text.strip() or len(text)>12000:
+        return False,''
+    code=text.strip()
+    match=re.fullmatch(r'\x60\x60\x60(?:python)?\s*\n(.*?)\n\x60\x60\x60',code,re.S|re.I)
+    if match:code=match[1]
+    verdict=verify_answer(task['prompt'],{'text':text},deadline=time.monotonic()+10,backend='restricted')
+    if verdict.status!='verified':
+        if verdict.status=='counterexample' and verdict.evidence:
+            evidence=_example_evidence(code,task['spec']['tests'],'pytest: sichtbarer Test')
+            return False,evidence or stable_feedback(task,text)
+        return False,''
+    hidden=run_test_repair_loop(code,tests=task['hidden'],properties=task['spec']['properties'],
+                                max_repairs=0,deadline=time.monotonic()+10,backend='restricted')
+    if hidden['status']=='passed' and hidden['verified'] is True:
+        return True,''
+    if hidden['status'] in ('tests_failed','property_counterexample') and hidden.get('evidence'):
+        evidence=_example_evidence(code,task['hidden'],'pytest: verdeckter Test')
+        return False,evidence or stable_feedback(task,text)
+    return False,''
+
+
 def verify_v2(task,text):
     if task.get('family') not in FAMILIES.get(task.get('kind'),()):
         return False,''
-    if task['kind']!='sympy':
-        # Preserve the existing restricted code and independent Z3 verification.
+    if task['kind']=='code':
+        return _verify_code_v2(task,text)
+    if task['kind']=='z3':
         return verify_candidate(task,text)
     if not isinstance(text,str) or not re.fullmatch(r'[+-]?\d{1,20}',text.strip()):
         return False,''
@@ -138,7 +183,18 @@ def verify_v2(task,text):
     if expected.is_Integer is not True or expected!=task.get('gold'):
         return False,''
     if int(text)==int(expected):return True,''
-    return False,'Unabhängige SymPy-Gegenprüfung: exaktes Ergebnis '+str(expected)
+    guess=int(text)
+    if task['family']=='sympy.linear_system':
+        p,q=rest
+        implied_y=p-a*guess
+        return False,f'SymPy-Gegenprüfung: Einsetzen in die zweite Gleichung ergibt {guess+b*implied_y} statt {q}. Prüfe beide Gleichungen.'
+    if task['family']=='sympy.quadratic_extremum':
+        slope=2*a*guess+b
+        return False,'SymPy-Gegenprüfung: Die Ableitung am vorgeschlagenen Punkt ist '+('positiv' if slope>0 else 'negativ')+', nicht null.'
+    for prime in (2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53):
+        if guess%prime!=int(expected)%prime:
+            return False,f'SymPy-Gegenprüfung: Der Rest modulo {prime} muss {int(expected)%prime} sein; der Entwurf hat Rest {guess%prime}. Prüfe die Rechenreihenfolge.'
+    return False,'SymPy-Gegenprüfung: Der vorgeschlagene Wert stimmt nicht. Prüfe die Klammern und Rechenschritte.'
 
 def _reviewed_family(row,source):
     if row.get('reviewed') is not True or row.get('source')!=source:
@@ -183,8 +239,8 @@ def audit_quality(train,holdout,tasks,candidates,*,verify=verify_v2,protected=fr
         if rebuilt!=row:raise ValueError('selected row or repair chain failed replay')
         counts[task['family']]+=1
         actual_repairs+=int(rebuilt['meta']['repair'])
-    if set(counts)!=set().union(*FAMILIES.values()) or min(counts.values())<5:
-        raise ValueError('insufficient task-family coverage')
+    if counts!=FAMILY_QUOTAS:
+        raise ValueError('exact task-family quota mismatch')
     if actual_repairs<20 or actual_repairs!=report['repair_rows']:
         raise ValueError('insufficient independently replayed repairs')
     for row in holdout:
@@ -216,7 +272,7 @@ def choose_quality_pilot(accepted,replay,tasks,seed):
     for proof,quota in RFT.items():
         families=FAMILIES[proof]
         for i,family in enumerate(families):
-            wanted=quota//len(families)+int(i<quota%len(families))
+            wanted=FAMILY_QUOTAS[family]
             pool=sorted(pools[family],key=lambda row:row['meta']['task_hash'])
             rng.shuffle(pool)
             pool.sort(key=lambda row:not row['meta']['repair'])
@@ -226,9 +282,10 @@ def choose_quality_pilot(accepted,replay,tasks,seed):
     return choose_pilot(selected,replay,seed)
 
 
-def audit_pinned_quality(manifest,train,holdout,protected,*,verify=verify_v2):
+def audit_pinned_quality(manifest,train,holdout,protected,*,verify=None):
     """Fail closed if any v2 source seal, deterministic catalog or audit differs."""
     from scripts.neral_v43_rft_cpu import read_pinned, rows
+    if verify is None:verify=verify_v2
     if manifest.get('catalog_version')!='v2':
         raise ValueError('wrong quality schema')
     tasks=rows(read_pinned(manifest['quality_catalog_path'],manifest['catalog_sha256']))
