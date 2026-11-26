@@ -1,6 +1,6 @@
 import unittest
 from collections import Counter
-from scripts.neral_v44_rft_quality import catalog_v2, verify_v2, audit_quality, prompt_shape
+from scripts.neral_v44_rft_quality import catalog_v2, verify_v2, audit_quality, prompt_shape, choose_quality_pilot, audit_pinned_quality
 from scripts.neral_v43_rft_cpu import select, digest, repair_prompt
 
 class QualityTests(unittest.TestCase):
@@ -93,5 +93,42 @@ class QualityTests(unittest.TestCase):
         t,c,s,h,v=self.fixture()
         h[0]['reviewed']=False
         with self.assertRaises(ValueError):audit_quality(s,h,t,c,verify=v)
+
+    def test_balanced_selection_prefers_repairs_within_each_family(self):
+        t,c,s,h,v=self.fixture()
+        rft=[x for x in s if x['meta']['kind']=='rft']
+        replay=[x for x in s if x['meta']['kind']=='replay']
+        selected=choose_quality_pilot(rft,replay,t,seed=17)
+        self.assertEqual(len(selected),200)
+        self.assertEqual(selected,choose_quality_pilot(rft[::-1],replay[::-1],t,seed=17))
+        self.assertEqual(audit_quality(selected,h,t,c,verify=v)['repair_rows'],24)
+        with self.assertRaises(ValueError):choose_quality_pilot(rft[:-1],replay,t,seed=17)
+
+    def test_real_sympy_repair_replayed_not_only_claimed(self):
+        task=next(t for t in catalog_v2('b'*64,9) if t['family']=='sympy.linear_system')
+        draft=str(task['gold']+1);correct=str(task['gold'])
+        ok,evidence=verify_v2(task,draft)
+        self.assertFalse(ok)
+        key=digest(repair_prompt(task,draft,evidence))
+        self.assertTrue(select(task,[dict(draft=draft,repair=correct,repair_input_sha256=key)],verify=verify_v2)['meta']['repair'])
+        self.assertIsNone(select(task,[dict(draft=draft,repair=correct,repair_input_sha256='0'*64)],verify=verify_v2))
+        self.assertFalse(select(task,[dict(draft=correct,repair=correct,repair_input_sha256=key)],verify=verify_v2)['meta']['repair'])
+
+    def test_pinned_quality_recomputes_sources_and_refuses_tampering(self):
+        import hashlib,json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        t,c,s,h,v=self.fixture()
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def seal(name,rows):
+                p=root/name
+                p.write_text(''.join(json.dumps(x)+'\\n' for x in rows),encoding='utf8')
+                return str(p),hashlib.sha256(p.read_bytes()).hexdigest()
+            tp,ts=seal('catalog.jsonl',t);cp,cs=seal('candidates.jsonl',c)
+            m=dict(catalog_version='v2',catalog_seed='a'*64,quality_catalog_path=tp,catalog_sha256=ts,quality_candidates_path=cp,candidates_sha256=cs,quality_report=audit_quality(s,h,t,c,verify=v))
+            self.assertEqual(audit_pinned_quality(m,s,h,set(),verify=v)['repair_rows'],24)
+            Path(cp).write_text('tampered',encoding='utf8')
+            with self.assertRaises(ValueError):audit_pinned_quality(m,s,h,set(),verify=v)
 
 if __name__=='__main__':unittest.main()
