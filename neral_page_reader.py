@@ -14,7 +14,8 @@ from urllib.parse import urljoin, urlsplit
 from neral_web_search import (safe_result_url, numbered_query_subject,
                               search_topic_terms, topical_search_hit,
                               ranked_topic_hits, airport_entity_codes,
-                              airport_text_matches)
+                              airport_text_matches,
+                              live_topic_requirements, live_topic_hits, live_topic_matches)
 
 MAX_TEXT = 4600
 MAX_BYTES = 768 * 1024
@@ -521,8 +522,10 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
     subject = numbered_query_subject(query)
     focused = bool(subject and search_topic_terms(query))
     airport_focus = bool(airport_entity_codes(query))
-    selected_hits = ranked_topic_hits(hits, query) if (focused or airport_focus) else (
-        hits if isinstance(hits, list) else [])
+    general_focus = not focused and not airport_focus and bool(live_topic_requirements(query))
+    selected_hits = (live_topic_hits(hits, query) if general_focus else
+                     ranked_topic_hits(hits, query) if (focused or airport_focus) else
+                     (hits if isinstance(hits, list) else []))
     seen = set()
     tried = 0
 
@@ -561,6 +564,8 @@ def read_top_pages(hits, query, *, fetch=fetch_and_extract,
                 }, query):
                     continue
             if airport_focus and (not page or not airport_text_matches(query, page.get("text", ""))):
+                continue
+            if general_focus and (not page or not live_topic_matches(query, page.get("text", ""))):
                 continue
             rows.append({
                 "url": page["url"] if page else url,
