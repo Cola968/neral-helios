@@ -197,7 +197,7 @@ class QualityTests(unittest.TestCase):
             bundle=root/'bundle'
             # Only model answers and protected-data source are mocked; actual builder,
             # deterministic catalog, file hashes and bundle loader run end to end.
-            with patch.object(cpu,'protected_hashes',return_value=set()),patch.object(trainer,'protected_hashes',return_value=set()),patch.object(quality,'verify_v2',verifier):
+            with patch.object(cpu,'protected_hashes',side_effect=lambda _:set()),patch.object(trainer,'protected_hashes',side_effect=lambda _:set()),patch.object(quality,'verify_v2',verifier):
                 cli('feedback',*common,'--out',root/'feedback.jsonl')
                 self.assertEqual(len(cpu.rows((root/'feedback.jsonl').read_bytes())),24)
                 cli('build',*common,'--replay',rp,'--replay-sha',sha(rp),'--holdout',hp,'--holdout-sha',sha(hp),'--total',200,'--out',bundle)
