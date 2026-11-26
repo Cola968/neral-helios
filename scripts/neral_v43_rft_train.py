@@ -17,12 +17,19 @@ def load_bundle(bundle,manifest_sha,protected,protected_sha,context):
     if manifest['protected_manifest_sha256']!=protected_sha:raise ValueError('protected manifest mismatch')
     deny=protected_hashes(json.loads(read_pinned(protected,protected_sha)))
     items=rows(read_pinned(bundle/'train.jsonl',manifest['train_sha256']))
+    version=manifest.get('catalog_version','v1')
+    if version not in ('v1','v2') or (version=='v2' and len(items)!=200):
+        raise ValueError('unknown or invalid catalog version')
     if len(items)==200:
         from scripts.neral_v43_rft_pilot import holdout_hashes, audit_pilot
         if not manifest.get('development_holdout_path') or not manifest.get('development_holdout_sha256'):
             raise ValueError('pinned independent development holdout required')
         holdout=rows(read_pinned(manifest['development_holdout_path'],manifest['development_holdout_sha256']))
-        deny.update(holdout_hashes(holdout,deny))
+        held=holdout_hashes(holdout,deny)
+        if version=='v2':
+            from scripts.neral_v44_rft_quality import audit_pinned_quality
+            audit_pinned_quality(manifest,items,holdout,deny)
+        deny.update(held)
         audit_pilot(items)
     items=validate_rows(items,deny)
     config=plan(len(items),context)

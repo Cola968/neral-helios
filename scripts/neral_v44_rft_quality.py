@@ -195,3 +195,47 @@ def audit_quality(train,holdout,tasks,candidates,*,verify=verify_v2,protected=fr
     return report|{'repair_rows':actual_repairs,'holdout_rows':len(holdout),
                    'rft_families':dict(sorted(counts.items())),
                    'family_review_required':True,'semantic_independence_proven':False}
+
+
+def choose_quality_pilot(accepted,replay,tasks,seed):
+    """Deterministic quotas per proof family, prioritizing validated repairs."""
+    from scripts.neral_v43_rft_pilot import RFT, choose_pilot, validate_pool
+    validate_pool(accepted+replay)
+    index={digest(task['prompt']):task for task in tasks}
+    if len(index)!=len(tasks):
+        raise ValueError('duplicate catalog task')
+    pools=defaultdict(list)
+    for row in accepted:
+        m=row['meta'];task=index.get(m['task_hash'])
+        if (m['kind']!='rft' or task is None or task['kind']!=m['proof']
+                or task.get('family') not in FAMILIES[task['kind']]):
+            raise ValueError('RFT pool not tied to a catalog family')
+        pools[task['family']].append(row)
+    rng=random.Random(seed)
+    selected=[]
+    for proof,quota in RFT.items():
+        families=FAMILIES[proof]
+        for i,family in enumerate(families):
+            wanted=quota//len(families)+int(i<quota%len(families))
+            pool=sorted(pools[family],key=lambda row:row['meta']['task_hash'])
+            rng.shuffle(pool)
+            pool.sort(key=lambda row:not row['meta']['repair'])
+            if len(pool)<wanted:
+                raise ValueError('insufficient verified family pool: '+family)
+            selected.extend(pool[:wanted])
+    return choose_pilot(selected,replay,seed)
+
+
+def audit_pinned_quality(manifest,train,holdout,protected,*,verify=verify_v2):
+    """Fail closed if any v2 source seal, deterministic catalog or audit differs."""
+    from scripts.neral_v43_rft_cpu import read_pinned, rows
+    if manifest.get('catalog_version')!='v2':
+        raise ValueError('wrong quality schema')
+    tasks=rows(read_pinned(manifest['quality_catalog_path'],manifest['catalog_sha256']))
+    candidates=rows(read_pinned(manifest['quality_candidates_path'],manifest['candidates_sha256']))
+    if tasks!=catalog_v2(manifest['catalog_seed'],len(tasks)):
+        raise ValueError('v2 catalog not independently regenerated')
+    report=audit_quality(train,holdout,tasks,candidates,verify=verify,protected=protected)
+    if report!=manifest.get('quality_report'):
+        raise ValueError('quality report mismatch')
+    return report

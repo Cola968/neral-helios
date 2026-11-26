@@ -17,9 +17,14 @@ service configuration. No private data is included.
   catalog or replay family is rejected. Normalized prompt fingerprints also
   reject simple numerical substitutions. This is not proof against all
   paraphrases or semantic leakage.
-- The new API is intentionally not wired into the approved GPU trainer or
-  historical catalog CLI. Integration and local native acceptance are still
-  required, including protected seal and original service identity checks.
+- On this development branch only, the CPU catalog, feedback and build commands
+  accept explicit `--catalog-version v2`. Legacy v1 remains reproducible.
+  The v2 builder uses balanced family quotas and pins catalog and candidate
+  sources. Bundle loading independently repeats the audit and refuses a
+  mismatched seal or report. Original GPU gates and owner checks are unchanged.
+- This is not a local training acceptance: native Windows testing, protected
+  seal and service identity checks, actual model sampling, semantic human
+  review and the explicitly gated one-step smoke still remain required.
 
 Run only synthetic CPU tests:
 `python -m unittest discover -s tests -p test_neral_v44_rft_quality.py -v`

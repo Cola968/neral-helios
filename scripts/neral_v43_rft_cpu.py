@@ -246,26 +246,34 @@ def main():
     b=sub.add_parser('build');b.add_argument('--seed',required=True);b.add_argument('--catalog',type=Path,required=True);b.add_argument('--catalog-sha',required=True);b.add_argument('--candidates',type=Path,required=True);b.add_argument('--candidates-sha',required=True);b.add_argument('--replay',type=Path,required=True);b.add_argument('--replay-sha',required=True);b.add_argument('--protected',type=Path,required=True);b.add_argument('--protected-sha',required=True);b.add_argument('--out',type=Path,required=True);b.add_argument('--total',type=int,required=True)
     b.add_argument('--holdout',type=Path);b.add_argument('--holdout-sha')
     f=sub.add_parser('feedback');f.add_argument('--seed',required=True);f.add_argument('--catalog',type=Path,required=True);f.add_argument('--catalog-sha',required=True);f.add_argument('--candidates',type=Path,required=True);f.add_argument('--candidates-sha',required=True);f.add_argument('--protected',type=Path,required=True);f.add_argument('--protected-sha',required=True);f.add_argument('--out',type=Path,required=True)
+    for command in (c,b,f):
+        command.add_argument('--catalog-version',choices=('v1','v2'),default='v1')
     a=p.parse_args()
+    generate=catalog; verify=verify_candidate
+    if a.catalog_version=='v2':
+        from scripts.neral_v44_rft_quality import catalog_v2, verify_v2
+        generate=catalog_v2; verify=verify_v2
     if a.cmd=='catalog':
-        cases=catalog(a.seed,a.count); output_path(a.out).mkdir(parents=True,exist_ok=False)
+        cases=generate(a.seed,a.count); output_path(a.out).mkdir(parents=True,exist_ok=False)
         write_jsonl(a.out/'private_catalog.jsonl',cases);write_jsonl(a.out/'model_prompts.jsonl',[{k:x[k] for k in ('id','prompt')} for x in cases]);return
     deny_manifest=json.loads(read_pinned(a.protected,a.protected_sha));deny=protected_hashes(deny_manifest)
     tasks=rows(read_pinned(a.catalog,a.catalog_sha))
-    if tasks!=catalog(a.seed,len(tasks)):raise ValueError('catalog not independently regenerated')
+    if tasks!=generate(a.seed,len(tasks)):raise ValueError('catalog not independently regenerated')
     candidates=rows(read_pinned(a.candidates,a.candidates_sha))
     if any(digest(task['prompt']) in deny for task in tasks):raise ValueError('catalog overlaps holdout')
     if a.cmd=='feedback':
-        result=feedback(tasks,candidates)
+        result=feedback(tasks,candidates,verify=verify)
         if protected_hashes(deny_manifest)!=deny:raise ValueError('protected hashes changed')
         write_jsonl(output_path(a.out),result);print(canonical({'repair_prompts':len(result)}));return
+    if a.catalog_version=='v2' and a.total!=200:raise ValueError('v2 requires the 200-row pilot')
     protected_deny=set(deny)
     holdout_meta={}
     if a.total==200:
         from scripts.neral_v43_rft_pilot import holdout_hashes
         if a.holdout is None or not a.holdout_sha:raise ValueError('pinned independent development holdout required')
         holdout_path=safe(a.holdout)
-        deny.update(holdout_hashes(rows(read_pinned(holdout_path,a.holdout_sha)),protected_deny))
+        holdout_rows=rows(read_pinned(holdout_path,a.holdout_sha))
+        deny.update(holdout_hashes(holdout_rows,protected_deny))
         if any(digest(task['prompt']) in deny for task in tasks):raise ValueError('catalog overlaps development holdout')
         holdout_meta={'development_holdout_path':str(holdout_path),'development_holdout_sha256':a.holdout_sha}
     elif a.holdout is not None or a.holdout_sha:raise ValueError('holdout options reserved for 200-row pilot')
@@ -277,10 +285,19 @@ def main():
     accepted=[]
     for task in tasks:
         if digest(task['prompt']) in deny:raise ValueError('catalog overlaps holdout')
-        r=select(task,pools.get(task['id'],[]))
+        r=select(task,pools.get(task['id'],[]),verify=verify)
         if r:accepted.append(r)
     if not any(x['meta']['repair'] for x in accepted):raise ValueError('no validated repair examples')
-    mixed=mix(accepted,replay,a.total,deny,20261124)
+    quality_meta={}
+    if a.catalog_version=='v2':
+        from scripts.neral_v44_rft_quality import choose_quality_pilot,audit_quality
+        mixed=validate_rows(choose_quality_pilot(accepted,replay,tasks,20261124),deny)
+        quality_meta={'catalog_version':'v2','catalog_seed':a.seed,'quality_catalog_path':str(safe(a.catalog)),
+                      'quality_candidates_path':str(safe(a.candidates)),
+                      'quality_report':audit_quality(mixed,holdout_rows,tasks,candidates,verify=verify,protected=protected_deny)}
+        read_pinned(a.catalog,a.catalog_sha);read_pinned(a.candidates,a.candidates_sha)
+    else:
+        mixed=mix(accepted,replay,a.total,deny,20261124)
     if protected_hashes(deny_manifest)!=protected_deny:raise ValueError('protected hashes changed')
     if holdout_meta:read_pinned(holdout_path,a.holdout_sha)
     output_path(a.out).mkdir(parents=True,exist_ok=False);write_jsonl(a.out/'train.jsonl',mixed)
@@ -288,8 +305,9 @@ def main():
     if holdout_meta:
         from scripts.neral_v43_rft_pilot import audit_pilot
         report.update(holdout_meta);report.update(audit_pilot(mixed))
+    report.update(quality_meta)
     with (a.out/'manifest.json').open('x',encoding='utf8') as f:f.write(canonical(report)+'\n')
-    print(canonical({k:v for k,v in report.items() if k!='development_holdout_path'}))
+    print(canonical({k:v for k,v in report.items() if k not in ('development_holdout_path','quality_catalog_path','quality_candidates_path')}))
 if __name__=='__main__':
     try:main()
     except Exception:raise SystemExit('RFT_CPU_GATE_FAILED (private details withheld)')
