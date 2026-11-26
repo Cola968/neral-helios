@@ -84,6 +84,49 @@ class Watch:
     def check(self):
         if self.failed or not self.samples:raise RuntimeError('VRAM monitor gate failed')
 
+
+class SmokeTelemetry:
+    """One step only: first microbatch token-mean CE and synchronized wall time.
+
+    No extra model forward pass. The first loss may already be normalized by
+    the full accumulation-window token count, so undo that normalization.
+    """
+    def __init__(self,clock=time.monotonic):
+        self.clock=clock
+        self.started=None
+        self.finished=None
+        self.start_loss=None
+        self.substeps=0
+    def begin(self):
+        if self.started is not None:raise RuntimeError('unexpected additional step')
+        self.started=self.clock()
+    def record_first_loss(self,loss,supervised_tokens,normalizer):
+        if self.started is None or self.finished is not None or self.start_loss is not None:
+            raise RuntimeError('unexpected first loss')
+        if (not math.isfinite(loss) or loss<0 or type(supervised_tokens) is not int
+                or supervised_tokens<=0 or not math.isfinite(normalizer) or normalizer<supervised_tokens):
+            raise ValueError('invalid initial loss normalization')
+        value=loss*normalizer/supervised_tokens
+        if not math.isfinite(value):raise ValueError('nonfinite initial loss')
+        self.start_loss=value
+    def substep(self):
+        if self.started is None or self.finished is not None or self.substeps>=9:
+            raise RuntimeError('unexpected accumulation substep')
+        self.substeps+=1
+    def end(self):
+        if self.started is None or self.finished is not None or self.substeps!=9 or self.start_loss is None:
+            raise RuntimeError('incomplete one-step telemetry')
+        end=self.clock()
+        if not math.isfinite(end-self.started) or end<self.started:raise RuntimeError('invalid step duration')
+        self.finished=end
+    def report(self):
+        if self.finished is None:raise RuntimeError('missing measured step')
+        return {'start_loss':self.start_loss,
+                'start_loss_definition':'first_pre_update_microbatch_mean_supervised_token_ce',
+                'step_duration_s':self.finished-self.started,
+                'gradient_accumulation_microbatches':self.substeps+1}
+
+
 def tokenizer_check(items,checkpoint,context):
     from transformers import AutoTokenizer
     tok=AutoTokenizer.from_pretrained(str(checkpoint),local_files_only=True,use_fast=True,trust_remote_code=False)
@@ -151,25 +194,37 @@ def train_smoke(args,items,config,manifest):
         def collate(xs):
             n=max(len(x['input_ids']) for x in xs)
             return {k:torch.tensor([x[k]+[pad]*(n-len(x[k])) for x in xs],dtype=torch.long) for k,pad in [('input_ids',tok.pad_token_id),('attention_mask',0),('labels',-100)]}
+        telemetry=SmokeTelemetry()
         class Guard(TrainerCallback):
-            def on_step_begin(self,*a,**k):watch.check()
-            def on_substep_end(self,*a,**k):watch.check()
-            def on_step_end(self,*a,**k):watch.check()
+            def on_step_begin(self,*a,**k):
+                watch.check();torch.cuda.synchronize();telemetry.begin()
+            def on_substep_end(self,*a,**k):
+                watch.check();telemetry.substep()
+            def on_step_end(self,*a,**k):
+                torch.cuda.synchronize();watch.check();telemetry.end()
         class AnswerTrainer(SFTTrainer):
             def compute_loss(self,model,inputs,return_outputs=False,num_items_in_batch=None):
                 loss,outputs=answer_only_loss(model,inputs,num_items_in_batch)
+                if telemetry.start_loss is None:
+                    supervised=int((inputs['labels'][:,1:]!=-100).sum().item())
+                    denom=float(num_items_in_batch) if num_items_in_batch is not None else float(supervised)
+                    telemetry.record_first_loss(float(loss.detach().item()),supervised,denom)
                 return (loss,outputs) if return_outputs else loss
         # Explicitly disable TRL's re-tokenization/packing. Unknown TRL APIs
         # fail closed rather than silently changing labels.
         settings=sft_settings(out/'logs',bf16=torch.cuda.is_bf16_supported())
         trainer=masked_trainer(AnswerTrainer,model,settings,encoded,tok,collate,[Guard()])
+        train_started=time.monotonic()
         result=trainer.train();torch.cuda.synchronize();watch.check()
+        train_duration=time.monotonic()-train_started
+        measured=telemetry.report()
         after=adapter_fingerprint(model)
         grad=[float(x['grad_norm']) for x in trainer.state.log_history if isinstance(x.get('grad_norm'),(int,float))]
         if result.global_step!=1 or before==after or not math.isfinite(result.training_loss) or not grad or not math.isfinite(grad[-1]) or grad[-1]<=0:raise RuntimeError('no finite effective optimizer update')
         model.save_pretrained(str(out/'adapter'),safe_serialization=True);tok.save_pretrained(str(out/'adapter'))
         watch.check()
         report={'status':'smoke_adapter_saved_unevaluated','optimizer_steps':1,'train_loss':float(result.training_loss),'grad_norm':grad[-1],'adapter_before':before,'adapter_after':after,'peak_sampled_mib':watch.peak,'peak_reserved_mib':torch.cuda.max_memory_reserved()//2**20,'train_sha256':manifest['train_sha256'],'checkpoint_manifest_sha256':args.checkpoint_sha,'preload_free_mib':free,'trainable_parameters':count,'promoted':False,'rollback_required':True}
+        report.update(measured);report['training_duration_s']=train_duration
         with (out/'smoke.json').open('x',encoding='utf8') as f:f.write(canonical(report)+'\n')
     finally:
         watch.stop.set();thread.join(7)

@@ -28,3 +28,17 @@ service configuration. No private data is included.
 
 Run only synthetic CPU tests:
 `python -m unittest discover -s tests -p test_neral_v44_rft_quality.py -v`
+
+## One-step telemetry and local acceptance
+
+The smoke report records the first pre-update microbatch mean supervised-token
+cross-entropy as `start_loss` (not a whole-corpus baseline), synchronized wall
+clock step duration, 10 accumulation microbatches, total trainer runtime and
+existing sampled/allocator peaks. It requires one effective optimizer update.
+No additional forward pass or extra optimization step is introduced.
+
+The earlier protected preflight produces a legacy v1 catalog. Do not relabel
+that catalog v2. Local acceptance of the new commit, actual protected artifact
+and owner backup verification, independent holdout review and the existing
+GPU/owner gates remain mandatory. The approval tied to the original RFT
+commit is not automatically an approval for a changed commit.
