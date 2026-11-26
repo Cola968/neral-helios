@@ -115,6 +115,56 @@ class OfficialNewsTests(unittest.TestCase):
         ])
         self.assertTrue(all(row["date_origin"] == "official_index" for row in rows))
 
+    def test_official_html_diagnostics_distinguish_link_date_freshness_and_topic(self):
+        now = datetime.now(timezone.utc)
+        fresh = (now - timedelta(days=1)).date().isoformat()
+        old = (now - timedelta(days=20)).date().isoformat()
+        host = "https://press.example.org"
+        index = host + "/releases/index.html"
+        title = "Munich Airport confirms new flight schedule"
+        off_topic = "Municipal library opens new study area"
+        headline = {
+            "url": "https://news.google.com/rss/articles/opaque-fixture",
+            "title": title, "published_at": (now - timedelta(days=1)).isoformat(),
+        }
+        markup = (
+            f'<a href="https://foreign.example.org/{fresh}-airport">{title}</a>'
+            f'<a href="/assets/{fresh}-notice.pdf">{title}</a>'
+            f'<a href="/news/{fresh}-query?id=1">{title}</a>'
+            '<a href="/releases/undated">Munich Airport modernizes terminal</a>'
+            f'<a href="/releases/{old}-schedule">Munich Airport publishes old schedule</a>'
+            f'<a href="/releases/{fresh}-library">{off_topic}</a>'
+        )
+        fetch = Mock(return_value={"url": index, "markup": markup})
+        engine = WebSearch()
+        query = "Was gibt es Neues am Flughafen MUC?"
+        with patch("neral_official_news.OFFICIAL_NEWS_INDEXES", {"MUC": index}), \
+                patch("neral_official_news.OFFICIAL_NEWS_FEEDS", {}), \
+                patch("neral_page_reader.fetch_and_extract", fetch), \
+                patch("neral_public_news.discover_public_news", return_value=[]), \
+                patch.object(engine, "search_bing_news", return_value=[]), \
+                patch.object(engine, "search_news", return_value=[headline]):
+            normal = search_live_sources(engine, query)
+            measured = search_live_sources(engine, query, include_diagnostics=True)
+
+        counters = measured.pop("stage_counts")
+        self.assertEqual(normal, measured)
+        self.assertEqual(measured["status"], "headlines_only")
+        self.assertEqual(measured["context"], "")
+        self.assertEqual([row["url"] for row in measured["sources"]], [headline["url"]])
+        self.assertEqual([call.args[0] for call in fetch.call_args_list], [index, index])
+        self.assertEqual({key: counters[key] for key in (
+            "official_html_bodies", "official_html_link_rows", "official_html_dated_rows",
+            "official_html_fresh_rows", "official_html_topic_rows", "official_candidates",
+            "reader_candidates",
+        )}, {
+            "official_html_bodies": 1, "official_html_link_rows": 3, "official_html_dated_rows": 2,
+            "official_html_fresh_rows": 1, "official_html_topic_rows": 0, "official_candidates": 0,
+            "reader_candidates": 0,
+        })
+        self.assertNotIn(off_topic, str(counters))
+        self.assertNotIn(host, str(counters))
+
     def test_live_reader_reaches_article_with_separately_marked_publication(self):
         now = datetime.now(timezone.utc)
         published = (now - timedelta(days=1)).replace(microsecond=0).isoformat()
@@ -154,7 +204,10 @@ class OfficialNewsTests(unittest.TestCase):
         self.assertIn(f"Veröffentlichung laut offizieller Übersicht: {published}", result["context"])
         self.assertEqual(result["sources"][0]["date_origin"], "official_index")
         self.assertNotIn("Feed-Veröffentlichung", result["context"])
-        self.assertEqual(result["stage_counts"]["official_candidates"], 1)
+        self.assertEqual([result["stage_counts"][key] for key in (
+            "official_html_link_rows", "official_html_dated_rows",
+            "official_html_fresh_rows", "official_html_topic_rows", "official_candidates",
+        )], [1, 1, 1, 1, 1])
         self.assertEqual([call.args[0] for call in fetch.call_args_list], [index, candidate])
 
     def test_transport_failure_in_optional_provider_cannot_discard_official_article(self):

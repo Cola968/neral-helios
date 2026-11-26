@@ -1571,6 +1571,27 @@ class WebSearch:
                     provider="Bing RSS alternative query"
             except WebSearchError:
                 pass
+        transient_weather = strict_topic and any("forecast" in g for g in live_topic_requirements(query))
+        if not results and transient_weather and variants[1:] and not ddg_problem:
+            # The primary DDG request was usable but yielded no on-topic
+            # hit. Give the same bounded alternate as Bing one chance there
+            # too, without recontacting an upstream that just failed or
+            # relaxing the original location/topic checks.
+            alternate = variants[1]
+            alternate_provider = "DuckDuckGo HTML alternative query"
+            contacted.append(alternate_provider)
+            if on_provider is not None:
+                on_provider(alternate_provider)
+            try:
+                markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(alternate),
+                                      "text/html", "text/html")
+                results = relevant(parse_search_results(markup))
+                if results:
+                    provider = alternate_provider
+            except (HTTPError, URLError, TimeoutError, OSError, HTTPException, WebSearchError) as exc:
+                if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
+                    self._record("unavailable", "response_too_large", alternate_provider)
+                    raise
         if not results and is_fresh_news_query(cleaned):
             contacted.append("Google News RSS")
             try:
@@ -1579,7 +1600,6 @@ class WebSearch:
                     provider="Google News RSS"
             except WebSearchError:
                 results=[]
-        transient_weather=strict_topic and any("forecast" in g for g in live_topic_requirements(query))
         if not results and not transient_weather and not (airport_focus and is_fresh_news_query(cleaned)):
             contacted.append("Wikipedia DE")
             try:

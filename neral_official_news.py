@@ -169,8 +169,12 @@ def _first_date(text):
     return None
 
 
-def parse_official_news_index(markup, base_url, *, now=None, query=None):
-    """Keep at most ten recent same-host candidates, with topic filtering first."""
+def parse_official_news_index(markup, base_url, *, now=None, query=None, stage_counter=None):
+    """Keep at most ten recent same-host candidates, with topic filtering first.
+
+    Optional row counts describe parser boundaries before deduplication and
+    caps; they are not counts of confirmed articles or transport errors.
+    """
     if not isinstance(markup,str) or len(markup)>800000 or not safe_result_url(base_url):
         return []
     parser = _Anchors()
@@ -192,6 +196,8 @@ def parse_official_news_index(markup, base_url, *, now=None, query=None):
             continue
         if re.search(r"(?i)\.(?:pdf|png|jpg|zip|jpeg|svg)$",p.path):
             continue
+        if stage_counter is not None:
+            stage_counter("official_html_link_rows")
         match=re.search(r"(?<!\d)(20\d{2})-(\d{2})-(\d{2})(?!\d)",p.path)
         path_date=_date_parts(*match.groups()) if match else None
         visible=_first_date(text[:400])
@@ -205,13 +211,21 @@ def parse_official_news_index(markup, base_url, *, now=None, query=None):
                 continue
         else:
             stamp=path_date or visible
-        if not stamp or not recent_publication(stamp.isoformat(),now=now):
+        if not stamp:
             continue
+        if stage_counter is not None:
+            stage_counter("official_html_dated_rows")
+        if not recent_publication(stamp.isoformat(),now=now):
+            continue
+        if stage_counter is not None:
+            stage_counter("official_html_fresh_rows")
         row={"url":url,"title":text[:180],"snippet":text[:350],"published_at":stamp.isoformat(),"date_origin":"official_index"}
         # Out-of-topic releases must not consume the publisher's ten slots.
         # Check individually because the shared relevance filter also caps its input.
         if query is not None and not live_topic_hits([row], query):
             continue
+        if stage_counter is not None:
+            stage_counter("official_html_topic_rows")
         if url not in rows or len(row["title"])>len(rows[url]["title"]):
             rows[url]=row
     return sorted(rows.values(),key=lambda row:(row["published_at"],row["url"]),reverse=True)[:10]
@@ -298,7 +312,8 @@ def discover_official_news(query, *, fetch=None, now=None, stage_counter=None):
         if atom:
             candidates = parse_official_atom(markup, page["url"], query, now=now)
         else:
-            candidates = parse_official_news_index(markup, page["url"], now=now, query=query)
+            candidates = parse_official_news_index(markup, page["url"], now=now, query=query,
+                                                   stage_counter=stage_counter)
         unique = []
         for row in candidates:
             # Keep the first configured index's provenance for shared URLs.

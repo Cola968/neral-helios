@@ -29,11 +29,14 @@ class LiveProbeTests(unittest.TestCase):
                      None if benchmark else question)
         lookup = Mock(return_value={"status": "headlines_only", "sources": [],
                                     "stage_counts": {"reader_candidates": 2,
+                                                     "official_html_dated_rows": 2,
+                                                     "official_html_topic_rows": 0,
                                                      "reader_read_bodies": False,
                                                      "rejected_relevance": -1,
                                                      "private-provider": "private-url-sentinel"}})
         row = evaluate_case("test", "public question", route, lookup)
-        self.assertEqual(row["stage_counts"], {"reader_candidates": 2})
+        self.assertEqual(row["stage_counts"], {"reader_candidates": 2, "official_html_dated_rows": 2,
+                                               "official_html_topic_rows": 0})
         self.assertFalse(row["passed"])
 
     def test_failure_stage_reports_last_observed_boundary_not_a_cause(self):

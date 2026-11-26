@@ -102,6 +102,8 @@ LIVE_STAGE_COUNT_KEYS = (
     "display_only_headlines",
     "official_html_attempts", "official_html_bodies", "official_atom_attempts",
     "official_atom_bodies", "official_candidates",
+    "official_html_link_rows", "official_html_dated_rows",
+    "official_html_fresh_rows", "official_html_topic_rows",
     "official_fetch_address", "official_fetch_timeout", "official_fetch_http",
     "official_fetch_network", "official_fetch_policy_body",
 )
