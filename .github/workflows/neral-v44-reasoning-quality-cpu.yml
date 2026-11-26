@@ -1,0 +1,32 @@
+name: NERAL V4.4 reasoning quality CPU-only
+on:
+  push:
+    branches: [feat/v44-reasoning-quality-20261126]
+    paths:
+      - scripts/neral_v44_rft_quality.py
+      - tests/test_neral_v44_rft_quality.py
+      - .github/workflows/neral-v44-reasoning-quality-cpu.yml
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install sympy z3-solver pytest hypothesis
+      - run: python -m unittest discover -s tests -p test_neral_v44_rft_quality.py -v
+      - run: |
+          python -m unittest discover -s tests -p 'test_neral_v43_rft*.py' -v
+          python -m unittest discover -s tests -p test_neral_v43_math_cpu.py -v
+          python -m unittest discover -s tests -p test_neral_v43_codex_cpu.py -v
