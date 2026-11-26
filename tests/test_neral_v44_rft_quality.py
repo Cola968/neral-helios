@@ -131,4 +131,82 @@ class QualityTests(unittest.TestCase):
             Path(cp).write_text('tampered',encoding='utf8')
             with self.assertRaises(ValueError):audit_pinned_quality(m,s,h,set(),verify=v)
 
+    def test_audit_rejects_skewed_family_quota_even_if_total_matches(self):
+        t,c,s,h,v=self.fixture()
+        used={x['meta']['task_hash'] for x in s}
+        new=next(task for task in t if task['family']=='sympy.arithmetic' and digest(task['prompt']) not in used)
+        pair={'id':new['id'],'draft':'correct'}
+        index={digest(task['prompt']):task for task in t}
+        i=next(i for i,row in enumerate(s) if row['meta']['kind']=='rft' and index[row['meta']['task_hash']]['family']=='sympy.quadratic_extremum' and not row['meta']['repair'])
+        s[i]=select(new,[pair],verify=v);c.append(pair)
+        with self.assertRaises(ValueError):audit_quality(s,h,t,c,verify=v)
+
+    def test_hidden_failure_can_be_repaired_with_deterministic_evidence(self):
+        task=next(t for t in catalog_v2('c'*64,30) if t['family']=='code.multiples' and t['params'][0]>60)
+        n=task['params'][0]
+        answer=f'def solve(x):\n    return max(0,x)//{n}'
+        draft=f'def solve(x):\n    if x=={2*n}:\n        return 99\n    return max(0,x)//{n}'
+        ok,evidence=verify_v2(task,draft)
+        self.assertFalse(ok)
+        self.assertIn('verdeckter Test',evidence)
+        self.assertIn(str(2*n),evidence)
+        self.assertTrue(verify_v2(task,answer)[0])
+        key=digest(repair_prompt(task,draft,evidence))
+        self.assertTrue(select(task,[dict(draft=draft,repair=answer,repair_input_sha256=key)],verify=verify_v2)['meta']['repair'])
+        self.assertEqual(verify_v2(task,'def solve(x):\n    return open("file")'),(False,''))
+
+    def test_math_feedback_does_not_state_final_answer(self):
+        for task in catalog_v2('d'*64,30):
+            if task['kind']!='sympy':continue
+            ok,evidence=verify_v2(task,str(task['gold']+1))
+            self.assertFalse(ok)
+            self.assertTrue(evidence)
+            self.assertNotIn('exaktes Ergebnis',evidence)
+            self.assertNotIn('Lösung: '+str(task['gold']),evidence)
+
+    def test_versioned_cli_build_and_load_replay_quality(self):
+        import contextlib,hashlib,io,json,sys
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from scripts import neral_v43_rft_cpu as cpu,neral_v43_rft_train as trainer
+        from scripts import neral_v44_rft_quality as quality
+        tasks,candidates,selected,holdout,verifier=self.fixture()
+        replay=[row for row in selected if row['meta']['kind']=='replay']
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+            def seal(name,items):
+                path=root/name
+                cpu.write_jsonl(path,items)
+                return path
+            def cli(*args):
+                with patch.object(sys,'argv',['rft_cpu',*map(str,args)]),contextlib.redirect_stdout(io.StringIO()):
+                    cpu.main()
+            cat=root/'catalog'
+            cli('catalog','--catalog-version','v2','--seed','a'*64,'--count',600,'--out',cat)
+            catalog_file=cat/'private_catalog.jsonl'
+            self.assertEqual(cpu.rows(catalog_file.read_bytes()),tasks)
+            prompts=cpu.rows((cat/'model_prompts.jsonl').read_bytes())
+            self.assertTrue(all(set(p)=={'id','prompt'} for p in prompts))
+            cp=seal('candidates.jsonl',candidates)
+            rp=seal('replay.jsonl',replay)
+            hp=seal('holdout.jsonl',holdout)
+            protected=root/'protected.json';protected.write_text('{}')
+            common=['--catalog-version','v2','--seed','a'*64,'--catalog',catalog_file,'--catalog-sha',sha(catalog_file),'--candidates',cp,'--candidates-sha',sha(cp),'--protected',protected,'--protected-sha',sha(protected)]
+            bundle=root/'bundle'
+            # Only model answers and protected-data source are mocked; actual builder,
+            # deterministic catalog, file hashes and bundle loader run end to end.
+            with patch.object(cpu,'protected_hashes',return_value=set()),patch.object(trainer,'protected_hashes',return_value=set()),patch.object(quality,'verify_v2',verifier):
+                cli('feedback',*common,'--out',root/'feedback.jsonl')
+                self.assertEqual(len(cpu.rows((root/'feedback.jsonl').read_bytes())),24)
+                cli('build',*common,'--replay',rp,'--replay-sha',sha(rp),'--holdout',hp,'--holdout-sha',sha(hp),'--total',200,'--out',bundle)
+                manifest=bundle/'manifest.json'
+                rows,config,receipt=trainer.load_bundle(bundle,sha(manifest),protected,sha(protected),1024)
+                self.assertEqual(len(rows),200)
+                self.assertEqual(receipt['quality_report']['repair_rows'],24)
+                self.assertEqual(config['max_gpu_total_mib'],10752)
+                cp.write_text('tampered')
+                with self.assertRaises(ValueError):trainer.load_bundle(bundle,sha(manifest),protected,sha(protected),1024)
+
 if __name__=='__main__':unittest.main()
