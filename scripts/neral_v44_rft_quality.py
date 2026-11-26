@@ -204,12 +204,105 @@ def _reviewed_family(row,source):
         raise ValueError('missing canonical family')
     return family
 
+# Conservative lexical screen. Different wording, translations, or identical
+# solution strategies with no lexical overlap still require independent review.
+def _near_tokens(prompt):
+    import unicodedata
+    if not isinstance(prompt,str) or not prompt.strip():
+        raise ValueError('missing prompt')
+    visible=re.split(r'\nNERAL_(?:MATH|TEST)_SPEC:',prompt,maxsplit=1)[0]
+    normalized=unicodedata.normalize('NFKC',visible).casefold().replace('−','-')
+    return tuple('#' if token.isdecimal() else token
+                 for token in re.findall(r'\d+|[^\W\d_]+|[+*/=<>-]',normalized))
+
+def _near_tokens_match(a,b):
+    from difflib import SequenceMatcher
+    if min(len(a),len(b))<10 or 2*min(len(a),len(b))<0.82*(len(a)+len(b)):
+        return False
+    ops=set('+*/=<>-')
+    oa=tuple(x for x in a if x in ops)
+    ob=tuple(x for x in b if x in ops)
+    if oa and ob and oa!=ob:
+        return False
+    matcher=SequenceMatcher(None,a,b,autojunk=False)
+    return matcher.quick_ratio()>=0.82 and matcher.ratio()>=0.82
+
+def near_copy(left,right):
+    return _near_tokens_match(_near_tokens(left),_near_tokens(right))
+
+def audit_split(tasks,replay,holdout,*,protected=frozenset()):
+    """Pre-generation read-only screen of a catalog and independent replay pool.
+    No candidate generation, model load, verified repair claim or GPU access.
+    """
+    from scripts.neral_v43_rft_pilot import validate_pool
+    held=holdout_hashes(holdout,protected)
+    seen=set(protected)|held
+    families=set()
+    shapes=set()
+    token_pool=set()
+    def add(prompt,family):
+        key=digest(prompt)
+        if key in seen:
+            raise ValueError('duplicate or protected source task')
+        seen.add(key)
+        families.add(family)
+        shapes.add(prompt_shape(prompt))
+        token_pool.add(_near_tokens(prompt))
+    ids=set()
+    for task in tasks:
+        if task['id'] in ids or task.get('family') not in FAMILIES.get(task.get('kind'),()):
+            raise ValueError('invalid catalog identity')
+        ids.add(task['id'])
+        add(task['prompt'],task['family'])
+    validate_pool(replay)
+    for row in replay:
+        meta=row['meta']
+        if meta['kind']!='replay':
+            raise ValueError('expected independently reviewed replay')
+        add(row['instruction'],_reviewed_family(meta,'independent_replay'))
+    for row in holdout:
+        if _reviewed_family(row,'independent_holdout') in families:
+            raise ValueError('training and holdout family overlap')
+        if prompt_shape(row['prompt']) in shapes:
+            raise ValueError('parameterized prompt overlap')
+        tokens=_near_tokens(row['prompt'])
+        if any(_near_tokens_match(tokens,other) for other in token_pool):
+            raise ValueError('possible near-copy across training and holdout')
+    return {'catalog_rows':len(tasks),'replay_rows':len(replay),'holdout_rows':len(holdout),
+            'family_review_required':True,'lexical_screen':'nfkc_token_sequence_082',
+            'semantic_independence_proven':False,'repairs_verified':False}
+
+def split_main():
+    import argparse,json
+    from pathlib import Path
+    from scripts.neral_v43_rft_cpu import read_pinned,rows,protected_hashes
+    p=argparse.ArgumentParser(description='CPU-only pre-generation split screening')
+    p.add_argument('--seed',required=True)
+    for key in ('catalog','replay','holdout','protected'):
+        p.add_argument('--'+key,type=Path,required=True)
+        p.add_argument('--'+key+'-sha',required=True)
+    a=p.parse_args()
+    tasks=rows(read_pinned(a.catalog,a.catalog_sha))
+    if tasks!=catalog_v2(a.seed,600):
+        raise ValueError('expected independently regenerated 600-row v2 catalog')
+    replay=rows(read_pinned(a.replay,a.replay_sha))
+    held=rows(read_pinned(a.holdout,a.holdout_sha))
+    protected=protected_hashes(json.loads(read_pinned(a.protected,a.protected_sha)))
+    result=audit_split(tasks,replay,held,protected=protected)
+    for key in ('catalog','replay','holdout','protected'):
+        read_pinned(getattr(a,key),getattr(a,key+'_sha'))
+    if protected_hashes(json.loads(read_pinned(a.protected,a.protected_sha)))!=protected:
+        raise ValueError('protected data changed')
+    print(canonical(result))
+
+
 def audit_quality(train,holdout,tasks,candidates,*,verify=verify_v2,protected=frozenset()):
     """Rebuild each selected RFT row from its original candidate and verifier.
     External family labels require independent review; normalized fingerprints
     detect simple parameter substitutions but cannot prove semantic independence.
     """
     report=audit_pilot(train)
+    audit_split(tasks,[row for row in train if row['meta']['kind']=='replay'],holdout,protected=protected)
     held=holdout_hashes(holdout,protected)
     index={digest(t['prompt']):t for t in tasks}
     ids={t['id'] for t in tasks}
@@ -296,3 +389,7 @@ def audit_pinned_quality(manifest,train,holdout,protected,*,verify=None):
     if report!=manifest.get('quality_report'):
         raise ValueError('quality report mismatch')
     return report
+
+if __name__=='__main__':
+    try:split_main()
+    except Exception:raise SystemExit('V44_SPLIT_SCREEN_FAILED (private details withheld)')

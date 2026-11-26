@@ -64,3 +64,7 @@ pinned receipts with rows containing id, prompt_sha256, status, correct and
 latency_ms, plus holdout_sha256, checkpoint_sha256, conditions_sha256,
 grader_sha256 and adapter_sha256 (null for baseline). The holdout must also have
 unique case IDs, independent review and family labels.
+
+## Before generating candidates
+
+The CPU-only module `python -m scripts.neral_v44_rft_quality` now accepts pinned `--catalog`, `--replay`, `--holdout`, `--protected` files and their corresponding `--*-sha` arguments plus `--seed`. It independently reconstructs the 600-row v2 catalog and checks review labels, exact hashes, template shapes and conservative normalized token sequence similarity. It also rejects overlapping replay rows. The final V2 quality audit repeats the screen against the selected replay. This screen rejects likely near copies, not all paraphrases or equal solution strategies, and may flag legitimate similar questions for independent review. The pre-generation receipt is explicitly not repair evidence, semantic proof, owner approval or GPU readiness. No service or GPU action is performed.
