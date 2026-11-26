@@ -1,56 +1,57 @@
-name: NERAL PR558 read-only localhost listener identity diagnostics
+name: NERAL V4.4 two-port and GPU read-only inspection
 on:
-  push:
-    branches: [feat/neral-three-tier-local-live-20261117]
-    paths: ['.github/workflows/neral-three-tier-port-owner-readonly.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  port-owner-readonly:
+  status:
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 6
+    timeout-minutes: 4
     defaults:
       run:
-        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        shell: powershell
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Inspect only the loopback listener, no process stop or model load
+      - name: Inspect NERAL listeners and GPU without modifying services
         run: |
           $ErrorActionPreference='Stop'
-          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
-          $listen=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
-          $out=@{task_present=($null -ne $task);task_running=($null -ne $task -and [string]$task.State -eq 'Running');listeners=$listen.Count}
-          $uniquePids=@($listen | Select-Object -ExpandProperty OwningProcess -Unique)
-          $out['unique_owner_count']=$uniquePids.Count
-          $out['owners']=@()
-          $expectedPath=[IO.Path]::GetFullPath('D:/neral-qlora/venv/Scripts/python.exe')
-          foreach($listenPid in $uniquePids){
-            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$listenPid) -ErrorAction SilentlyContinue
-            $line=if($null -ne $proc){[string]$proc.CommandLine}else{''}
-            $entry=@{
-              is_python=($null -ne $proc -and [string]$proc.Name -match '(?i)^pythonw?\.exe$')
-              has_three_tier=($line -match '(?i)--experimental-three-tier-hf')
-              has_preview=($line -match '(?i)-m\s+neral_preview_server')
-              has_helios=($line -match '(?i)--helios-v2-full')
-              exact_python_exe=($null -ne $proc -and [string]::Equals([IO.Path]::GetFullPath([string]$proc.ExecutablePath),$expectedPath,[StringComparison]::OrdinalIgnoreCase))
-            }
-            if($null -ne $proc){
-              $parent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$proc.ParentProcessId) -ErrorAction SilentlyContinue
-              $entry['parent_name']=if($null -ne $parent){[string]$parent.Name}else{'not_running'}
-              $entry['parent_has_server_flags']=($null -ne $parent -and [string]$parent.CommandLine -match '(?i)--experimental-three-tier-hf')
-              if($null -ne $parent -and [int]$parent.ParentProcessId -gt 0){
-                $grandparent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$parent.ParentProcessId) -ErrorAction SilentlyContinue
-                $entry['grandparent_name']=if($null -ne $grandparent){[string]$grandparent.Name}else{'not_running'}
-                $entry['grandparent_managed_script']=($null -ne $grandparent -and [string]$grandparent.CommandLine -like '*Start-Neral-Three-Tier-Service.ps1*')
+          if($env:RUNNER_NAME -cne 'W39-GAMINGPC-Neral'){throw 'WRONG_RUNNER'}
+          $gpu=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,memory.used --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0){throw 'GPU_QUERY_FAILED'}
+          Write-Host ('V44_GPU '+($gpu -join '; '))
+          $compute=@(& nvidia-smi.exe --query-compute-apps=pid,used_gpu_memory --format=csv,noheader,nounits)
+          if($LASTEXITCODE -eq 0){
+            foreach($row in $compute){
+              if($row -match '^\s*(\d+)\s*,\s*(\d+|\[N/A\]|N/A)\s*$'){
+                $id=[int]$Matches[1];$mem=$Matches[2]
+                $p=Get-Process -Id $id -ErrorAction SilentlyContinue
+                $name=if($p -and $p.ProcessName -match '^[A-Za-z0-9_.-]{1,100}$'){$p.ProcessName}else{'unknown'}
+                Write-Host ('V44_GPU_PROCESS '+(@{pid=$id;name=$name;used_mib=$mem}|ConvertTo-Json -Compress))
               }
-              $entry['executable_same_binary_as_venv']=((Test-Path -LiteralPath ([string]$proc.ExecutablePath) -PathType Leaf) -and
-                ((Get-FileHash -LiteralPath $proc.ExecutablePath -Algorithm SHA256).Hash -eq
-                 (Get-FileHash -LiteralPath $expectedPath -Algorithm SHA256).Hash))
             }
-            $out['owners']+=,$entry
           }
-          Write-Host ('NERAL_PR558_PORT_OWNER_SAFE_FLAGS '+($out|ConvertTo-Json -Compress -Depth 5))
-          Write-Host 'NERAL_PR558_READONLY_NO_PROCESS_TOUCHED'
+          foreach($port in @(9690,9692)){
+            $listeners=@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+            $owners=@()
+            foreach($id in @($listeners|Select-Object -ExpandProperty OwningProcess -Unique)){
+              $p=Get-Process -Id $id -ErrorAction SilentlyContinue
+              $proc=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$id) -ErrorAction SilentlyContinue
+              $line=if($proc){[string]$proc.CommandLine}else{''}
+              $owners+=@{pid=$id;name=if($p -and $p.ProcessName -match '^[A-Za-z0-9_.-]{1,100}$'){$p.ProcessName}else{'unknown'};preview=($line -match 'neral_preview_server|neral_v43_verified_start');v43_flag=($line -match 'v43')}
+            }
+            $http=0;$v43=$null;$web=$null
+            try{
+              $base='http://127.0.0.1:'+$port
+              $resp=Invoke-WebRequest -Uri ($base+'/health') -UseBasicParsing -TimeoutSec 5
+              $http=[int]$resp.StatusCode
+              $h=$resp.Content|ConvertFrom-Json
+              $web=$h.web_search.live_enabled
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              Invoke-WebRequest ($base+'/') -UseBasicParsing -WebSession $session -TimeoutSec 5|Out-Null
+              $profile=Invoke-RestMethod ($base+'/api/neral/chat/three-tier/status') -WebSession $session -TimeoutSec 5
+              $v43=$profile.v43_profile;$web=$profile.web_search.live_enabled
+            }catch{}
+            Write-Host ('V44_PORT '+(@{port=$port;http=$http;v43=$v43;live_web=$web;owners=$owners;listeners=$listeners.Count}|ConvertTo-Json -Compress -Depth 5))
+          }
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          Write-Host ('V44_ORIGINAL_TASK '+(@{exists=($null -ne $task);state=if($task){[string]$task.State}else{'missing'}}|ConvertTo-Json -Compress))
+          Write-Host 'READ_ONLY_NO_SERVICE_PROCESS_TASK_CHANGES'
