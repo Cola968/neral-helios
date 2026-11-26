@@ -123,7 +123,7 @@ class QualityTests(unittest.TestCase):
             root=Path(tmp)
             def seal(name,rows):
                 p=root/name
-                p.write_text(''.join(json.dumps(x)+'\\n' for x in rows),encoding='utf8')
+                p.write_text(''.join(json.dumps(x)+'\n' for x in rows),encoding='utf8')
                 return str(p),hashlib.sha256(p.read_bytes()).hexdigest()
             tp,ts=seal('catalog.jsonl',t);cp,cs=seal('candidates.jsonl',c)
             m=dict(catalog_version='v2',catalog_seed='a'*64,quality_catalog_path=tp,catalog_sha256=ts,quality_candidates_path=cp,candidates_sha256=cs,quality_report=audit_quality(s,h,t,c,verify=v))
