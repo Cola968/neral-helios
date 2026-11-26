@@ -42,3 +42,25 @@ that catalog v2. Local acceptance of the new commit, actual protected artifact
 and owner backup verification, independent holdout review and the existing
 GPU/owner gates remain mandatory. The approval tied to the original RFT
 commit is not automatically an approval for a changed commit.
+
+## Paired development evaluation (offline)
+
+`scripts/neral_v44_paired_eval.py` aggregates already graded 60-case baseline
+and adapter receipts. Both receipts must identify the same pinned holdout,
+checkpoint, grading rubric and inference conditions; the baseline must have
+no adapter and the candidate must identify its adapter. Every case must be
+present exactly once, with the correct normalized prompt hash. Timeouts and
+unsupported answers count as incorrect rather than being excluded.
+
+The report records exact paired gains/regressions, category deltas, latency,
+status counts and an exact two-sided McNemar p-value. This is a development
+holdout check, not a replacement for the sealed benchmark or proof of general
+intelligence. Grader correctness and review provenance are external claims;
+this tool cannot verify those claims merely from hashes. No promotion or GPU
+execution is authorized. No actual model answers are created by these tests.
+
+The grading receipts contain no reference answers; supply private, independently
+pinned receipts with rows containing id, prompt_sha256, status, correct and
+latency_ms, plus holdout_sha256, checkpoint_sha256, conditions_sha256,
+grader_sha256 and adapter_sha256 (null for baseline). The holdout must also have
+unique case IDs, independent review and family labels.
