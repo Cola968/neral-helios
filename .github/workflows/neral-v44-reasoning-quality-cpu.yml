@@ -4,6 +4,8 @@ on:
     branches: [feat/v44-reasoning-quality-20261126]
     paths:
       - scripts/neral_v44_rft_quality.py
+      - scripts/neral_v43_rft_train.py
+      - tests/test_neral_v43_rft_diagnose_train.py
       - tests/test_neral_v44_rft_quality.py
       - .github/workflows/neral-v44-reasoning-quality-cpu.yml
 permissions:
